@@ -50,8 +50,10 @@ services:
     volumes:
       - ./:/app
       - webnode:/app/node_modules
+    # 3001 in the container too: apps/web's dev script pins that port so `pnpm
+    # dev` on a single host does not collide with the api on 3000.
     ports:
-      - "3001:3000"
+      - "3001:3001"
     depends_on:
       - api
 

@@ -1,4 +1,4 @@
-import { dedupeKeyFor, type Finding, type ReconcileRule } from "./types.ts";
+import { type Finding, type ReconcileRule, dedupeKeyFor } from "./types.ts";
 
 /**
  * PAYMENT_NOT_SWEPT (LR-3, High): a payment settled on NEAR and nothing was

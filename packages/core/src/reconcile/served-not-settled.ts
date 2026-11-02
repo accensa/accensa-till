@@ -1,4 +1,4 @@
-import { dedupeKeyFor, type Finding, type ReconcileRule } from "./types.ts";
+import { type Finding, type ReconcileRule, dedupeKeyFor } from "./types.ts";
 
 /**
  * GW-3 / LR-3: the upstream returned 2xx and the response went out, but

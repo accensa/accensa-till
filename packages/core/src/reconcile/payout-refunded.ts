@@ -1,5 +1,5 @@
 import { formatAmount } from "../money.ts";
-import { dedupeKeyFor, type Finding, type ReconcileRule } from "./types.ts";
+import { type Finding, type ReconcileRule, dedupeKeyFor } from "./types.ts";
 
 /**
  * PAYOUT_REFUNDED (LR-3, High): the swap to the destination chain was refunded,

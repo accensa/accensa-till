@@ -1,4 +1,4 @@
-import { dedupeKeyFor, type Finding, type ReconcileRule } from "./types.ts";
+import { type Finding, type ReconcileRule, dedupeKeyFor } from "./types.ts";
 
 /**
  * PAYOUT_FAILED (LR-3, High): the swap reached a terminal failed state. Unlike

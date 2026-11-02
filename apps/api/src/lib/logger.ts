@@ -22,6 +22,11 @@ const REDACTED_KEYS = [
 
 const REDACTION = "[redacted]";
 
+function isRedactedKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "_");
+  return REDACTED_KEYS.some((needle) => normalized.includes(needle));
+}
+
 function redact(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(redact);
@@ -31,10 +36,16 @@ function redact(value: unknown): unknown {
   }
   const output: Record<string, unknown> = {};
   for (const [key, inner] of Object.entries(value)) {
-    const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, "_");
-    output[key] = REDACTED_KEYS.some((needle) => normalized.includes(needle))
-      ? REDACTION
-      : redact(inner);
+    output[key] = isRedactedKey(key) ? REDACTION : redact(inner);
+  }
+  return output;
+}
+
+/** Typed entry point: the top level is always a field map, so `emit` can spread it. */
+function redactFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(fields)) {
+    output[key] = isRedactedKey(key) ? REDACTION : redact(value);
   }
   return output;
 }
@@ -47,7 +58,7 @@ export type Logger = {
 };
 
 function emit(level: "info" | "warn" | "error", fields: Record<string, unknown>, message?: string) {
-  const line = { level, time: new Date().toISOString(), message, ...redact(fields) };
+  const line = { level, time: new Date().toISOString(), message, ...redactFields(fields) };
   process.stdout.write(`${JSON.stringify(line)}\n`);
 }
 

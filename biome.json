@@ -26,10 +26,7 @@
   },
   "overrides": [
     {
-      "paths": [
-        "apps/web/app",
-        "apps/web/next.config.ts"
-      ],
+      "include": ["apps/web/app/**/*.tsx", "**/*.config.ts"],
       "linter": {
         "rules": {
           "style": {

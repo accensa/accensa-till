@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import type { Hono } from "hono";
 
 /**
  * GET /r/:slug — the public gateway (C4, GW-1/GW-2).

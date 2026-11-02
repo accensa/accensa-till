@@ -1,5 +1,5 @@
 import { isShortfall } from "../money.ts";
-import { dedupeKeyFor, type Finding, type ReconcileRule } from "./types.ts";
+import { type Finding, type ReconcileRule, dedupeKeyFor } from "./types.ts";
 
 /**
  * PAYOUT_SHORTFALL (LR-6, P1, High): the swap landed but delivered materially

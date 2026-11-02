@@ -30,8 +30,7 @@ type Task = {
   phase: string;
 };
 
-const TASK_LINE =
-  /^- \[( |x|~|!|-)\] \*\*([A-Z]+-?\d+|\w+)\*\* \[(P0|P1)\] .*?Est: ([0-9.]+)h/;
+const TASK_LINE = /^- \[( |x|~|!|-)\] \*\*([A-Z]+-?\d+|\w+)\*\* \[(P0|P1)\] .*?Est: ([0-9.]+)h/;
 const PHASE_LINE = /^### Phase ([A-Z]):/;
 
 export function parseTasks(lines: readonly string[]): Task[] {
@@ -124,6 +123,6 @@ function main(): void {
   console.log(`${ROADMAP} progress block regenerated`);
 }
 
-if (process.argv[1] !== undefined && process.argv[1].endsWith("roadmap-progress.ts")) {
+if (process.argv[1]?.endsWith("roadmap-progress.ts")) {
   main();
 }

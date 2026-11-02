@@ -1,12 +1,12 @@
-import type { Finding, ReconcileRule, ReconcileSnapshot } from "./types.ts";
-import { servedNotSettled } from "./served-not-settled.ts";
-import { payoutRefunded } from "./payout-refunded.ts";
-import { payoutFailed } from "./payout-failed.ts";
-import { payoutStuck } from "./payout-stuck.ts";
-import { paymentNotSwept } from "./payment-not-swept.ts";
-import { payoutShortfall } from "./payout-shortfall.ts";
 import { incompleteDeposit } from "./incomplete-deposit.ts";
 import { orphanDeposit } from "./orphan-deposit.ts";
+import { paymentNotSwept } from "./payment-not-swept.ts";
+import { payoutFailed } from "./payout-failed.ts";
+import { payoutRefunded } from "./payout-refunded.ts";
+import { payoutShortfall } from "./payout-shortfall.ts";
+import { payoutStuck } from "./payout-stuck.ts";
+import { servedNotSettled } from "./served-not-settled.ts";
+import type { Finding, ReconcileRule, ReconcileSnapshot } from "./types.ts";
 
 /** Registration point for rules (PROJECT_STRUCTURE.md "Where does new code go"). */
 export const RULES: readonly ReconcileRule[] = [

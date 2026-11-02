@@ -1,7 +1,6 @@
 import type { BaseUnitAmount } from "@till/core";
 import type { Db } from "../db/client.ts";
 import { ledgerEntries } from "../db/schema.ts";
-import type { Logger } from "../lib/logger.ts";
 
 /**
  * The only module allowed to insert into `ledger_entries` (AGENTS.md hard rule
@@ -69,17 +68,4 @@ export function recordAdjustment(db: Db, entry: LedgerWrite, note: string): Prom
  */
 export function inTransitAmount(_db: Db, _sellerId: string): Promise<BaseUnitAmount> {
   throw new Error("not implemented (E4)");
-}
-
-/** Guard used by tests: prove the trigger rejects a rewrite attempt. */
-export async function assertLedgerIsAppendOnly(db: Db, log: Logger): Promise<void> {
-  const [first] = await db.select({ id: ledgerEntries.id }).limit(1);
-  if (first === undefined) {
-    log.warn({}, "append-only check skipped: ledger is empty");
-    return;
-  }
-  // A7's integration test performs the UPDATE here and expects it to raise.
-  // Left unimplemented in the scaffold because a try/catch that swallows the
-  // error would make the check worthless.
-  throw new Error("not implemented (A7): run UPDATE ledger_entries and expect it to raise");
 }

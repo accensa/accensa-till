@@ -1,4 +1,13 @@
-import { type DiscrepancyDto, type EndpointDto, type HealthDto, type PaymentDto, discrepancyDtoSchema, endpointDtoSchema, healthDtoSchema, paymentDtoSchema } from "@till/core";
+import {
+  type DiscrepancyDto,
+  type EndpointDto,
+  type HealthDto,
+  type PaymentDto,
+  discrepancyDtoSchema,
+  endpointDtoSchema,
+  healthDtoSchema,
+  paymentDtoSchema,
+} from "@till/core";
 import type { z } from "zod";
 
 /**
@@ -10,7 +19,7 @@ import type { z } from "zod";
  * Paths go to /api/*, which next.config.ts rewrites onto the API process, so the
  * session cookie stays first-party.
  */
-async function get<T>(path: string, schema: z.ZodType<T>): Promise<T> {
+async function get<S extends z.ZodTypeAny>(path: string, schema: S): Promise<z.infer<S>> {
   const response = await fetch(path, {
     method: "GET",
     credentials: "same-origin",
@@ -27,7 +36,8 @@ async function get<T>(path: string, schema: z.ZodType<T>): Promise<T> {
 
 export const api = {
   health: (): Promise<HealthDto> => get("/api/health", healthDtoSchema),
-  endpoints: (): Promise<readonly EndpointDto[]> => get("/api/endpoints", endpointDtoSchema.array()),
+  endpoints: (): Promise<readonly EndpointDto[]> =>
+    get("/api/endpoints", endpointDtoSchema.array()),
   payments: (): Promise<readonly PaymentDto[]> => get("/api/payments", paymentDtoSchema.array()),
   discrepancies: (): Promise<readonly DiscrepancyDto[]> =>
     get("/api/discrepancies", discrepancyDtoSchema.array()),

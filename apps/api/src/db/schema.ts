@@ -1,6 +1,7 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
-  bytea,
+  customType,
   index,
   integer,
   jsonb,
@@ -11,7 +12,6 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
-import { sql } from "drizzle-orm";
 
 /**
  * Data model for ARCHITECTURE.md section 6 (task A7).
@@ -28,10 +28,15 @@ import { sql } from "drizzle-orm";
  */
 
 const id = () => uuid("id").primaryKey();
-const money = (name: string) =>
-  numeric(name, { precision: 78, scale: 0 });
-const createdAt = () =>
-  timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+const money = (name: string) => numeric(name, { precision: 78, scale: 0 });
+const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
+
+/** drizzle-orm 0.38 exports no `bytea` helper, so the SQL type is declared here. */
+const bytea = customType<{ data: Uint8Array }>({
+  dataType() {
+    return "bytea";
+  },
+});
 
 export const sellers = pgTable("sellers", {
   id: id(),

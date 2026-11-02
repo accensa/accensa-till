@@ -13,6 +13,13 @@ cd "$(dirname "$0")/.."
 if [ -n "${GITHUB_BASE_REF:-}" ]; then
   base="origin/$GITHUB_BASE_REF"
   git fetch --no-tags origin "$GITHUB_BASE_REF" >/dev/null 2>&1 || true
+  # With a shallow checkout the base ref may not exist here. Saying so beats
+  # `set -e` aborting on a git error, and the progress block check that ran
+  # before this script still catches a stale ROADMAP.md.
+  if ! git rev-parse --verify --quiet "$base" >/dev/null; then
+    echo "roadmap check: $base is not in this checkout (ci.yml needs fetch-depth: 0); skipped"
+    exit 0
+  fi
   changed=$(git diff --name-only "$base"...HEAD)
 else
   base=$(git rev-parse --verify origin/main 2>/dev/null || git rev-parse HEAD)

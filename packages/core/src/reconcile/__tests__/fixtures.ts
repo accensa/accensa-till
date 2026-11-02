@@ -1,5 +1,5 @@
-import type { PaymentRow, ReconcileConfig, ReconcileSnapshot, SwapRow } from "../types.ts";
 import type { PaymentState, SwapState } from "../../states.ts";
+import type { PaymentRow, ReconcileConfig, ReconcileSnapshot, SwapRow } from "../types.ts";
 
 /**
  * Fixture builders for rule tests. `now` is fixed so no test reads a clock, and
@@ -39,7 +39,6 @@ export function swap(overrides: Partial<SwapRow> & { id: string }): SwapRow {
     amountOut: 1_000_000n,
     refundedAmount: null,
     originTxHash: null,
-    destinationTxHash: "dest-1",
     lastPolledAt: minutesAgo(1),
     terminalAt: minutesAgo(2),
     ...overrides,

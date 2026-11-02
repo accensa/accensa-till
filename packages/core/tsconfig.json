@@ -3,7 +3,7 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true,
     "rootDir": ".",
-    "types": ["node"]
+    "types": []
   },
   "include": ["src", "vitest.config.ts"]
 }

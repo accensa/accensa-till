@@ -6,6 +6,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,7 +33,11 @@ jobs:
       PAYOUT_PROVIDER: mock
       NEAR_NETWORK: near:testnet
     steps:
+      # fetch-depth: 0 so scripts/check-roadmap.sh can diff against
+      # origin/$GITHUB_BASE_REF; the default shallow checkout has no base ref.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # No `version:` input: action-setup v4 fails with "Multiple versions of pnpm
       # specified" when both it and package.json `packageManager` set a version.
@@ -66,7 +71,15 @@ jobs:
 
   # DQ-1. Kept separate so a failing unit test does not hide a broken demo, and
   # because the demo is the thing a judge actually runs.
+  #
+  # Manual dispatch only until D2 lands: `pnpm seed` and `pnpm demo` are stubs
+  # that throw `not implemented`, so this job would be red on every PR for a
+  # feature that does not exist yet, and a permanently red check teaches people
+  # to ignore CI. D2's Done-when puts `push` and `pull_request` back here by
+  # deleting the `if:` line. It never runs on a schedule: AGENTS.md forbids
+  # sending a mainnet transaction from automation.
   demo:
+    if: github.event_name == 'workflow_dispatch'
     needs: checks
     runs-on: ubuntu-latest
     services:

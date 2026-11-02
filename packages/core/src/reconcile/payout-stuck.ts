@@ -1,5 +1,5 @@
 import { isTerminalSwapState } from "../states.ts";
-import { dedupeKeyFor, type Finding, type ReconcileRule } from "./types.ts";
+import { type Finding, type ReconcileRule, dedupeKeyFor } from "./types.ts";
 
 /**
  * PAYOUT_STUCK (LR-3, Medium): a swap is still pending or processing, or the

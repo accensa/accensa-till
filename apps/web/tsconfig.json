@@ -7,8 +7,14 @@
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "incremental": true,
-    "plugins": [{ "name": "next" }]
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "allowJs": true,
+    "esModuleInterop": true
   },
-  "include": ["app", "components", "lib", "next.config.ts"],
+  "include": ["app", "components", "lib", "next.config.ts", ".next/types/**/*.ts"],
   "exclude": ["node_modules", ".next"]
 }
