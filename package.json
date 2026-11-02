@@ -1,0 +1,32 @@
+{
+  "name": "till",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Seller-side back-office for x402 payments on NEAR (working name)",
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "db:generate": "pnpm --filter @till/api db:generate",
+    "db:migrate": "pnpm --filter @till/api db:migrate",
+    "seed": "tsx scripts/seed.ts",
+    "demo": "tsx scripts/demo.ts",
+    "test": "pnpm -r test",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "typecheck": "pnpm -r typecheck",
+    "boundaries": "sh scripts/check-boundaries.sh",
+    "roadmap": "tsx scripts/roadmap-progress.ts",
+    "roadmap:check": "tsx scripts/roadmap-progress.ts --check && sh scripts/check-roadmap.sh"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

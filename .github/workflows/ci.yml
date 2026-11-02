@@ -1,0 +1,104 @@
+# A8 / A9: the checks AGENTS.md calls the definition of done. Each step is a
+# root script, so CI and a local run mean the same thing.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: till
+          POSTGRES_PASSWORD: till
+          POSTGRES_DB: till
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U till -d till"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://till:till@localhost:5432/till
+      SESSION_SECRET: ci-only-session-secret-please-ignore-0000000000
+      GATEWAY_PUBLIC_URL: http://localhost:3000
+      PAYOUT_PROVIDER: mock
+      NEAR_NETWORK: near:testnet
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: migrate
+        run: pnpm db:migrate
+
+      - name: lint
+        run: pnpm lint
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: test
+        run: pnpm test
+
+      - name: boundaries
+        run: pnpm boundaries
+
+      - name: roadmap
+        run: pnpm roadmap:check
+
+  # DQ-1. Kept separate so a failing unit test does not hide a broken demo, and
+  # because the demo is the thing a judge actually runs.
+  demo:
+    needs: checks
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: till
+          POSTGRES_PASSWORD: till
+          POSTGRES_DB: till
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U till -d till"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://till:till@localhost:5432/till
+      SESSION_SECRET: ci-only-session-secret-please-ignore-0000000000
+      GATEWAY_PUBLIC_URL: http://localhost:3000
+      PAYOUT_PROVIDER: mock
+      NEAR_NETWORK: near:testnet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm db:migrate
+      - run: pnpm seed
+      # Must exit non-zero on any failed assertion (DQ-1). Mock payouts only:
+      # CI never holds a funded key.
+      - run: pnpm demo

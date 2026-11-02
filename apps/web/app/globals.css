@@ -1,0 +1,3 @@
+/* Tailwind v4 entry point. shadcn/ui primitives land in components/ui with A5;
+   the CLI writes them, so none are hand-drafted here. */
+@import "tailwindcss";

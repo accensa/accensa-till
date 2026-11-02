@@ -1,0 +1,19 @@
+node_modules/
+dist/
+build/
+.next/
+coverage/
+.turbo/
+*.tsbuildinfo
+
+# Never commit real configuration or keys. See AGENTS.md "Money and secrets safety".
+.env
+.env.*
+!.env.example
+*.key
+
+# Spike scratch output
+scripts/spikes/out/
+
+.DS_Store
+*.log
