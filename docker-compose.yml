@@ -1,0 +1,63 @@
+# DQ-1: a fresh clone runs `docker compose up` with no keys. The values below are
+# development-only defaults, chosen to be useless anywhere else. Real secrets come
+# from a local .env, which is gitignored (AGENTS.md "Money and secrets safety").
+name: till
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: till
+      POSTGRES_PASSWORD: till
+      POSTGRES_DB: till
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U till -d till"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install && pnpm db:migrate && pnpm --filter @till/api dev"
+    environment:
+      DATABASE_URL: postgres://till:till@postgres:5432/till
+      # A3 note: these two defaults must satisfy apps/api/src/env.ts, which
+      # rejects a SESSION_SECRET shorter than 32 characters.
+      SESSION_SECRET: dev-only-session-secret-change-me-0000000000
+      GATEWAY_PUBLIC_URL: http://localhost:3000
+      PAYOUT_PROVIDER: mock
+      NEAR_NETWORK: near:testnet
+    volumes:
+      - ./:/app
+      - apinode:/app/node_modules
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: node:22-alpine
+    working_dir: /app
+    command: sh -c "corepack enable && pnpm install && pnpm --filter @till/web dev"
+    environment:
+      API_ORIGIN: http://api:3000
+    volumes:
+      - ./:/app
+      - webnode:/app/node_modules
+    # 3001 in the container too: apps/web's dev script pins that port so `pnpm
+    # dev` on a single host does not collide with the api on 3000.
+    ports:
+      - "3001:3001"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  apinode:
+  webnode:
