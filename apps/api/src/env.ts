@@ -47,7 +47,10 @@ export const envSchema = z.object({
   RELAYER_SECRET_KEY: z.string().min(1).optional(),
 
   PAYOUT_PROVIDER: z.enum(["mock", "oneclick"]).default("mock"),
-  ONECLICK_BASE_URL: z.string().url().default("https://api.1inch.io"),
+  // S5 (docs/spikes/S5.md): the OpenAPI `servers.url` of the 1Click Swap API.
+  // Unreachable from this host (HTTP 521), so S4 re-confirms it before D3.
+  ONECLICK_BASE_URL: z.string().url().default("https://1click.chaindefuser.com"),
+  /** Optional: Q-006 says no key is required, and the fee is higher without one. */
   ONECLICK_JWT: z.string().min(1).optional(),
 
   SESSION_SECRET: z.string().min(32),
@@ -55,7 +58,12 @@ export const envSchema = z.object({
 
   UPSTREAM_TIMEOUT_MS: positiveInt(15_000),
   AUTHORIZATION_EXPIRY_MARGIN_MS: positiveInt(30_000),
-  MAX_SPONSORED_GAS: baseUnits("10000000"),
+  /**
+   * Units are NEAR gas, not yoctoNEAR: the facilitator rejects a payment when the
+   * delegate's `ft_transfer` gas exceeds it. That call asks for 3e13 gas, so a
+   * smaller cap silently refuses every settlement, not just expensive ones.
+   */
+  MAX_SPONSORED_GAS: baseUnits("30000000000000"),
   /** Set from spike S7 measurements, not guessed (PO-2). */
   MIN_PRICE_BASE_UNITS: baseUnits("10000"),
 

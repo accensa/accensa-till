@@ -42,7 +42,7 @@ One backend process, one web app, one database.
 | # | Decision | Alternatives rejected | Why |
 |---|---|---|---|
 | D1 | Hosted gateway that proxies to the seller's API, GET only in v1 | Middleware SDK; POST and streaming support | Zero seller code; GET only removes body replay, streaming and non-idempotency problems |
-| D2 | Reuse the NEAR x402 packages in process; build no protocol code | Own facilitator; standalone facilitator service | Protocol layer exists; value is the seller operations layer |
+| D2 | Reuse the NEAR x402 packages in process; build no protocol code | Own facilitator; standalone facilitator service | Protocol layer exists; value is the seller operations layer. Verified 2026-11-03 from the shipped types: `createNearFacilitator` and `createNearResourceServer` run in our process and the server takes an `InProcessFacilitator`, so "in process" is what the packages are built for, not a stretch. It does mean our own relayer account sponsors the gas (see 13) |
 | D3 | No custom smart contracts | Escrow or payments contract | NEP-141 transfers with NEP-366 delegates cover the flow |
 | D4 | Payouts behind a `PayoutProvider` interface with a mock | Direct 1Click calls everywhere | Offline demo, keyless screening, and a fallback if the API misbehaves |
 | D5 | Append-only per-asset event ledger, enforced by a database trigger | Mutable balances; lint-only enforcement | Reconciliation needs an immutable trail. It is an event log, not double-entry accounting |
@@ -63,9 +63,9 @@ One backend process, one web app, one database.
 | Language | TypeScript 5.x strict, Node 22 LTS | |
 | Monorepo | pnpm workspaces | `apps/api`, `apps/web`, `packages/core` |
 | API | Hono with `@hono/node-server` | |
-| NEAR x402 | `@fastnear/x402` (server, facilitator, node signer entry points) | Package-only; separate from the main FastNear packages |
+| NEAR x402 | `@fastnear/x402` 2.5.0 (`./server`, `./facilitator`, `./node`) over `@x402/near` 2.29.0 | Verified from npm 2026-11-03: framework-agnostic, no express, ships a self-hostable facilitator and a reference relayer signer. See 13 |
 | NEAR RPC and signing | `@fastnear/api`, `@fastnear/wallet` | Wallet sign-in via signed message |
-| Payouts | NEAR Intents 1Click Swap REST API | Base URL `https://1click.chaindefuser.com` **[VERIFY]** |
+| Payouts | NEAR Intents 1Click Swap REST API | Base URL `https://1click.chaindefuser.com`, paths under `/v0` (S5: the OpenAPI `servers.url`). Still **[VERIFY]**: the host answers `521` to this machine, so no call has been made from here |
 | Database | PostgreSQL 16 | `NULLS NOT DISTINCT` available (15+) |
 | ORM | Drizzle with the `postgres` driver | SQL migrations committed |
 | Sessions | Signed cookie via `jose` | No sessions table |
@@ -365,7 +365,7 @@ Relayer balance and last successful poll time shown in the dashboard header. No 
 | S2 | Is a standing deposit address available, and do deposit listings include the origin transaction hash? | Two payments to one address, both listed with hashes | Per-payment address; if hashes are missing there too, match through the deposit-submit call |
 | S3 | Partner API key lead time, and what quotes return without one. `HACKATHON.md` Q-006 (2026-11-03) already documents the no-key path: a key is not required and the fee is 0.2%, registration at partners.near-intents.org | Working key or a documented no-key path — the second half is now documented by the organizers | Mock provider, labelled honestly |
 | S4 | Payout leg on mainnet without spending: what does a `dry: true` quote return and what is refused without a partner key? (The original question, "any testnet for payouts?", was answered by the organizers on 2026-11-03 in `HACKATHON.md` Q-007: none exists or is planned) | Dry quote observed and the no-key behaviour recorded | Mainnet with minimal amounts, only after the human authorizes it (A17) |
-| S5 | Full swap status enum and which are terminal | List from the OpenAPI spec | Unknown maps to `processing` |
+| S5 | Full swap status enum and which are terminal | **Closed on paper 2026-11-03**, `docs/spikes/S5.md`: seven values, three terminal, `INCOMPLETE_DEPOSIT` not among them | Unknown maps to `processing` |
 | S6 | NEP-366 behavior: do concurrent delegates from one payer fail on nonce ordering, and what is the default expiry? | Documented result with a test | Keep D14 (one in flight) |
 | S7 | Minimum deposit and fee for a real $0.01 to $1 payment into each sub-design | Measured numbers, `MIN_PRICE_BASE_UNITS` set | Raise the price floor or fall back to `direct` |
 
@@ -377,18 +377,22 @@ Record each result in `docs/spikes/Sx.md` with date, what was tried and the deci
 |---|---|---|
 | NEAR Intents can settle x402 payments in the asset and chain a seller chooses | Certain (stated by NEAR) | near.org agentic payments page |
 | Sellers route x402 payouts by setting a 1Click deposit address as the payment destination | Certain (stated by NEAR) | same page |
-| FastNear x402 supports v2 `exact` on `near:mainnet` and `near:testnet` with NEP-141 tokens | Certain (documented) | js.fastnear.com x402 page |
-| A payment is one `ft_transfer` authorized by a `SignedDelegate`, with the facilitator paying gas | Certain (documented) | same page |
-| Native NEAR is not a payment asset and recipients need storage registration | Certain (documented) | same page |
-| A 1Click partner JWT is not required; without one the fee is 0.2%. Quotes are callable unauthenticated | Certain (organizer answer Q-006; endpoint behaviour still to observe in S4) | `HACKATHON.md` Q-006, 2026-11-03. Replaces the earlier "needs a bearer token" assumption, which came from reading the API docs as if the key were mandatory |
-| Swap status is polled by deposit address | Certain (documented) | NEAR Intents docs |
+| FastNear x402 supports v2 `exact` on `near:mainnet` and `near:testnet` with NEP-141 tokens | Certain (read from the shipped code) | `@x402/near` 2.29.0: `NEAR_NETWORKS = ["near:mainnet","near:testnet"]`, `DEFAULT_ASSETS` lists one USDC contract per network, all six decimals |
+| A payment is one `ft_transfer` authorized by a `SignedDelegate`, with the facilitator paying gas; native NEAR is not a payment asset and recipients need NEP-145 storage registration | Certain (documented; the transfer shape is also in the shipped code) | js.fastnear.com x402 page, and `exact/facilitator/index.mjs`, which rejects a delegate unless the single function call is `ft_transfer` with `deposit === 1n` and `receiver_id === payTo`; `storageBalanceOf` distinguishes "token has no NEP-145" from "account not registered" |
+| Till can be its own facilitator, in process, with no third-party x402 service and no `X-API-Key` | Certain (read from the shipped types) | `@fastnear/x402` 2.5.0 `./facilitator` exports `createNearFacilitator({registrations})`; `./server` exports `createNearResourceServer({facilitators})`, and `NearFacilitatorClient` is `FacilitatorClient \| InProcessFacilitator` — an in-process object satisfies it. Read 2026-11-03 from the npm tarball |
+| The gateway needs no web framework adapter for x402 | Certain (read from the shipped types) | same `server.d.ts`: it returns a bare `x402ResourceServer`; the package has no express or other framework dependency |
+| Settlement of a NEAR `exact` payment needs a relayer account whose **full-access** key Till holds | Certain (read from the shipped types) | `FacilitatorRelayerConfig = {accountId, secretKey: KeyPairString}`, documented as "Full-access secret key for the relayer, e.g. `ed25519:...`"; `createFacilitatorNearSigner` submits the outer `Action::Delegate` transaction. So A10 is required, not optional, and the key is a new secret for `env.ts` (already present as `RELAYER_SECRET_KEY`) |
+| `MAX_SPONSORED_GAS` is denominated in gas, and the client asks for 3e13 of it per payment | Certain (read from the shipped code) | `exact/facilitator/index.mjs`: rejects when `fc.gas > this.maxSponsoredGas`; `DEFAULT_FT_TRANSFER_GAS = 30000000000000n`, `DEFAULT_MAX_SPONSORED_GAS = 100000000000000n`. Our default was 1e7 and rejected every payment; fixed in `env.ts` and pinned by `apps/api/test/env.test.ts` 2026-11-03 |
+| A payment asset on NEAR is the implicit USDC account, 6 decimals | Certain for the package default, Not verified live | `DEFAULT_ASSETS` in `@x402/near`: mainnet `17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1`, testnet `3e2210e1184b45b64c8a434c0a7e7b23cc04ea7eb7a6c3c32520d03d4afcb8af`. Read from the npm tarball 2026-11-03; confirm against the live contract in S1 before hardcoding |
+| A 1Click partner JWT is not required; without one the fee is higher. Quotes are callable unauthenticated | Certain for "not required" (organizer answer); **the fee number is contested** | `HACKATHON.md` Q-006 (2026-11-03) says 0.2%. The Intents fee docs, read in S5 the same day, price unauthenticated quotes at +25 bps (0.25%). Ask which is current (A11). Endpoint behaviour is still to observe in S4. Replaces the earlier "needs a bearer token" assumption, which came from reading the API docs as if the key were mandatory |
+| Swap status is polled by deposit address | Certain (documented) | NEAR Intents docs; S5 confirms there is no webhook on the partner REST API |
 | Standing `ANY_INPUT` addresses suit repeated payments | Guessing | Spike S2 |
 | Deposit listings include origin transaction hashes | Guessing | Spike S2 |
+| The 1Click `/v0/status` response carries the destination-chain and origin-chain hashes Till matches on | Likely (required in the spec, never seen live) | S5: `SwapDetails` requires `destinationChainTxHashes`, `intentHashes`, `nearTxHashes`, `originChainTxHashes`, each `{hash, explorerUrl}`. Empty arrays are legal, so a hash is only guaranteed once settled. Since 2026-10-27 swaps are confidential-only and `nearTxHashes` has no swap hash |
 | Delegates from one access key must execute in nonce order | Likely | Recalled from NEP-366 semantics; spike S6 |
-| The payout leg has no testnet | Certain (organizer answer, was Guessing) | `HACKATHON.md` Q-007, read 2026-11-03: "None exists or is planned. Mainnet, separate dev accounts, tiny amounts, dry: true quotes" |
+| The payout leg has no testnet | Certain (organizer answer, was Guessing) | `HACKATHON.md` Q-007, read 2026-11-03: "None exists or is planned. Mainnet, separate dev accounts, tiny amounts, dry: true quotes". The Intents introduction page says the same to S5 |
 | A deposit address on NEAR accepts NEP-141 transfers without prior registration | Guessing | Spike S1 |
 | Cross-chain swaps have minimum amounts and fees that exceed cent-level payments | Likely | Spike S7 |
-| NEAR native USDC contract id | Not recorded | Look up in S1; do not hardcode from memory |
 
 ## 14. Red team review
 
