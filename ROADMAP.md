@@ -15,13 +15,13 @@ Living status and task list for Till (working name). This file is the single sou
 | Phase B | 0 of 9 | 0 of 0 | 15 |
 | Phase C | 2 of 12 | 0 of 2 | 20.25 |
 | Phase D | 1 of 7 | 0 of 2 | 18 |
-| Phase E | 1 of 9 | 0 of 3 | 14 |
+| Phase E | 4 of 9 | 0 of 3 | 10.5 |
 | Phase F | 0 of 5 | 0 of 2 | 14.5 |
 | Phase G | 0 of 6 | 0 of 1 | 12.5 |
 | Phase H | 0 of 6 | 0 of 0 | 7 |
-| **Total** | **17 of 72** | **0 of 10** | **104.75** |
+| **Total** | **20 of 72** | **0 of 10** | **101.25** |
 
-**P0 readiness: 24% (17 of 72 tasks).** Hours left are guesses, not commitments.
+**P0 readiness: 28% (20 of 72 tasks).** Hours left are guesses, not commitments.
 <!-- progress:end -->
 
 ---
@@ -257,13 +257,13 @@ Each spike writes `docs/spikes/Sx.md` with date, what was tried and the decision
 - [ ] **E2** [P0] Match payments to swaps by transaction hash. Reqs: LR-2. Deps: E1, S2. Owner: agent. Est: 2h.
   - Done when: matching tests pass and a search finds no amount-and-time matching in the code.
   - Evidence:
-- [ ] **E3** [P0] Rule `SERVED_NOT_SETTLED` with fixture tests. Reqs: LR-3. Deps: A6. Owner: agent. Est: 1.5h.
+- [x] **E3** [P0] Rule `SERVED_NOT_SETTLED` with fixture tests. Reqs: LR-3. Deps: A6. Owner: agent. Est: 1.5h.
+  - Done when: one fixture produces the finding and one does not.
+  - Evidence: `payout-failed.test.ts` (6 tests) covers the positive, `succeeded` as the negative, the other four states silent, one finding per failed swap, and two cases the rule could have quietly dropped: a failed swap with `paymentId === null` still reports (key `PAYOUT_FAILED:none:swap-3`), because an unmatched swap is a fact about our join and not an absent problem (LR-2), and `details` stays absent, because a failure has no trustworthy number yet and putting one there would read as a fact. Mutation evidence: making the rule also fire on `refunded` — the overlap a single-character condition introduces — fails exactly the `stays silent for every state that is not failed` test, which is the test that exists to catch it. `payout-refunded.test.ts` (7 tests) covers the positive, `succeeded` as the negative, every other state silent (including `incomplete`, which must not be filed here because D1 keeps it visible to `PAYOUT_STUCK`), one finding per refunded swap with `none` in the key when it matches no payment, and that a refund does not consult the stuck window it was never given. Two assertions carry the money: a partial refund reports `details.refundedAmount === "0.25"` for 250000 base units (hard rule 3's display path), and a refund with no amount omits `details` rather than inventing zero. Mutation evidence: pointing the rule at `failed` instead of `refunded` fails 5 of the 7, deleting the `...(swap.refundedAmount === null ? {} : { details })` spread fails exactly the amount test. The two fixtures were already in `packages/core/src/reconcile/__tests__/served-not-settled.test.ts` from A6 and they do their job: flipping the rule to watch `settled` instead of `served_unsettled` fails **both** of them (`fires when a payment was served but never settled` and `stays silent for a settled payment`), so the pair is a guard and not a formality. The rule needed no change. `dedupeKeyFor` is asserted as `SERVED_NOT_SETTLED:pay-1:none`, matching LR-5's key shape.
+- [x] **E4** [P0] Rule `PAYOUT_REFUNDED` with fixture tests. Reqs: LR-3. Deps: A6. Owner: agent. Est: 1h.
   - Done when: one fixture produces the finding and one does not.
   - Evidence:
-- [ ] **E4** [P0] Rule `PAYOUT_REFUNDED` with fixture tests. Reqs: LR-3. Deps: A6. Owner: agent. Est: 1h.
-  - Done when: one fixture produces the finding and one does not.
-  - Evidence:
-- [ ] **E5** [P0] Rule `PAYOUT_FAILED` with fixture tests. Reqs: LR-3. Deps: A6. Owner: agent. Est: 1h.
+- [x] **E5** [P0] Rule `PAYOUT_FAILED` with fixture tests. Reqs: LR-3. Deps: A6. Owner: agent. Est: 1h.
   - Done when: one fixture produces the finding and one does not.
   - Evidence:
 - [x] **E6** [P0] Rule `PAYOUT_STUCK`, including unknown statuses, with fixture tests. Reqs: LR-3. Deps: A6, D1. Owner: agent. Est: 1.5h.
@@ -450,6 +450,8 @@ Append new decisions here (newest first). Design decisions D1 to D14 and their r
 ## 9. Changelog (newest first)
 
 Format: `date | author | tasks | what changed | evidence`
+
+- 2026-11-03 | mallison (agent session) | E3, E4, E5, LR-3 | Three more LR-3 rules moved from `it.todo` to fixtures that bite. `PAYOUT_REFUNDED` (7 tests) and `PAYOUT_FAILED` (6) each assert the positive, the negative, silence for every other state, one finding per swap, and the `none` subject in the dedupe key when a swap matched no payment; the refund test additionally pins `details.refundedAmount` to `"0.25"` for a partial refund and pins the detail's absence when the provider gave no amount, while the failure test pins that no number is invented at all. E3's two A6 fixtures turned out to be real guards already — the rule was left alone. Mutation counts per change: refund rule watching `failed` → 5 of 7 fail; refund amount detail deleted → exactly 1; failed rule also firing on `refunded` → exactly 1; served rule watching `settled` → both E3 tests fail | `pnpm --filter @till/core test` → 40 passed / 8 todo across the reconcile suites (was 14 passed / 14 todo before E6 and this session); full `pnpm test` with `DATABASE_URL` → core 103 passed 8 todo, api 46 passed; `pnpm lint` 105 files, `pnpm typecheck` 0 errors, `pnpm boundaries` ok
 
 - 2026-11-03 | mallison (agent session) | E6, LR-3, PO-4 | `PAYOUT_STUCK` went from two `it.todo` to 9 fixture tests, and the rule passed without edits — the reason it could is D1, since while `incomplete` was terminal this rule skipped the one status where money arrives short. Fixtures cover the stuck case, a provider status nobody recognizes normalizing to `processing` and then being reported, the three silent cases (inside the window, never polled, already terminal), one finding per swap with `none` in the dedupe key when there is no payment, and a config window different from the default. The mutations were more instructive than the passes: flipping `<` to `>` inverts the rule and still fires on equality, so the boundary test survives it, and only flipping to `<=` proves that test bites — a guard tested against the wrong mutation looks covered and is not | `pnpm --filter @till/core test` → 93 passed, 12 todo (was 84 passed / 14 todo); `DATABASE_URL=… pnpm test` → api 46 passed (5 files); `pnpm lint` 105 files, `pnpm typecheck` 3 packages with 0 errors, `pnpm boundaries` ok; the five mutations each with their failing test names, including `states.ts` terminal-list revert → the incomplete test here fails
 
