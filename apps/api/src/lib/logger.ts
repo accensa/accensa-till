@@ -123,7 +123,11 @@ export function createLogger(base: Record<string, unknown> = {}): Logger {
   };
 }
 
-/** GW-4 and the ledger both need a per-request id; mint it at the edge. */
+/**
+ * GW-4 needs a per-request id, minted at the edge. It stays v4 on purpose: a
+ * correlation token is not a row id, it is never ordered, and randomness is the
+ * property it wants (A20).
+ */
 export function newRequestId(): string {
   return crypto.randomUUID();
 }

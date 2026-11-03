@@ -140,7 +140,7 @@ Rules:
 
 ## 6. Data model
 
-Amounts are `numeric(78,0)` base units. Ids are UUIDs generated in the app; the generator in use is `crypto.randomUUID()` (v4), so ids do **not** sort by insertion time and insertion order comes from `created_at` (A20 tracks the v7 decision). Every table has `created_at timestamptz default now()`. Time comparisons use database time.
+Amounts are `numeric(78,0)` base units. Ids are UUID v7, minted in the app by `newId()` from `@till/core` and supplied by each table's column default, so the leading 48 bits are the creation millisecond and an id sorts with its row's insertion. Within one process that ordering is exact — the 12 bits beneath the timestamp are a counter, not noise — and across processes it is only approximate, because they share neither counter nor clock. An id is therefore an index-locality hint and a tiebreaker, never a timestamp: ordering of record is `created_at`, and time comparisons use database time. Every table has `created_at timestamptz default now()`.
 
 Where the sign of an amount is not information it is enforced at the JSON boundary, not left to the column, which has no CHECK: an endpoint price, a payment amount and the amount a 402 advertises to a payer must be positive (`positiveBaseUnitAmountSchema`, G6 F1). A ledger `adjustment` and a swap amount read back from the provider stay signed, because there a negative is either the correction itself or the fact the reconciler is supposed to raise a finding about.
 

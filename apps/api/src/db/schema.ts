@@ -1,3 +1,4 @@
+import { newId } from "@till/core";
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -20,16 +21,17 @@ import {
  *   a string, so services convert with `toBaseUnits` from @till/core and only
  *   ever do arithmetic in `bigint`. Never a float, in column or code form
  *   (AGENTS.md hard rule 3).
- * - Ids are UUIDs generated in the app rather than by `gen_random_uuid()`. Today
- *   the one generator in use is `crypto.randomUUID()`, which is v4 and random, so
- *   ids do NOT sort by insertion time; a v7 generator is the open part of C3 and
- *   `defaultFn` is where it will hook in (G6). Nothing may rely on id order until
- *   then — insertion order is `created_at`, which the database stamps.
+ * - Ids are UUID v7, minted in the app by `newId()` from @till/core rather than
+ *   by `gen_random_uuid()`. The 48-bit millisecond prefix means an id sorts with
+ *   the row's insertion, to the millisecond, within one process (A20). That is a
+ *   locality hint and a tiebreaker only: it is not a timestamp, and every time
+ *   comparison and every ordering of record still reads `created_at`, which the
+ *   database stamps (hard rule 12).
  * - Every table carries `created_at` with a database default; time comparisons
  *   read database time, never an application clock (hard rule 12).
  */
 
-const id = () => uuid("id").primaryKey();
+const id = () => uuid("id").primaryKey().$defaultFn(newId);
 const money = (name: string) => numeric(name, { precision: 78, scale: 0 });
 const createdAt = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
 

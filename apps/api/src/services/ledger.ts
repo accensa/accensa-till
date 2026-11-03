@@ -30,7 +30,6 @@ export type LedgerWrite = {
  */
 async function insert(db: Db, entry: LedgerWrite): Promise<void> {
   await db.insert(ledgerEntries).values({
-    id: crypto.randomUUID(),
     sellerId: entry.sellerId,
     kind: entry.kind,
     amount: entry.amount.toString(),

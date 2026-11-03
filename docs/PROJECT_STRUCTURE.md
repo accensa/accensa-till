@@ -102,6 +102,7 @@ till/
 ├── packages/
 │   └── core/                     # pure TypeScript, no I/O, no framework imports
 │       └── src/
+│           ├── ids.ts            # uuid v7 row ids, monotonic within a process
 │           ├── money.ts          # bigint helpers, decimals, formatting
 │           ├── schemas/          # Zod schemas shared by api and web
 │           ├── states.ts         # payment and swap state machines
