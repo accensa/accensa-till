@@ -14,14 +14,14 @@ Living status and task list for Till (working name). This file is the single sou
 | Phase A | 13 of 18 | 0 of 0 | 3.5 |
 | Phase B | 0 of 9 | 0 of 0 | 15 |
 | Phase C | 2 of 12 | 0 of 2 | 20.25 |
-| Phase D | 0 of 7 | 0 of 2 | 19.5 |
+| Phase D | 1 of 7 | 0 of 2 | 18 |
 | Phase E | 0 of 9 | 0 of 3 | 15.5 |
 | Phase F | 0 of 5 | 0 of 2 | 14.5 |
 | Phase G | 0 of 6 | 0 of 1 | 12.5 |
 | Phase H | 0 of 6 | 0 of 0 | 7 |
-| **Total** | **15 of 72** | **0 of 10** | **107.75** |
+| **Total** | **16 of 72** | **0 of 10** | **106.25** |
 
-**P0 readiness: 21% (15 of 72 tasks).** Hours left are guesses, not commitments.
+**P0 readiness: 22% (16 of 72 tasks).** Hours left are guesses, not commitments.
 <!-- progress:end -->
 
 ---
@@ -221,9 +221,9 @@ Each spike writes `docs/spikes/Sx.md` with date, what was tried and the decision
 
 ### Phase D: Payouts (7 to 9 Nov)
 
-- [ ] **D1** [P0] Define the `PayoutProvider` interface and normalized types, including sticky terminal states and unknown-status mapping. Reqs: PO-4. Deps: A6, S5. Owner: agent. Est: 1.5h.
+- [x] **D1** [P0] Define the `PayoutProvider` interface and normalized types, including sticky terminal states and unknown-status mapping. Reqs: PO-4. Deps: A6, S5. Owner: agent. Est: 1.5h.
   - Done when: type tests and a state-transition test pass. **S5 adds a required change: `incomplete` leaves `TERMINAL_SWAP_STATES`** (the provider does not declare `INCOMPLETE_DEPOSIT` terminal, and it is the one state where money arrives short), **or a dedicated rule always fires on it. The smaller fix is the first.** Affects `states.ts:20`, `provider.ts:65`, `payout-stuck.ts` and LR-6.
-  - Evidence:
+  - Evidence: The smaller fix, as S5 recommended. `packages/core/src/states.ts` now has one `TERMINAL_SWAP_STATES` = `succeeded | refunded | failed`, so `incomplete` is non-terminal and `payout-stuck.ts` judges it like any other unresolved swap; `apps/api/src/payouts/provider.ts` had a second copy of that list (which is how the two could disagree) and now re-exports the core one as `TERMINAL_STATES`. Added the swap half of the machine: `SWAP_TRANSITIONS` with `canTransitionSwap`, `assertSwapTransition` and `IllegalSwapTransition` — the three terminal states accept nothing, `pending` and `processing` reach every state including a terminal one on the first poll, and `incomplete` may still resolve into a declared-terminal state but never backwards. Unknown provider statuses keep mapping to `processing` (PO-4), and a test states plainly that `normalizeSwapState` knows our names and not the provider's `SCREAMING_SNAKE` enum, so D3 has to map before it normalizes rather than guessing `incomplete` from `INCOMPLETE_DEPOSIT`. Tests: `packages/core/src/__tests__/states.test.ts` grows to 70 and enumerates all 36 ordered swap pairs the same way C3's payment matrix does, and `apps/api/test/payout-types.test.ts` (5) is the type half — every assertion of "the contract refuses this" is an `@ts-expect-error`, so tsc fails the file if the type ever stops refusing it. Mutation-tested three ways: putting `incomplete` back in the terminal list broke 2 tests; allowing `succeeded -> processing` broke 3; making `originTxHash` optional on `NormalizedSwap` produced `error TS2578: Unused '@ts-expect-error' directive` rather than a green run. `docs/ARCHITECTURE.md` section 5 carries the rule and `docs/spikes/S5.md` Consequence 1 is annotated resolved, with the provider's own "is INCOMPLETE_DEPOSIT recoverable?" left open because the code no longer depends on the answer.
 - [ ] **D2** [P0] Build the mock provider with scripted outcomes: succeed, refund, fail, stall. Reqs: PO-5. Deps: D1. Owner: agent. Est: 3h.
   - Done when: the full paid flow runs offline with `PAYOUT_PROVIDER=mock` and each outcome is reachable from `scripts/simulate.ts`.
   - Evidence:
@@ -450,6 +450,8 @@ Append new decisions here (newest first). Design decisions D1 to D14 and their r
 ## 9. Changelog (newest first)
 
 Format: `date | author | tasks | what changed | evidence`
+
+- 2026-11-03 | mallison (agent session) | D1, PO-4, LR-3, S5 | The payout contract stopped being two lists. `incomplete` left `TERMINAL_SWAP_STATES`, which is S5's smaller of two fixes and the one that matters: an `INCOMPLETE_DEPOSIT` is the only status where money arrives short, and while it was terminal `payout-stuck.ts` skipped it forever, so Till would have lost that money in silence and called the swap finished. `apps/api/src/payouts/provider.ts` had its own copy of the terminal list, which is how two sources of truth disagree in the first place; it now re-exports the core one. Added the swap state machine (`SWAP_TRANSITIONS`, `canTransitionSwap`, `assertSwapTransition`) with terminal states sticky and `incomplete` still able to resolve forward, plus `apps/api/test/payout-types.test.ts`, where every "the contract refuses this" assertion is an `@ts-expect-error` so a widened type breaks the build instead of passing quietly | `pnpm test` with `DATABASE_URL` → core 84 passed (70 of them the two enumerated matrices, all 16 payment and all 36 swap ordered pairs), api 46 passed (5 files); `pnpm lint` 105 files clean, `pnpm typecheck` 3 packages, `pnpm boundaries` ok; three mutations, each caught by what it should be: `incomplete` back in the terminal list → 2 core tests fail, `succeeded: ["processing"]` → 3 fail, `originTxHash?` optional → `test/payout-types.test.ts(94,5): error TS2578: Unused '@ts-expect-error' directive`
 
 - 2026-11-03 | mallison (agent session) | C3, GW-4 | The payment state machine got a writer. `services/payments.ts` inserts the `verified` row on the database clock and folds a `replay_key` collision into an `existing` answer instead of clobbering the row a previous request already moved, and it moves a payment only through `assertPaymentTransition` with the update compare-and-set on the state it read — so the second of two racing settle attempts matches no row, re-reads, and fails rather than writing a second receipt. 39 new tests: all 16 ordered pairs of payment states enumerated in core, and 11 against real Postgres in api. Each of the four guards was mutation-tested individually (allow `settled -> verified` → 3 core + 1 api fail; drop the `and state =` predicate → the race test fails; drop `on conflict do nothing` → replay and concurrent-insert tests fail; drop `verifiedAt: now()` → the clock test fails), and the suite returned to green after each restore. This is the third attempt at C3 and the first that produced files: the two subagent reports before it claimed the same work with passing tests, and the previous changelog row is right that nothing of theirs was on disk — which is why this row cites command output rather than a summary. One decision was left where it belongs: 4.2 step 6 wants a replay to reuse an `abandoned` row, which requires `abandoned -> verified`, so C7 now owns that change instead of C3 making it silently | `DATABASE_URL=… pnpm test` → api 41 passed (4 files), core 42 passed; `pnpm lint` 104 files clean, `pnpm typecheck` 3 packages, `pnpm boundaries` ok; the four mutation runs above, each with its own failing test names
 

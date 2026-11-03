@@ -132,6 +132,7 @@ Rules:
 
 - `NormalizedSwap` carries `originTxHash` when the provider supplies it. Matching depends on it (D13, S2).
 - Terminal states are sticky. A later status that appears to move a swap out of a terminal state is logged and ignored.
+- Terminal means exactly `succeeded`, `refunded` and `failed` (D1, closing S5's first consequence). `incomplete` is not one: the provider does not declare `INCOMPLETE_DEPOSIT` terminal and it is the one status where money arrives short, so an incomplete swap stays visible to `PAYOUT_STUCK` instead of being filed as finished. There is one list, `TERMINAL_SWAP_STATES` in `@till/core`, and `payouts/provider.ts` re-exports it rather than keeping its own copy.
 - Unknown provider statuses map to `processing` and trigger a `PAYOUT_STUCK` check after the stuck window.
 - `OneClickProvider` stores the raw payload in `swaps.raw`. `MockProvider` supports scripted outcomes (`succeed`, `refund`, `fail`, `stall`).
 - Selected by `PAYOUT_PROVIDER=oneclick|mock`. Default in `.env.example` is `mock`.

@@ -59,12 +59,9 @@ export interface PayoutProvider {
 
 /**
  * Terminal states are sticky (PO-4): a status that appears to move a swap out of
- * terminal is logged and ignored by poll-payouts.ts. Kept here so both providers
- * and the poller agree on what "terminal" means.
+ * terminal is logged and ignored by poll-payouts.ts. There is one definition of
+ * that list, in @till/core, and it is re-exported here rather than copied — a
+ * second list is how `incomplete` ended up terminal in one place and not the
+ * other (D1, spike S5).
  */
-export const TERMINAL_STATES: readonly SwapState[] = [
-  "succeeded",
-  "refunded",
-  "failed",
-  "incomplete",
-];
+export { TERMINAL_SWAP_STATES as TERMINAL_STATES } from "@till/core";

@@ -17,12 +17,18 @@ export const SWAP_STATES = [
 ] as const;
 export type SwapState = (typeof SWAP_STATES)[number];
 
-export const TERMINAL_SWAP_STATES: readonly SwapState[] = [
-  "succeeded",
-  "refunded",
-  "failed",
-  "incomplete",
-];
+/**
+ * Terminal for a swap means the provider declared it terminal, so nothing may
+ * move it again (PO-4).
+ *
+ * `incomplete` is deliberately absent (D1, from spike S5): the 1Click status enum
+ * only declares `SUCCESS`, `REFUNDED` and `FAILED` terminal, and an
+ * `INCOMPLETE_DEPOSIT` can still resolve. Keeping it here would have made the
+ * state where money arrives short invisible to `payout-stuck.ts`, so the smaller
+ * of the two fixes S5 offered is the one taken: it is not terminal, and PAYOUT_STUCK
+ * fires on it after the window like any other unresolved swap.
+ */
+export const TERMINAL_SWAP_STATES: readonly SwapState[] = ["succeeded", "refunded", "failed"];
 
 export function isTerminalSwapState(state: SwapState): boolean {
   return TERMINAL_SWAP_STATES.includes(state);
@@ -63,5 +69,45 @@ export class IllegalPaymentTransition extends Error {
 export function assertPaymentTransition(from: PaymentState, to: PaymentState): void {
   if (!canTransitionPayment(from, to)) {
     throw new IllegalPaymentTransition(from, to);
+  }
+}
+
+/**
+ * A swap only ever moves forward (PO-4). Terminal states are sticky, and the
+ * poller is expected to log and ignore a provider status that disagrees with
+ * them rather than let it rewrite history — this table is what "disagree" means.
+ *
+ * A swap that has never been polled may already be terminal, which is why
+ * `pending` reaches every other state: the first status the provider returns is
+ * the transition, not a confirmation of one we watched happen.
+ */
+const SWAP_TRANSITIONS: Record<SwapState, readonly SwapState[]> = {
+  pending: ["processing", "succeeded", "refunded", "failed", "incomplete"],
+  processing: ["succeeded", "refunded", "failed", "incomplete"],
+  // S5: the provider does not declare INCOMPLETE_DEPOSIT terminal, so it may
+  // still resolve into one that it does declare.
+  incomplete: ["succeeded", "refunded", "failed"],
+  succeeded: [],
+  refunded: [],
+  failed: [],
+};
+
+export function canTransitionSwap(from: SwapState, to: SwapState): boolean {
+  return SWAP_TRANSITIONS[from].includes(to);
+}
+
+export class IllegalSwapTransition extends Error {
+  constructor(
+    readonly from: SwapState,
+    readonly to: SwapState,
+  ) {
+    super(`swap cannot move ${from} -> ${to}`);
+    this.name = "IllegalSwapTransition";
+  }
+}
+
+export function assertSwapTransition(from: SwapState, to: SwapState): void {
+  if (!canTransitionSwap(from, to)) {
+    throw new IllegalSwapTransition(from, to);
   }
 }
