@@ -23,7 +23,7 @@ services:
   api:
     image: node:22-alpine
     working_dir: /app
-    command: sh -c "corepack enable && pnpm install && pnpm db:migrate && pnpm --filter @till/api dev"
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm db:migrate && pnpm --filter @till/api dev"
     environment:
       DATABASE_URL: postgres://till:till@postgres:5432/till
       # A3 note: these two defaults must satisfy apps/api/src/env.ts, which
@@ -34,6 +34,12 @@ services:
       NEAR_NETWORK: near:testnet
     volumes:
       - ./:/app
+      # A16, not solved here: the bind mount plus `pnpm install` inside it puts
+      # root-owned node_modules for every workspace package and a root-owned
+      # .pnpm-store of about 650 MB into whoever runs this. Shadowing
+      # /app/node_modules with a volume does not help, because each service
+      # installs the whole workspace and the other service's paths stay on the
+      # bind mount. The fix is to install in a built image instead.
       - apinode:/app/node_modules
     ports:
       - "3000:3000"
@@ -44,7 +50,7 @@ services:
   web:
     image: node:22-alpine
     working_dir: /app
-    command: sh -c "corepack enable && pnpm install && pnpm --filter @till/web dev"
+    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @till/web dev"
     environment:
       API_ORIGIN: http://api:3000
     volumes:

@@ -211,8 +211,8 @@ This table is the plan at a glance. The live version, with task IDs, gates and s
 
 1. Standing deposit address or per-payment address, and do deposits report origin hashes?
 2. What is the smallest payment that survives provider minimums and fees?
-3. How long does partner API key approval take?
-4. Is any testnet available for the payout leg?
+3. How long does partner API key approval take? **Answered in part 2026-11-03:** `HACKATHON.md` Q-006 says a partner JWT is not required and the no-key fee is 0.2%, so this is now a cost question rather than a blocker.
+4. Is any testnet available for the payout leg? **Answered 2026-11-03:** no. `HACKATHON.md` Q-007 states none exists or is planned, so the payout leg is mainnet only, with tiny amounts and `dry: true` quotes, and it waits on the human's explicit approval (roadmap A17).
 5. Which USDC contract id applies on NEAR mainnet?
 6. How many people are building? If one, stop at P0 and the P1 items marked first in each table.
 

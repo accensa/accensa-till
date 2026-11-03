@@ -27,7 +27,7 @@ This repository is currently **documentation and a scaffold**. Be exact about it
 | x402 on NEAR, Intents payouts | **Not written, not proven.** Spikes S1 to S7 are all open. |
 | CI guard scripts | **Run, and they work.** `sh scripts/check-boundaries.sh` passes on this scaffold and exits 1 on each injected violation (`@fastnear` outside `x402/near.ts`, a float money literal, a `drizzle-orm` import in `packages/core`). `pnpm roadmap:check` exits 1 both when `ROADMAP.md` is stale and when a change touches code but not the roadmap — the second case verified against a temporary commit, not by reasoning, because a dirty worktree reproduces it falsely. |
 
-The scaffold executes: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm boundaries` and `pnpm roadmap` all pass on Node 22, the API boots and answers `/healthz` and `/api/healthz`, refuses to start on a missing env var, and the Next dev server reaches the API through the `/api/*` rewrite. What has *not* happened: a paid request, a proxy to an upstream, a payout, a ledger entry written by the gateway, `docker compose up` (no Compose v2 on this machine), and a green GitHub Actions run — the workflow has never completed, so the CI scripts are proven locally only.
+The scaffold executes: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm boundaries` and `pnpm roadmap` all pass on Node 22, the API boots and answers `/healthz` and `/api/healthz`, refuses to start on a missing env var, and the Next dev server reaches the API through the `/api/*` rewrite. CI runs the same commands on GitHub Actions and is green on `main`. What has *not* happened: a paid request, a proxy to an upstream, a payout, or a ledger entry written by the gateway. `docker compose up` has now run on Compose v2 and works (Postgres healthy, migrations applied, both servers answering), though it writes root-owned files into the checkout, which is open work as A16.
 
 ## Known limitations
 
@@ -49,11 +49,24 @@ The scaffold executes: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm type
   `drizzle-orm`, `hono`, `next`, `zod`, `jose`, `vitest` and `biome` is in the
   manifest yet, and `@fastnear` packages plus `@near-intents` clients are not
   installed because no spike has asked for them (AGENTS.md: ask first).
-- `docker compose` v2 is not installed on the machine that wrote this, so
-  `docker-compose.yml` has only been checked as YAML, not as a Compose file. The
-  local `docker-compose` is legacy v1 and rejects Compose Spec keys like `name:`.
-- GitHub Actions has never produced a green run for this repository, so CI is
-  verified step by step locally rather than observed on the runner.
+- `docker compose up` works, and it should not yet be run inside a working
+  checkout: the api and web services bind-mount the repository and install into
+  it, which leaves root-owned `node_modules` per package and a root-owned
+  `.pnpm-store` of about 650 MB that the owner cannot delete without `sudo`.
+  Found by running it on Compose v2, open as A16. Legacy `docker-compose` v1
+  still cannot read this file at all, since it rejects Compose Spec keys like
+  `name:`.
+- **The payout leg has no testnet.** `HACKATHON.md` Q-007 (2026-11-03) states
+  that no NEAR Intents testnet exists or is planned, so real payout behaviour is
+  mainnet only. Development uses `dry: true` quotes and the mock provider, and a
+  mainnet transaction needs the human's explicit approval with a stated ceiling
+  (A17). A partner API key is not required and costs 0.2% without one (Q-006), so
+  nothing on the payout side waits on partner onboarding.
+- GitHub Actions is green on `main`, and the guards were seen failing there too:
+  a float money literal stops the `boundaries` step, a code-only commit and a
+  stale progress block each stop the `roadmap` step. Those three were run on
+  throwaway branches pushed only to be dispatched and deleted, so the checks are
+  proven on the runner and no broken commit survives on any ref.
 
 ## Quickstart
 
@@ -64,10 +77,18 @@ G1), which is also why the `demo` CI job is manual-dispatch only for now.
 
 ```sh
 pnpm install
-pnpm db:migrate            # needs Postgres: docker compose up db
+pnpm db:migrate            # needs Postgres: docker compose up postgres
 pnpm test                  # core money tests; the Postgres tests skip without DATABASE_URL
 pnpm dev                   # api on :3000, web on :3001, /api/* rewritten to the api
 ```
+
+`docker compose up` is verified on Compose v2 (v5.7.0): Postgres comes up healthy,
+migrations apply, the api listens on 3000 and the web dev server reaches it on
+3001. It has a real defect until A16 lands, and it is worth knowing before you
+run it: the api and web services bind-mount the repository and install inside it,
+so a run in your own checkout leaves root-owned `node_modules` for every package
+and a root-owned `.pnpm-store` of about 650 MB that you cannot delete without
+`sudo`. Run it from a copy of the tree, or wait for A16.
 
 Once the demo path closes:
 
@@ -88,7 +109,26 @@ packages/core   pure TS: money, state machines, shared schemas, reconcile rules
 scripts         demo, seed, simulate, boundary and roadmap checks
 docs            PRD, ARCHITECTURE, ARCHITECTURE_ESSENTIALS, PROJECT_STRUCTURE, spikes/
 ROADMAP.md      live task list — updated in every contribution, CI enforces it
+HACKATHON.md    the organizers' rule set, committed as a pinned copy
 ```
+
+## Hackathon rules
+
+[`HACKATHON.md`](HACKATHON.md) is the organizers' instruction file, committed so
+the repo carries the rules it is built against; the live copy is
+[https://nearhackathon.com/HACKATHON.md](https://nearhackathon.com/HACKATHON.md)
+and it is byte-identical to the pinned one as of 2026-11-03. What binds this
+project: development ends 2026-11-14 23:59 UTC and the repository must be public
+by then and through judging; tracks are `realworld` primary and `agents`
+secondary, with `security` and `business` open as a human decision; submission is
+one POST with fields only the human can supply (name, lead, email, team size,
+payout account, links, description) and one attempt per repository; a partner
+1Click key is optional at a 0.2% fee (Q-006); there is no Intents testnet, so the
+payout leg is mainnet and needs explicit approval (Q-007, A17). Because Claude
+Code and Codex screen every entry for reproducibility before a human jury scores
+it (Q-017), this README is written for a machine reader too: the commands under
+Quickstart are the judge's script, and each one is either verified or labelled as
+not yet working.
 
 ## Hacking
 

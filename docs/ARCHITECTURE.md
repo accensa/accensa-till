@@ -363,8 +363,8 @@ Relayer balance and last successful poll time shown in the dashboard header. No 
 |---|---|---|---|
 | S1 | Can an Intents deposit address be `payTo` for a NEAR x402 payment, including storage registration at that address? | A real small payment lands and the swap completes | `direct` mode only |
 | S2 | Is a standing deposit address available, and do deposit listings include the origin transaction hash? | Two payments to one address, both listed with hashes | Per-payment address; if hashes are missing there too, match through the deposit-submit call |
-| S3 | Partner API key lead time, and what quotes return without one | Working key or a documented no-key path | Mock provider, labelled honestly |
-| S4 | Any testnet for payouts? | Testnet quote succeeds | Mainnet with minimal amounts |
+| S3 | Partner API key lead time, and what quotes return without one. `HACKATHON.md` Q-006 (2026-11-03) already documents the no-key path: a key is not required and the fee is 0.2%, registration at partners.near-intents.org | Working key or a documented no-key path — the second half is now documented by the organizers | Mock provider, labelled honestly |
+| S4 | Payout leg on mainnet without spending: what does a `dry: true` quote return and what is refused without a partner key? (The original question, "any testnet for payouts?", was answered by the organizers on 2026-11-03 in `HACKATHON.md` Q-007: none exists or is planned) | Dry quote observed and the no-key behaviour recorded | Mainnet with minimal amounts, only after the human authorizes it (A17) |
 | S5 | Full swap status enum and which are terminal | List from the OpenAPI spec | Unknown maps to `processing` |
 | S6 | NEP-366 behavior: do concurrent delegates from one payer fail on nonce ordering, and what is the default expiry? | Documented result with a test | Keep D14 (one in flight) |
 | S7 | Minimum deposit and fee for a real $0.01 to $1 payment into each sub-design | Measured numbers, `MIN_PRICE_BASE_UNITS` set | Raise the price floor or fall back to `direct` |
@@ -380,12 +380,12 @@ Record each result in `docs/spikes/Sx.md` with date, what was tried and the deci
 | FastNear x402 supports v2 `exact` on `near:mainnet` and `near:testnet` with NEP-141 tokens | Certain (documented) | js.fastnear.com x402 page |
 | A payment is one `ft_transfer` authorized by a `SignedDelegate`, with the facilitator paying gas | Certain (documented) | same page |
 | Native NEAR is not a payment asset and recipients need storage registration | Certain (documented) | same page |
-| 1Click quote requests need a bearer token; unauthenticated use incurs a higher fee | Certain (documented) | NEAR Intents docs |
+| A 1Click partner JWT is not required; without one the fee is 0.2%. Quotes are callable unauthenticated | Certain (organizer answer Q-006; endpoint behaviour still to observe in S4) | `HACKATHON.md` Q-006, 2026-11-03. Replaces the earlier "needs a bearer token" assumption, which came from reading the API docs as if the key were mandatory |
 | Swap status is polled by deposit address | Certain (documented) | NEAR Intents docs |
 | Standing `ANY_INPUT` addresses suit repeated payments | Guessing | Spike S2 |
 | Deposit listings include origin transaction hashes | Guessing | Spike S2 |
 | Delegates from one access key must execute in nonce order | Likely | Recalled from NEP-366 semantics; spike S6 |
-| The payout leg has no testnet | Guessing | Spike S4 |
+| The payout leg has no testnet | Certain (organizer answer, was Guessing) | `HACKATHON.md` Q-007, read 2026-11-03: "None exists or is planned. Mainnet, separate dev accounts, tiny amounts, dry: true quotes" |
 | A deposit address on NEAR accepts NEP-141 transfers without prior registration | Guessing | Spike S1 |
 | Cross-chain swaps have minimum amounts and fees that exceed cent-level payments | Likely | Spike S7 |
 | NEAR native USDC contract id | Not recorded | Look up in S1; do not hardcode from memory |

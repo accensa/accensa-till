@@ -84,8 +84,8 @@ Each needs a pure rule, a fixture test, a plain-language explanation and a sugge
 
 - S1: Intents deposit address as `payTo`, storage registration
 - S2: Standing address, and do deposits list origin tx hashes
-- S3: Partner API key lead time
-- S4: Any payout testnet
+- S3: Partner API key lead time — Q-006 (2026-11-03): a key is optional, the no-key fee is 0.2%
+- S4: Payout testnet — Q-007: none exists or is planned, so the payout leg is mainnet, `dry: true` first, gated on the human's approval
 - S5: Full swap status enum
 - S6: NEP-366 concurrency and expiry behavior
 - S7: Minimum deposit and fees for small payments
