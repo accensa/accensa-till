@@ -217,6 +217,9 @@ export async function resolveUpstreamTarget(
 
   const gatewayOrigin =
     policy.gatewayOrigin === undefined ? undefined : new URL(policy.gatewayOrigin).origin;
+  // Strings, so a URL naming the gateway's own public IP instead of its hostname
+  // is not caught here. Logged as G4's residual risk: closing it means resolving
+  // `gatewayOrigin`, which costs a DNS call on every validated URL.
   if (gatewayOrigin === url.origin) {
     throw new UpstreamPolicyError("self_loop", hostname);
   }
@@ -236,7 +239,11 @@ export async function resolveUpstreamTarget(
   // good one would let a name with one internal and one external record keep
   // working, which is the rebinding shape.
   for (const address of addresses) {
-    if (isForbiddenAddress(address)) {
+    // And every record must be an address. `isForbiddenAddress` cannot judge
+    // text it fails to parse — it returns false — so a resolver that answered
+    // with a name, a bracketed literal or an empty string would sail through
+    // and then be pinned as the address to dial. (G4)
+    if (isIP(address.split("%")[0] ?? "") === 0 || isForbiddenAddress(address)) {
       throw new UpstreamPolicyError("address_forbidden", hostname);
     }
   }

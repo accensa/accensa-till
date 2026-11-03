@@ -131,6 +131,43 @@ describe("upstream address policy (C5, GW-8)", () => {
     expect(error.code).toBe("address_forbidden");
   });
 
+  it("refuses a resolver record that is not an address", async () => {
+    // The internal-range check cannot judge text it fails to parse: it returns
+    // false, which reads as "public". Anything that is not an IP literal is
+    // therefore refused rather than pinned and dialed (G4).
+    expect(isForbiddenAddress("metadata.google.internal")).toBe(false);
+    for (const record of [
+      "",
+      " ",
+      "localhost",
+      "LOCALHOST",
+      "metadata.google.internal",
+      "[::1]",
+      "999.999.999.999",
+      "1.1.1.1.1",
+      `${PUBLIC} `,
+    ]) {
+      const error = await refused("https://seller.test/data", { resolve: async () => [record] });
+      expect([record, error.code]).toEqual([record, "address_forbidden"]);
+    }
+  });
+
+  it("refuses the whole name when one record is junk, rather than dialing the good one", async () => {
+    const error = await refused("https://seller.test/data", {
+      resolve: async () => [PUBLIC, "localhost"],
+    });
+    expect(error.code).toBe("address_forbidden");
+  });
+
+  it("still refuses an internal name that only the resolver can unmask, like a trailing dot", async () => {
+    // `localhost.` is not `localhost` and it has a dot, so the name rules miss
+    // it and the record check is the only thing that stops it.
+    const error = await refused("https://localhost./data", {
+      resolve: async () => ["::1", "127.0.0.1"],
+    });
+    expect(error.code).toBe("address_forbidden");
+  });
+
   it("normalizes the obfuscated IPv4 forms before judging them", async () => {
     for (const url of [
       "https://127.0.0.1/data",
@@ -140,6 +177,25 @@ describe("upstream address policy (C5, GW-8)", () => {
       const error = await refused(url);
       expect([url, error.code]).toEqual([url, "address_forbidden"]);
     }
+  });
+
+  it("relies on WHATWG IPv4 parsing for the historical forms, and pins what it does", async () => {
+    // The gateway never sees `017700000001`: Node's URL parses every historical
+    // IPv4 form into a dotted quad first. Pinned here because octal and hex are
+    // the classic SSRF bypass, and the address check only works if that holds.
+    for (const url of [
+      "https://0177.0.0.1/data",
+      "https://0x7f000001/data",
+      "https://017700000001/data",
+      "https://127.1/data",
+    ]) {
+      const error = await refused(url);
+      expect([url, error.code]).toEqual([url, "address_forbidden"]);
+    }
+    // `010` is octal 8, and 8.0.0.1 really is public, so this one is accepted —
+    // an acceptance test for the parser, not a hole.
+    const octal = await resolveUpstreamTarget("https://010.0.0.1/data", policyFor());
+    expect([octal.hostname, octal.address]).toEqual(["8.0.0.1", "8.0.0.1"]);
   });
 
   it("refuses by name: localhost, single-label, and the internal suffixes", async () => {

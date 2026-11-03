@@ -294,6 +294,7 @@ Full-access key required by the underlying package. Mitigations:
 ### 8.4 Proxy safety (SSRF)
 
 - Resolve the hostname, reject private, loopback and link-local results, then connect to the resolved address directly so a second DNS lookup cannot change it (DNS rebinding).
+- Judge every record the resolver returns, not just the first: one internal or unparsable record condemns the whole name, because filtering them and dialling a "good" one is the rebinding shape. A record that is not an IP literal is refused — the range check cannot parse other text, and an unparsable answer would otherwise be accepted and dialled (G4).
 - Do not follow redirects.
 - Reject upstream URLs that point at the gateway itself.
 - `https` only outside local development.
