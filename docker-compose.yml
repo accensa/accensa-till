@@ -21,9 +21,13 @@ services:
       retries: 10
 
   api:
-    image: node:22-alpine
-    working_dir: /app
-    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm db:migrate && pnpm --filter @till/api dev"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # A16: no volumes. Mounting the repository and running `pnpm install` inside
+    # the mount left root-owned dependency directories and a 650 MB store in
+    # whoever's checkout it was; the image carries them instead.
+    command: sh -c "pnpm db:migrate && pnpm --filter @till/api dev"
     environment:
       DATABASE_URL: postgres://till:till@postgres:5432/till
       # A3 note: these two defaults must satisfy apps/api/src/env.ts, which
@@ -32,15 +36,6 @@ services:
       GATEWAY_PUBLIC_URL: http://localhost:3000
       PAYOUT_PROVIDER: mock
       NEAR_NETWORK: near:testnet
-    volumes:
-      - ./:/app
-      # A16, not solved here: the bind mount plus `pnpm install` inside it puts
-      # root-owned node_modules for every workspace package and a root-owned
-      # .pnpm-store of about 650 MB into whoever runs this. Shadowing
-      # /app/node_modules with a volume does not help, because each service
-      # installs the whole workspace and the other service's paths stay on the
-      # bind mount. The fix is to install in a built image instead.
-      - apinode:/app/node_modules
     ports:
       - "3000:3000"
     depends_on:
@@ -48,14 +43,12 @@ services:
         condition: service_healthy
 
   web:
-    image: node:22-alpine
-    working_dir: /app
-    command: sh -c "corepack enable && pnpm install --frozen-lockfile && pnpm --filter @till/web dev"
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: pnpm --filter @till/web dev
     environment:
       API_ORIGIN: http://api:3000
-    volumes:
-      - ./:/app
-      - webnode:/app/node_modules
     # 3001 in the container too: apps/web's dev script pins that port so `pnpm
     # dev` on a single host does not collide with the api on 3000.
     ports:
@@ -64,6 +57,5 @@ services:
       - api
 
 volumes:
+  # Only the database outlives a `docker compose down`.
   pgdata:
-  apinode:
-  webnode:
