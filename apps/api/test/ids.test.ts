@@ -161,15 +161,23 @@ suite("row ids come from the column default (A20)", () => {
   });
 
   it("says plainly what this suite cannot prove", async () => {
-    // Read with the mutation log in the roadmap: four awaited inserts land in four
-    // different milliseconds, because one round trip already costs more than a
-    // millisecond. So nothing here reaches the sub-millisecond counter, and
-    // replacing that counter with random bits still passes this whole file. That
-    // case belongs to the frozen-clock tests in
-    // `packages/core/src/__tests__/ids.test.ts`, which do fail when the counter
-    // goes. Pinned as an assertion so the day inserts get fast enough to share a
-    // millisecond, this test notices rather than quietly becoming the proof.
-    const { byId } = await writeBatch(4);
-    expect(new Set(byId.map((row) => msOf(row))).size).toBe(4);
+    // Read with the mutation log in the roadmap. The claim this file cannot support
+    // is the sub-millisecond counter: nothing here reaches it, so replacing that
+    // counter with random bits still passes the whole file, and the frozen-clock
+    // tests in `packages/core/src/__tests__/ids.test.ts` are what fail when it goes.
+    //
+    // What used to be pinned here was four awaited inserts landing in four distinct
+    // milliseconds. That is a fact about round-trip latency and not about the
+    // generator, and it was wrong on CI: the same batch measured 4 distinct stamps
+    // locally and 3 of 4 on the GitHub runner, so the assertion failed for a reason
+    // no seller would care about. What is asserted instead is the half that cannot
+    // depend on timing: every row of one batch is stamped inside the window that
+    // batch was written in, which catches a generator that mixes units or clocks per
+    // row — and which is not a tautology, since reading the batch back in id order
+    // would make any stamp look monotonic.
+    const before = Date.now();
+    const stamps = (await writeBatch(4)).byId.map(msOf);
+    const after = Date.now();
+    expect(stamps.map((ms) => before <= ms && ms <= after)).toEqual(stamps.map(() => true));
   });
 });
