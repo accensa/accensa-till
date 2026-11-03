@@ -57,6 +57,8 @@ export const envSchema = z.object({
   GATEWAY_PUBLIC_URL: z.string().url(),
 
   UPSTREAM_TIMEOUT_MS: positiveInt(15_000),
+  /** GW-8 response size cap, counted in bytes actually read, not content-length. */
+  UPSTREAM_MAX_BYTES: positiveInt(1_048_576),
   AUTHORIZATION_EXPIRY_MARGIN_MS: positiveInt(30_000),
   /**
    * Units are NEAR gas, not yoctoNEAR: the facilitator rejects a payment when the
