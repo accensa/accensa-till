@@ -15,13 +15,13 @@ Living status and task list for Till (working name). This file is the single sou
 | Phase B | 0 of 9 | 0 of 0 | 15 |
 | Phase C | 2 of 12 | 0 of 2 | 20.25 |
 | Phase D | 1 of 7 | 0 of 2 | 18 |
-| Phase E | 0 of 9 | 0 of 3 | 15.5 |
+| Phase E | 1 of 9 | 0 of 3 | 14 |
 | Phase F | 0 of 5 | 0 of 2 | 14.5 |
 | Phase G | 0 of 6 | 0 of 1 | 12.5 |
 | Phase H | 0 of 6 | 0 of 0 | 7 |
-| **Total** | **16 of 72** | **0 of 10** | **106.25** |
+| **Total** | **17 of 72** | **0 of 10** | **104.75** |
 
-**P0 readiness: 22% (16 of 72 tasks).** Hours left are guesses, not commitments.
+**P0 readiness: 24% (17 of 72 tasks).** Hours left are guesses, not commitments.
 <!-- progress:end -->
 
 ---
@@ -266,9 +266,9 @@ Each spike writes `docs/spikes/Sx.md` with date, what was tried and the decision
 - [ ] **E5** [P0] Rule `PAYOUT_FAILED` with fixture tests. Reqs: LR-3. Deps: A6. Owner: agent. Est: 1h.
   - Done when: one fixture produces the finding and one does not.
   - Evidence:
-- [ ] **E6** [P0] Rule `PAYOUT_STUCK`, including unknown statuses, with fixture tests. Reqs: LR-3. Deps: A6, D1. Owner: agent. Est: 1.5h.
+- [x] **E6** [P0] Rule `PAYOUT_STUCK`, including unknown statuses, with fixture tests. Reqs: LR-3. Deps: A6, D1. Owner: agent. Est: 1.5h.
   - Done when: stuck, unknown-status and healthy fixtures behave correctly.
-  - Evidence:
+  - Evidence: `packages/core/src/reconcile/__tests__/payout-stuck.test.ts` replaces its two `it.todo` with 9 fixture tests over the rule as written (the rule itself needed no change, which is the point of D1 landing first). Stuck: fires past the window with the code, severity, both subject ids and the `PAYOUT_STUCK:pay-a:swap-a` dedupe key asserted, and one finding per swap with `none` in the key when a swap has no payment. Unknown-status: a status the provider invented normalizes to `processing` and is then reported, so an unrecognised answer cannot pose as progress (PO-4). Healthy: silent inside the window, silent for a swap nobody has polled yet (which every fresh payment is, so treating it as stuck would open a finding per call), and silent for all three provider-declared terminal states however old. Plus the `incomplete` case D1 unburied, and a test that a four-minute window judges a five-minute idle swap stuck where the 900 s default does not, because hard rule 12 says the window is config. Each guard was mutation-tested and the mutations are not interchangeable, which is why the boundary case is worth its own test: deleting the never-polled skip fails exactly that test, flipping `<` to `<=` fails exactly the at-exactly-the-window test, flipping `<` to `>` fails 6 (it inverts the rule but still fires on equality, so only the `<=` mutation proves that test bites), hardcoding the window to 900 s fails the config test, and putting `incomplete` back into `TERMINAL_SWAP_STATES` in `states.ts` fails the incomplete test here — the cross-check that E6 depends on D1's decision rather than assuming it
 - [ ] **E7** [P0] Rule `PAYMENT_NOT_SWEPT` with fixture tests. Reqs: LR-3. Deps: A6, E2. Owner: agent. Est: 1.5h.
   - Done when: one fixture produces the finding and one does not.
   - Evidence:
@@ -450,6 +450,8 @@ Append new decisions here (newest first). Design decisions D1 to D14 and their r
 ## 9. Changelog (newest first)
 
 Format: `date | author | tasks | what changed | evidence`
+
+- 2026-11-03 | mallison (agent session) | E6, LR-3, PO-4 | `PAYOUT_STUCK` went from two `it.todo` to 9 fixture tests, and the rule passed without edits — the reason it could is D1, since while `incomplete` was terminal this rule skipped the one status where money arrives short. Fixtures cover the stuck case, a provider status nobody recognizes normalizing to `processing` and then being reported, the three silent cases (inside the window, never polled, already terminal), one finding per swap with `none` in the dedupe key when there is no payment, and a config window different from the default. The mutations were more instructive than the passes: flipping `<` to `>` inverts the rule and still fires on equality, so the boundary test survives it, and only flipping to `<=` proves that test bites — a guard tested against the wrong mutation looks covered and is not | `pnpm --filter @till/core test` → 93 passed, 12 todo (was 84 passed / 14 todo); `DATABASE_URL=… pnpm test` → api 46 passed (5 files); `pnpm lint` 105 files, `pnpm typecheck` 3 packages with 0 errors, `pnpm boundaries` ok; the five mutations each with their failing test names, including `states.ts` terminal-list revert → the incomplete test here fails
 
 - 2026-11-03 | mallison (agent session) | D1, PO-4, LR-3, S5 | The payout contract stopped being two lists. `incomplete` left `TERMINAL_SWAP_STATES`, which is S5's smaller of two fixes and the one that matters: an `INCOMPLETE_DEPOSIT` is the only status where money arrives short, and while it was terminal `payout-stuck.ts` skipped it forever, so Till would have lost that money in silence and called the swap finished. `apps/api/src/payouts/provider.ts` had its own copy of the terminal list, which is how two sources of truth disagree in the first place; it now re-exports the core one. Added the swap state machine (`SWAP_TRANSITIONS`, `canTransitionSwap`, `assertSwapTransition`) with terminal states sticky and `incomplete` still able to resolve forward, plus `apps/api/test/payout-types.test.ts`, where every "the contract refuses this" assertion is an `@ts-expect-error` so a widened type breaks the build instead of passing quietly | `pnpm test` with `DATABASE_URL` → core 84 passed (70 of them the two enumerated matrices, all 16 payment and all 36 swap ordered pairs), api 46 passed (5 files); `pnpm lint` 105 files clean, `pnpm typecheck` 3 packages, `pnpm boundaries` ok; three mutations, each caught by what it should be: `incomplete` back in the terminal list → 2 core tests fail, `succeeded: ["processing"]` → 3 fail, `originTxHash?` optional → `test/payout-types.test.ts(94,5): error TS2578: Unused '@ts-expect-error' directive`
 
