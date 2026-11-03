@@ -21,13 +21,13 @@ This repository is currently **documentation and a scaffold**. Be exact about it
 | Product and architecture design | Real. Seven documents, red-teamed, in `docs/`. |
 | Folder structure and module boundaries | Real. Every path in [`docs/PROJECT_STRUCTURE.md`](docs/PROJECT_STRUCTURE.md) exists. |
 | Data model | Real. `apps/api/src/db/schema.ts` and the drizzle-kit generated `apps/api/migrations/` cover all eight tables, and `0001_ledger_append_only.sql` carries the append-only trigger. Six tests run against a live Postgres 16 and prove `UPDATE` and `DELETE` on `ledger_entries` raise and that the discrepancy dedupe index collapses a repeated open cause to one row — including a check that the tests fail when either guard is removed. |
-| Reconciliation rules | Drafted. The five P0 rules are implemented as pure functions in `packages/core/src/reconcile/`; only `served-not-settled` has tests that execute (2 pass), the other rule files skip as `it.todo`, and the three P1 rules return nothing because they depend on spike S2. |
-| Money and state helpers | Money is real: `packages/core/src/__tests__/money.test.ts` runs 12 passing tests over parsing, formatting, integer-only shortfall and a value past `Number.MAX_SAFE_INTEGER`. `states.ts` is written and still has no test (that is C3). |
-| Gateway, payouts, dashboard, jobs | Empty files with contracts and comments. Every one of them throws `not implemented` with its task ID. |
+| Reconciliation rules | Four of the five P0 rules are implemented **and tested against fixtures that execute**: `SERVED_NOT_SETTLED` (2), `PAYOUT_REFUNDED` (7), `PAYOUT_FAILED` (6), `PAYOUT_STUCK` (9). `PAYMENT_NOT_SWEPT` is written but its fixture tests are owed on E7, which waits on E2. The three P1 rules return nothing on purpose, because they depend on spike S2 (deposit listing shape) and guessing there would hide real money. |
+| Money and state helpers | Real. `packages/core/src/__tests__/money.test.ts` runs 12 passing tests over parsing, formatting, integer-only shortfall and a value past `Number.MAX_SAFE_INTEGER`. `packages/core/src/__tests__/states.test.ts` runs 70: every one of the 16 ordered payment state pairs and every one of the 36 swap pairs, plus the sticky-terminal and unknown-status rules from D1. |
+| Gateway, payouts, dashboard, jobs | Partly real. The upstream proxy and its SSRF/address policy are implemented and tested against a live loopback HTTP server (20 tests: size caps against a chunked body, three timeout shapes, both address families). The payments service and its state machine are implemented and tested against Postgres (11 tests, including a concurrent settle that must fulfil once). The mock payout provider and the offline flow are implemented and tested (23 + 15). What is still an empty file that throws `not implemented` with its task id: the gateway route (C4), x402 (C1), the 1Click client (D3), every job (C10, D6, E2) and every dashboard route. |
 | x402 on NEAR, Intents payouts | **Not written, not proven.** Spikes S1 to S7 are all open. |
 | CI guard scripts | **Run, and they work.** `sh scripts/check-boundaries.sh` passes on this scaffold and exits 1 on each injected violation (`@fastnear` outside `x402/near.ts`, a float money literal, a `drizzle-orm` import in `packages/core`). `pnpm roadmap:check` exits 1 both when `ROADMAP.md` is stale and when a change touches code but not the roadmap — the second case verified against a temporary commit, not by reasoning, because a dirty worktree reproduces it falsely. |
 
-The scaffold executes: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm boundaries` and `pnpm roadmap` all pass on Node 22, the API boots and answers `/healthz` and `/api/healthz`, refuses to start on a missing env var, and the Next dev server reaches the API through the `/api/*` rewrite. CI runs the same commands on GitHub Actions and is green on `main`. What has *not* happened: a paid request, a proxy to an upstream, a payout, or a ledger entry written by the gateway. `docker compose up` has now run on Compose v2 and works (Postgres healthy, migrations applied, both servers answering), though it writes root-owned files into the checkout, which is open work as A16.
+The scaffold executes: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm boundaries` and `pnpm roadmap` all pass on Node 22, the API boots and answers `/healthz` and `/api/healthz`, refuses to start on a missing env var, and the Next dev server reaches the API through the `/api/*` rewrite. CI runs the same commands on GitHub Actions and is green on `main`. What has *not* happened: a paid request — no HTTP 402 challenge has ever been served and paid — a real payout, or a ledger entry written by a request path. The proxy is tested against a loopback server that nothing routes through yet, and the only payout provider that exists is the mock. `pnpm test` counts 106 passing and 8 todo in `packages/core`, and 67 passing with 17 more that need Postgres and skip without `DATABASE_URL`. `docker compose up` has now run on Compose v2 and works (Postgres healthy, migrations applied, both servers answering), though it writes root-owned files into the checkout, which is open work as A16.
 
 ## Known limitations
 
@@ -72,8 +72,9 @@ The scaffold executes: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm type
 
 The database and the two dev servers work; the end-to-end demo does not, and
 that is the honest state rather than an oversight. `pnpm seed` and `pnpm demo`
-throw `not implemented` until the gateway and the mock provider exist (C11, D2,
-G1), which is also why the `demo` CI job is manual-dispatch only for now.
+throw `not implemented` until the gateway exists (C11, G1), which is also why the
+`demo` CI job is manual-dispatch only for now. The payout half of the flow is
+already scriptable end to end — that is `pnpm simulate`, below.
 
 ```sh
 pnpm install
@@ -81,6 +82,17 @@ pnpm db:migrate            # needs Postgres: docker compose up postgres
 pnpm test                  # core money tests; the Postgres tests skip without DATABASE_URL
 pnpm dev                   # api on :3000, web on :3001, /api/* rewritten to the api
 ```
+
+```sh
+pnpm simulate [succeed|refund|fail|stall]   # one scripted payout outcome
+```
+
+It runs the mock provider, turns what the provider reports into the rows the
+reconciliation rules read, and prints the swap states, the amounts in base units
+and the discrepancy each case produces — `PAYOUT_REFUNDED`, `PAYOUT_FAILED`,
+`PAYOUT_STUCK`, or nothing for a clean payout. It exits non-zero when an outcome
+does not behave as scripted. No network, no keys, no database, and every line it
+prints is simulated, marked as such on screen (DQ-2).
 
 `docker compose up` is verified on Compose v2 (v5.7.0): Postgres comes up healthy,
 migrations apply, the api listens on 3000 and the web dev server reaches it on

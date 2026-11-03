@@ -54,7 +54,8 @@ till/
 │   │   │   │   │   ├── client.ts     # the only code that calls the 1Click API
 │   │   │   │   │   └── map-status.ts # provider status to normalized state
 │   │   │   │   └── mock/
-│   │   │   │       └── provider.ts   # scripted: succeed, refund, fail, stall
+│   │   │   │       ├── provider.ts   # scripted: succeed, refund, fail, stall
+│   │   │   │       └── scenarios.ts  # one outcome driven to the rows the rules read (D2)
 │   │   │   ├── db/
 │   │   │   │   ├── schema.ts     # Drizzle tables
 │   │   │   │   ├── client.ts
@@ -122,7 +123,7 @@ till/
 │   ├── demo-upstream.ts          # tiny upstream API for the demo
 │   ├── demo.ts                   # orchestrates the demo and asserts outcomes
 │   ├── seed.ts                   # seller, endpoint, route
-│   ├── simulate.ts               # scripted failures: refund, empty-account payer
+│   ├── simulate.ts               # pnpm simulate: the scripted payout outcomes, offline
 │   ├── check-boundaries.sh       # grep-based import rules, run in CI
 │   ├── roadmap-progress.ts       # regenerates the ROADMAP.md progress block; --check mode for CI
 │   ├── check-roadmap.sh          # fails if a change leaves ROADMAP.md untouched

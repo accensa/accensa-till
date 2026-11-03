@@ -135,6 +135,7 @@ Rules:
 - Terminal means exactly `succeeded`, `refunded` and `failed` (D1, closing S5's first consequence). `incomplete` is not one: the provider does not declare `INCOMPLETE_DEPOSIT` terminal and it is the one status where money arrives short, so an incomplete swap stays visible to `PAYOUT_STUCK` instead of being filed as finished. There is one list, `TERMINAL_SWAP_STATES` in `@till/core`, and `payouts/provider.ts` re-exports it rather than keeping its own copy.
 - Unknown provider statuses map to `processing` and trigger a `PAYOUT_STUCK` check after the stuck window.
 - `OneClickProvider` stores the raw payload in `swaps.raw`. `MockProvider` supports scripted outcomes (`succeed`, `refund`, `fail`, `stall`).
+- The mock's script is an argument, never an environment default (D2, DQ-2). It refuses a route it has no script for and a status request for a reference it never issued, instead of filling either in with `succeeded`, and every payload it hands back carries `simulated: true` so a mocked row stays marked in `swaps.raw`. `payouts/mock/scenarios.ts` drives one outcome as far as the reconciliation rules, on a clock the caller supplies, which is what makes `pnpm simulate` reproducible offline.
 - Selected by `PAYOUT_PROVIDER=oneclick|mock`. Default in `.env.example` is `mock`.
 
 ## 6. Data model
