@@ -45,10 +45,23 @@ The scaffold executes: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm type
   registered in `migrations/meta/_journal.json`. If a later `pnpm db:generate`
   takes the 0001 slot, renumber it — the header comment says how.
 - Dependencies are installed and `pnpm-lock.yaml` is committed, so the version
-  ranges are resolved and `--frozen-lockfile` works. Nothing above `postgres`,
-  `drizzle-orm`, `hono`, `next`, `zod`, `jose`, `vitest` and `biome` is in the
-  manifest yet, and `@fastnear` packages plus `@near-intents` clients are not
-  installed because no spike has asked for them (AGENTS.md: ask first).
+  ranges are resolved and `--frozen-lockfile` works. The runtime set is
+  `hono` and `@hono/node-server` 2 (one process, one HTTP server), `postgres`
+  and `drizzle-orm` (the only place SQL is written), `zod` (every boundary
+  check), `jose` (session signing), `next` and `react` (the dashboard), and
+  `vitest` plus `@biomejs/biome` for tests and lint. Added on 2026-11-03 under
+  C14: **`@fastnear/x402` 2.5.0** and **`@fastnear/wallet` 2.5.0**, which bring
+  `@x402/core`, `@x402/near`, `@x402/fetch` and `@near-js/*` with them. We do
+  not implement the x402 wire format, NEAR transaction encoding or ed25519
+  payment verification ourselves — that is money-critical cryptography and the
+  library is the thing that has to be right about it. Nothing else is in the
+  tree: the resource server is framework-agnostic so no express or adapter
+  enters, the facilitator is self-hosted so no third-party service and no API
+  key sits in the gateway path, and no `@near-intents` client is installed
+  because the payout leg runs on the mock provider (see the disclosure below).
+  The one native transitive dependency is `secp256k1`, which compiles during
+  install; `pnpm audit` is 3 production advisories, all recorded in
+  `ROADMAP.md` section 8 with why each is or is not reachable here.
 - `docker compose up` works, and it should not yet be run inside a working
   checkout: the api and web services bind-mount the repository and install into
   it, which leaves root-owned `node_modules` per package and a root-owned

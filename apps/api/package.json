@@ -12,7 +12,9 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
-    "@hono/node-server": "^1.13.7",
+    "@fastnear/wallet": "2.5.0",
+    "@fastnear/x402": "2.5.0",
+    "@hono/node-server": "^2.1.6",
     "@till/core": "workspace:*",
     "drizzle-orm": "^0.38.3",
     "hono": "^4.6.14",

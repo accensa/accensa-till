@@ -82,7 +82,7 @@ Each needs a pure rule, a fixture test, a plain-language explanation and a sugge
 
 ## Spikes (day one)
 
-- S1: Intents deposit address as `payTo`, storage registration
+- S1: Intents deposit address as `payTo`, storage registration — **closed 2026-11-03 on the fallback branch, not measured.** The x402 facilitator refuses an unregistered `payTo` (`docs/spikes/S1.md`), so `payTo` is the seller's own testnet account and the payout leg runs on the mock (`direct` is the proven half, `intents` the designed-but-unproven one)
 - S2: Standing address, and do deposits list origin tx hashes
 - S3: Partner API key lead time — Q-006 (2026-11-03): a key is optional, the no-key fee is 0.2%
 - S4: Payout testnet — Q-007: none exists or is planned, so the payout leg is mainnet, `dry: true` first, gated on the human's approval

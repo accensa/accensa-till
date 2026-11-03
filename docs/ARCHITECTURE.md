@@ -109,7 +109,7 @@ If settlement succeeded but the response never reached the buyer, a retry with t
 
 **`direct` mode.** `payTo` is the seller's NEAR account. No swap. The ledger records `payment_in` and an immediate `payout_out` of kind `direct`. The seller account must be storage-registered for the payment token; this is checked when the endpoint is created (11.3).
 
-**`intents` mode.** `payTo` is an Intents deposit address and the transfer is swapped to the seller's destination. Spike S2 selects exactly one of:
+**`intents` mode.** `payTo` is an Intents deposit address and the transfer is swapped to the seller's destination. **Spike S1 closed this branch on 2026-11-03 without measuring it, and the branch is weaker than the doc assumed: `@x402/near` 2.18.0's facilitator refuses a payment whose `payTo` is not already storage-registered for that token (`docs/spikes/S1.md`), nothing registers it for us, and whether Intents registers the addresses it hands out is not knowable from our side. Under A17's answer the payout leg runs on the mock provider, so this mode is the designed-but-unproven half of the product, and `direct` is the one the demo can show. Selecting between the two and deleting the loser is B8's job, not a quiet default:** Spike S2 selects exactly one of:
 
 - **Standing address (preferred).** One long-lived `ANY_INPUT` style quote per seller and destination, accumulating many small payments. Matches micropayment economics (14.1) and avoids per-request provider calls.
 - **Per-payment address.** A fresh quote per paid request. Easy one-to-one matching, but every swap pays minimums and fees and requires a quote deadline that outlives the buyer's retry window.
@@ -396,7 +396,7 @@ Record each result in `docs/spikes/Sx.md` with date, what was tried and the deci
 | The 1Click `/v0/status` response carries the destination-chain and origin-chain hashes Till matches on | Likely (required in the spec, never seen live) | S5: `SwapDetails` requires `destinationChainTxHashes`, `intentHashes`, `nearTxHashes`, `originChainTxHashes`, each `{hash, explorerUrl}`. Empty arrays are legal, so a hash is only guaranteed once settled. Since 2026-10-27 swaps are confidential-only and `nearTxHashes` has no swap hash |
 | Delegates from one access key must execute in nonce order | Likely | Recalled from NEP-366 semantics; spike S6 |
 | The payout leg has no testnet | Certain (organizer answer, was Guessing) | `HACKATHON.md` Q-007, read 2026-11-03: "None exists or is planned. Mainnet, separate dev accounts, tiny amounts, dry: true quotes". The Intents introduction page says the same to S5 |
-| A deposit address on NEAR accepts NEP-141 transfers without prior registration | Guessing | Spike S1 |
+| A deposit address on NEAR accepts NEP-141 transfers without prior registration | **No, for any token that implements storage management** (was Guessing, spike S1) | S1 read the rule out of the shipped counterparty code rather than measuring a chain: `@x402/near` 2.18.0 `exact/facilitator/index.mjs:238` calls `storage_balance_of` on `requirements.payTo` and returns `invalid_exact_near_recipient_not_registered_for_storage` when the token supports storage and the account is not registered, and `storage_deposit` appears zero times in that dist. A token without the method reports `supported: false` and the check is skipped, which is why this is "no, for tokens with storage" and not a flat no |
 | Cross-chain swaps have minimum amounts and fees that exceed cent-level payments | Likely | Spike S7 |
 
 ## 14. Red team review

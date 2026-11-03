@@ -198,7 +198,7 @@ This table is the plan at a glance. The live version, with task IDs, gates and s
 
 | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|
-| Intents deposit address cannot receive the NEP-141 payment | Unknown | Blocks the headline | Spike S1; if it fails, `direct` mode plus reconciliation becomes the product |
+| Intents deposit address cannot receive the NEP-141 payment | **Partly answered, and the stated consequence has been adopted** | Blocks the headline | Spike S1 closed on its fallback branch (2026-11-03): the x402 facilitator refuses an unregistered `payTo` for any token with storage management, and nothing registers it for us, so the risk is real and not measurable on testnet. A17 then chose the mock payout leg, which means **"`direct` mode plus reconciliation becomes the product" is now the design**, labelled as simulated on screen (DQ-2) rather than a fallback we hope to avoid |
 | Micropayments fall below swap minimums or fees dominate | Likely | Payout feature looks impractical | Spike S7; enforce a price floor; prefer a standing address |
 | Matching by transaction hash is impossible because deposits lack hashes | Unknown | Reconciliation weakens | Spike S2; drop the standing design if hashes are missing |
 | 1Click API key delay | Ruled out 2026-11-03: `HACKATHON.md` Q-006 says a partner JWT is optional, so no payout path waits on approval | No mainnet payouts | Ask for the key only for the fee; the fee number itself is contested (0.2% versus +25 bps, A11) |
