@@ -62,6 +62,12 @@ hits=$(violations_in 'from "\.\./(db|services)/' 'never-matches' apps/api/src/pa
 hits=$(violations_in '[Aa]mount[A-Za-z]* *= *-?[0-9]+\.[0-9]+' 'never-matches' apps/api/src packages/core/src)
 [ -z "$hits" ] || report "money must be bigint base units, never a float literal (hard rule 3)" "$hits"
 
+# C15: zod v3 accumulates one issue object per failing array element, so an
+# uncapped array at the JSON boundary turns a large payload into megabytes of
+# error. boundedArray() is the only way to write one, and it lives in common.ts.
+hits=$(violations_in '\.array\(' 'schemas/common\.ts' packages/core/src/schemas)
+[ -z "$hits" ] || report "array schemas must use boundedArray() from schemas/common.ts (C15)" "$hits"
+
 if [ "$fail" -ne 0 ]; then
   echo
   echo "boundary check failed — see docs/PROJECT_STRUCTURE.md \"Dependency rules\""

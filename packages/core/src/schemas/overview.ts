@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { baseUnitAmountSchema } from "./common.ts";
+import { baseUnitAmountSchema, boundedArray } from "./common.ts";
 
 /**
  * Header state (UI-5): the relayer balance and the last successful provider
@@ -20,7 +20,9 @@ export type HealthDto = z.infer<typeof healthDtoSchema>;
  * query over the ledger and must equal the ledger rows they summarise.
  */
 export const overviewDtoSchema = z.object({
-  byAsset: z.array(
+  // One row per asset the seller has ever settled, and the asset set is small
+  // (C15): 32 is above any real overview, not a guess at a limit.
+  byAsset: boundedArray(
     z.object({
       asset: z.string(),
       settledAmount: baseUnitAmountSchema,
@@ -28,6 +30,7 @@ export const overviewDtoSchema = z.object({
       paidOutAmount: baseUnitAmountSchema,
       refundedAmount: baseUnitAmountSchema,
     }),
+    32,
   ),
   openDiscrepancies: z.number().int().nonnegative(),
   servedUnsettledCount: z.number().int().nonnegative(),

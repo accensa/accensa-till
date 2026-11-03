@@ -157,6 +157,7 @@ db                     ──►  lib
 - Only `services/ledger.ts` inserts into `ledger_entries`.
 - `payouts` and `x402` never import from `db` or `services`.
 - `apps/web` never imports from `apps/api`.
+- Every array in `packages/core/src/schemas/` is built with `boundedArray` (`common.ts`), never a bare `z.array(` (C15): zod v3 parses all elements before it checks the array, so an uncapped array turns a large payload into one issue object per element.
 
 ## Where does new code go
 

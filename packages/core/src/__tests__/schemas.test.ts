@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { z } from "zod";
+import { z } from "zod";
 
 import {
   baseUnitAmountSchema,
+  boundedArray,
   fromBaseUnits,
   positiveBaseUnitAmountSchema,
 } from "../schemas/common.ts";
 import { endpointCreateSchema, endpointDtoSchema } from "../schemas/endpoint.ts";
 import { ledgerEntryDtoSchema } from "../schemas/ledger.ts";
+import { overviewDtoSchema } from "../schemas/overview.ts";
 import { paymentDtoSchema, paymentRequirementsSchema } from "../schemas/payment.ts";
 import { swapDtoSchema } from "../schemas/swap.ts";
 
@@ -187,5 +189,114 @@ describe("money that is allowed to be negative stays signed (G6 F1 scope)", () =
   it("leaves the signed schema unchanged, so sums of ledger rows still validate", () => {
     expect(baseUnitAmountSchema.safeParse("-1").success).toBe(true);
     expect(fromBaseUnits(-1n)).toBe("-1");
+  });
+});
+
+/**
+ * C15: every array at the JSON boundary is bounded.
+ *
+ * The zod advisory C14 declined to upgrade for is reachable in exactly one shape
+ * here: an array schema with no length cap, fed a large array. zod v3 accumulates
+ * one issue object per failing element and `error.format()` turns them into a
+ * string, so a hostile payload costs memory and CPU on the way to a 400. The
+ * measured cost, before this task: 200 000 wrong-typed elements against an
+ * uncapped `z.array(z.string())` produced 200 000 issues and an 11 488 904-byte
+ * formatted error in 569 ms. `.max()` on its own does not fix that — it runs
+ * after the elements are parsed, so the same payload produced 200 001 issues.
+ * The bound has to come before the elements are looked at, which is what
+ * `boundedArray` does and what the hostile-payload test below pins.
+ */
+describe("arrays are bounded (C15)", () => {
+  const warnings = (count: number): string[] =>
+    Array.from({ length: count }, (_, index) => `warning ${index}`);
+  const assetRow = {
+    asset: "usdc.testnet",
+    settledAmount: "10000",
+    inTransitAmount: "0",
+    paidOutAmount: "0",
+    refundedAmount: "0",
+  };
+  const overviewWith = (byAsset: unknown) =>
+    overviewDtoSchema.safeParse({
+      byAsset,
+      openDiscrepancies: 0,
+      servedUnsettledCount: 0,
+    });
+
+  it("accepts an endpoint's creation warnings up to the cap, all of them", () => {
+    const parsed = endpointDtoSchema.safeParse({
+      ...validEndpointDto,
+      creationWarnings: warnings(16),
+    });
+    expect(parsed.success).toBe(true);
+    // The gate must not trim a payload it accepts: a truncated list would tell the
+    // seller their endpoint has fewer problems than it does.
+    if (parsed.success) expect(parsed.data.creationWarnings).toEqual(warnings(16));
+  });
+
+  it("refuses one warning past the cap, and names the cap", () => {
+    const parsed = endpointDtoSchema.safeParse({
+      ...validEndpointDto,
+      creationWarnings: warnings(17),
+    });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues.length).toBe(1);
+      expect(parsed.error.issues[0]?.message).toContain("at most 16");
+    }
+  });
+
+  it("accepts an asset row up to its cap and refuses one past it", () => {
+    expect(overviewWith(new Array(32).fill(assetRow)).success).toBe(true);
+    const over = overviewWith(new Array(33).fill(assetRow));
+    expect(over.success).toBe(false);
+    if (!over.success) expect(over.error.issues[0]?.message).toContain("at most 32");
+  });
+
+  it("keeps a hostile array small on the way out, for both boundaries", () => {
+    // One issue per element is the cost this closes. The cap is the bound, so the
+    // assertion is stated against it rather than against a tuned constant.
+    const hostile = new Array(200_000).fill(123);
+    const cases = [
+      [
+        "creationWarnings",
+        endpointDtoSchema.safeParse({ ...validEndpointDto, creationWarnings: hostile }),
+        16,
+      ],
+      ["byAsset", overviewWith(hostile), 32],
+    ] as const;
+    for (const [field, parsed, cap] of cases) {
+      expect([field, parsed.success]).toEqual([field, false]);
+      if (!parsed.success) {
+        const bytes = JSON.stringify(parsed.error.format()).length;
+        expect([field, parsed.error.issues.length]).toEqual([field, cap + 2]);
+        expect([field, bytes < 5_000]).toEqual([field, true]);
+      }
+    }
+  });
+
+  it("bounds the work a bare element schema would still do", () => {
+    // `boundedArray` on its own, so the guard is pinned at the helper and not only
+    // through the two DTOs that happen to use it today.
+    const schema = boundedArray(z.string(), 4);
+    expect(schema.safeParse(["a", "b", "c", "d"]).success).toBe(true);
+    const hostile = new Array(200_000).fill(123);
+    const parsed = schema.safeParse(hostile);
+    expect(parsed.success).toBe(false);
+    // max + 1 element issues, because that is how many entries the gate lets
+    // through, plus the one the cap itself raises.
+    if (!parsed.success) expect(parsed.error.issues.length).toBe(6);
+
+    // The rejected alternative replaced an over-cap array with `null` before
+    // parsing, which bounded the work but reported "Expected array, received
+    // null" for an array that was simply too long. A refusal a seller can read is
+    // part of the contract, so the messages for the other shapes stay truthful.
+    const short = schema.safeParse(["a", 1, "c"]);
+    if (!short.success)
+      expect(short.error.issues[0]?.message).toBe("Expected string, received number");
+    const notAnArray = schema.safeParse("abc");
+    if (!notAnArray.success) {
+      expect(notAnArray.error.issues[0]?.message).toContain("Expected array, received string");
+    }
   });
 });

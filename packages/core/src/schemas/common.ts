@@ -33,6 +33,30 @@ export const positiveBaseUnitAmountSchema = z
   .regex(/^(?:0*[1-9]\d*)$/)
   .brand<"BaseUnitAmountString">();
 
+/**
+ * An array at the JSON boundary, with a hard length cap.
+ *
+ * Two parts, and the first one is the reason this exists instead of a plain
+ * `.max()`. zod v3 parses every element before it checks the array's own
+ * constraints, so an uncapped or `.max()`-only array fed 200 000 wrong-typed
+ * elements produces one issue object per element — 200 001 issues and an
+ * 11.5 MB `error.format()`, measured. That is the shape of the advisory C14
+ * declined to take zod 4.6.6 for, and on v3 the fix has to be ours: the
+ * preprocess step runs before the elements are looked at and hands the element
+ * schema at most `max + 1` entries, so both the work and the issue count are
+ * bounded by the cap whoever is parsing what.
+ *
+ * The slice only ever fires on an array that is already being refused, so no
+ * accepted payload is trimmed. Over-cap input still reports the cap rather than
+ * a type error, which is why the value is not simply replaced with `null`.
+ */
+export function boundedArray<T extends z.ZodTypeAny>(item: T, max: number) {
+  return z.preprocess(
+    (value) => (Array.isArray(value) && value.length > max ? value.slice(0, max + 1) : value),
+    z.array(item).max(max),
+  );
+}
+
 export function toBaseUnits(amount: z.infer<typeof baseUnitAmountSchema>): bigint {
   return BigInt(amount);
 }

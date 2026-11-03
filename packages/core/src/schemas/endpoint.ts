@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { httpsUrlSchema, positiveBaseUnitAmountSchema, uuidSchema } from "./common.ts";
+import {
+  boundedArray,
+  httpsUrlSchema,
+  positiveBaseUnitAmountSchema,
+  uuidSchema,
+} from "./common.ts";
 
 /**
  * Creation input for an endpoint (PO-1, PO-2). Slug is server-assigned with a
@@ -32,8 +37,12 @@ export const endpointDtoSchema = z.object({
   payoutMode: z.enum(["direct", "intents"]),
   active: z.boolean(),
   description: z.string().nullable(),
-  /** Why an endpoint was left inactive, in the seller's language (PO-2). */
-  creationWarnings: z.array(z.string()),
+  /**
+   * Why an endpoint was left inactive, in the seller's language (PO-2). The
+   * checks that fill it are a fixed handful, so 16 is far above what a real
+   * creation can produce (C15).
+   */
+  creationWarnings: boundedArray(z.string(), 16),
 });
 export type EndpointDto = z.infer<typeof endpointDtoSchema>;
 
