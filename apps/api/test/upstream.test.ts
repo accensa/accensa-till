@@ -8,6 +8,7 @@ import {
   UpstreamRequestError,
   getUpstream,
   isForwardableHeader,
+  isForwardableResponseHeader,
 } from "../src/gateway/proxy.ts";
 import {
   UpstreamPolicyError,
@@ -338,6 +339,28 @@ beforeAll(async () => {
     res.writeHead(200);
     res.write("start");
   });
+  routes.set("/hostile-headers", (res) => {
+    // A seller origin that knows the gateway forwards its response headers. It
+    // sits on the same host as the dashboard, so a cookie here is a session
+    // written into the seller's own origin, and the payment headers are the ones
+    // the buyer trusts as proof that Till settled their payment (G6 F2).
+    res.writeHead(200, {
+      "content-type": "application/json",
+      "cache-control": "no-store",
+      etag: '"v1"',
+      "x-marker": "seller",
+      "set-cookie": ["evil=1; Path=/", "session=forge-me; Path=/"],
+      connection: "close",
+      "keep-alive": "timeout=5, max=100",
+      "proxy-authenticate": 'Basic realm="upstream"',
+      "www-authenticate": 'Basic realm="upstream"',
+      "x-402-payment-response": "settled",
+      "x-payment-receipt": "forged",
+      "payment-signature": "ed25519:not-really",
+      "x-trace-id": "trace-9",
+    });
+    res.end('{"prices":[1,2,3]}');
+  });
 });
 
 afterAll(async () => {
@@ -364,6 +387,52 @@ describe("proxy limits (C5, GW-8)", () => {
     expect(result.headers.get("location")).toContain("/data");
     expect(seen.length).toBe(before + 1);
     expect(lastSeen().path).toBe("/redirect");
+  });
+
+  it("forwards the seller's own response headers, but not framing, cookies or payment material (G6 F2)", async () => {
+    const result = await getUpstream(targetFor({ pathname: "/hostile-headers" }), optionsFor());
+    expect(result.status).toBe(200);
+    for (const [name, value] of [
+      ["content-type", "application/json"],
+      ["cache-control", "no-store"],
+      ["etag", '"v1"'],
+      ["x-marker", "seller"],
+      ["x-trace-id", "trace-9"],
+    ] as const) {
+      expect([name, result.headers.get(name)]).toEqual([name, value]);
+    }
+    for (const name of [
+      "set-cookie",
+      "connection",
+      "keep-alive",
+      "proxy-authenticate",
+      "www-authenticate",
+      "content-length",
+      "transfer-encoding",
+      "x-402-payment-response",
+      "x-payment-receipt",
+      "payment-signature",
+    ]) {
+      expect([name, result.headers.has(name)]).toEqual([name, false]);
+    }
+    // The bytes are still the seller's, cap and all: this only chooses which
+    // headers travel, so the body assertion belongs with the filter.
+    expect(Buffer.from(result.body).toString("utf8")).toBe('{"prices":[1,2,3]}');
+  });
+
+  it("isForwardableResponseHeader drops the request families plus cookies, framing and challenges", () => {
+    expect(isForwardableResponseHeader("Content-Type")).toBe(true);
+    expect(isForwardableResponseHeader("location")).toBe(true);
+    expect(isForwardableResponseHeader("Retry-After")).toBe(true);
+    expect(isForwardableResponseHeader("X-Marker")).toBe(true);
+    expect(isForwardableResponseHeader("Set-Cookie")).toBe(false);
+    expect(isForwardableResponseHeader("Connection")).toBe(false);
+    expect(isForwardableResponseHeader("Content-Length")).toBe(false);
+    expect(isForwardableResponseHeader("Transfer-Encoding")).toBe(false);
+    expect(isForwardableResponseHeader("Proxy-Authenticate")).toBe(false);
+    expect(isForwardableResponseHeader("Www-Authenticate")).toBe(false);
+    expect(isForwardableResponseHeader("X-402-Version")).toBe(false);
+    expect(isForwardableResponseHeader("Payment-Signature")).toBe(false);
   });
 
   it("stops on the declared size before reading, and on the real size when there is no header", async () => {

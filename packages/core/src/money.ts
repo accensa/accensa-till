@@ -5,6 +5,12 @@
 
 export const STABLECOIN_DECIMALS = 6;
 
+/**
+ * Basis points in a whole amount. Used as an exclusive ceiling: a tolerance of
+ * this much tolerates the entire payment, so it can find no shortfall (G6 F4).
+ */
+export const MAX_TOLERANCE_BPS = 10_000;
+
 export type BaseUnitAmount = bigint;
 
 function pow10(decimals: number): bigint {
@@ -14,7 +20,14 @@ function pow10(decimals: number): bigint {
   return 10n ** BigInt(decimals);
 }
 
-/** "1.25" -> 1250000n at 6 decimals. Rejects anything a float would round. */
+/**
+ * "1.25" -> 1250000n at 6 decimals. Rejects anything a float would round.
+ *
+ * Signed by design, and not a place to put the G6 F1 positivity rule: this is the
+ * inverse of `formatAmount`, which formats negatives, so the round trip
+ * `parseAmount(formatAmount(x))` only holds for the whole bigint range if both ends
+ * accept the sign. Positivity is enforced where the value crosses a boundary.
+ */
 export function parseAmount(display: string, decimals = STABLECOIN_DECIMALS): BaseUnitAmount {
   const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(display.trim());
   if (match === null) {
@@ -54,14 +67,21 @@ export function addAmounts(...amounts: readonly BaseUnitAmount[]): BaseUnitAmoun
 /**
  * Shortfall test without multiplying by a float tolerance:
  * out < in * (1 - bps/10000)  <=>  out * 10000 < in * (10000 - bps)
+ *
+ * The ceiling is where a whole amount ends, exclusive: at 10000 bps the tolerance *is*
+ * the amount and nothing can be a shortfall, and past it `10000 - bps` goes negative, so
+ * the comparison would report a shortfall only for a payment below zero. Either way the
+ * rule stops working in silence, which is why an out-of-range tolerance throws (G6 F4).
  */
 export function isShortfall(
   amountIn: BaseUnitAmount,
   amountOut: BaseUnitAmount,
   toleranceBps: number,
 ): boolean {
-  if (!Number.isInteger(toleranceBps) || toleranceBps < 0) {
-    throw new RangeError(`toleranceBps must be a non-negative integer: ${toleranceBps}`);
+  if (!Number.isInteger(toleranceBps) || toleranceBps < 0 || toleranceBps >= MAX_TOLERANCE_BPS) {
+    throw new RangeError(
+      `toleranceBps must be an integer from 0 to ${MAX_TOLERANCE_BPS - 1}: ${toleranceBps}`,
+    );
   }
-  return amountOut * 10000n < amountIn * BigInt(10000 - toleranceBps);
+  return amountOut * 10000n < amountIn * BigInt(MAX_TOLERANCE_BPS - toleranceBps);
 }

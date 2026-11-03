@@ -140,7 +140,9 @@ Rules:
 
 ## 6. Data model
 
-Amounts are `numeric(78,0)` base units. Ids are UUID v7. Every table has `created_at timestamptz default now()`. Time comparisons use database time.
+Amounts are `numeric(78,0)` base units. Ids are UUIDs generated in the app; the generator in use is `crypto.randomUUID()` (v4), so ids do **not** sort by insertion time and insertion order comes from `created_at` (A20 tracks the v7 decision). Every table has `created_at timestamptz default now()`. Time comparisons use database time.
+
+Where the sign of an amount is not information it is enforced at the JSON boundary, not left to the column, which has no CHECK: an endpoint price, a payment amount and the amount a 402 advertises to a payer must be positive (`positiveBaseUnitAmountSchema`, G6 F1). A ledger `adjustment` and a swap amount read back from the provider stay signed, because there a negative is either the correction itself or the fact the reconciler is supposed to raise a finding about.
 
 ```
 sellers
@@ -299,11 +301,11 @@ Full-access key required by the underlying package. Mitigations:
 - Reject upstream URLs that point at the gateway itself.
 - `https` only outside local development.
 - Timeout and maximum response size.
-- Strip hop-by-hop and payment headers before forwarding.
+- Strip hop-by-hop and payment headers from the request before forwarding, and filter the seller's response on the way back (G6 F2). The buyer's browser sits on the gateway origin, which is also where the dashboard session lives, so `set-cookie` from any paywalled origin is a cookie written into it, `www-authenticate` makes the browser prompt for credentials against the gateway, and a forged `payment-signature` or `x-402-*` header is a false claim of settlement. Framing belongs to one connection, so the upstream `content-length` is dropped and Till's own server frames the bytes it holds. `location` still travels, because no redirect is followed and the buyer needs it.
 
 ### 8.5 Config
 
-All secrets from environment, validated by Zod at boot. The process refuses to start on missing or malformed values.
+All secrets from environment, validated by Zod at boot. The process refuses to start on missing or malformed values, and the refusal names the keys and never the values, because the same object holds `RELAYER_SECRET_KEY` and `ONECLICK_JWT` — which means a numeric field has to add a Zod issue rather than throw from a transform, since a thrown error loses the path (G6). Values that are floors are positive: `MIN_PRICE_BASE_UNITS` and `MAX_SPONSORED_GAS` reject a minus and a zero (a negative floor passes everything), and `SHORTFALL_TOLERANCE_BPS` is confined to `[0, 10000)`, because 0 is the strictest tolerance and 10000 tolerates the whole payment, which would leave `payout-shortfall` never firing while looking configured (G6 F1, F4).
 
 ## 9. Interfaces
 

@@ -20,9 +20,11 @@ import {
  *   a string, so services convert with `toBaseUnits` from @till/core and only
  *   ever do arithmetic in `bigint`. Never a float, in column or code form
  *   (AGENTS.md hard rule 3).
- * - Ids are UUID v7, generated in the app rather than by `gen_random_uuid()`, so
- *   they sort by insertion time. `defaultFn` is where that hook lives once C3
- *   wires the id generator.
+ * - Ids are UUIDs generated in the app rather than by `gen_random_uuid()`. Today
+ *   the one generator in use is `crypto.randomUUID()`, which is v4 and random, so
+ *   ids do NOT sort by insertion time; a v7 generator is the open part of C3 and
+ *   `defaultFn` is where it will hook in (G6). Nothing may rely on id order until
+ *   then — insertion order is `created_at`, which the database stamps.
  * - Every table carries `created_at` with a database default; time comparisons
  *   read database time, never an application clock (hard rule 12).
  */

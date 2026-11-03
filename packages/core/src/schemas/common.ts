@@ -14,6 +14,25 @@ export const baseUnitAmountSchema = z
   .regex(/^-?\d+$/)
   .brand<"BaseUnitAmountString">();
 
+/**
+ * A money field where a negative or a zero is not information but an attack
+ * (G6 F1): an endpoint price, and the amount a payment asks a payer to send.
+ *
+ * Scoped deliberately. `baseUnitAmountSchema` stays the right type for a ledger
+ * `adjustment`, whose sign is the correction, and for a swap amount read back
+ * from the provider, where an absurd value has to reach the reconciler rather than
+ * be rejected at the door. Neither can carry that reasoning in a `bigint` column,
+ * so the boundary that can is here.
+ *
+ * One regex, not `baseUnitAmountSchema.refine(BigInt(x) > 0n)`: zod v3 still runs a
+ * refinement after the check beneath it has failed, so `BigInt("1.5")` threw a
+ * SyntaxError out of `safeParse` instead of reporting an invalid amount.
+ */
+export const positiveBaseUnitAmountSchema = z
+  .string()
+  .regex(/^(?:0*[1-9]\d*)$/)
+  .brand<"BaseUnitAmountString">();
+
 export function toBaseUnits(amount: z.infer<typeof baseUnitAmountSchema>): bigint {
   return BigInt(amount);
 }

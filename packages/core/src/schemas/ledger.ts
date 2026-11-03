@@ -4,6 +4,9 @@ import { baseUnitAmountSchema, uuidSchema } from "./common.ts";
 /**
  * Ledger entry kinds (ARCHITECTURE.md 6.1). `ledger_entries` is append only, so
  * a correction is a new `adjustment` row rather than an edit.
+ *
+ * Signed on purpose (G6 F1): an `adjustment` that claws revenue back is a negative
+ * row, so this field uses `baseUnitAmountSchema`, not the positive one.
  */
 export const ledgerKindSchema = z.enum(["payment_in", "payout_out", "refund_in", "adjustment"]);
 

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { baseUnitAmountSchema, httpsUrlSchema, uuidSchema } from "./common.ts";
+import { httpsUrlSchema, positiveBaseUnitAmountSchema, uuidSchema } from "./common.ts";
 
 /**
  * Creation input for an endpoint (PO-1, PO-2). Slug is server-assigned with a
@@ -9,7 +9,7 @@ import { baseUnitAmountSchema, httpsUrlSchema, uuidSchema } from "./common.ts";
  */
 export const endpointCreateSchema = z.object({
   upstreamUrl: httpsUrlSchema,
-  priceAmount: baseUnitAmountSchema,
+  priceAmount: positiveBaseUnitAmountSchema,
   assetContract: z.string().min(1),
   network: z.string().min(1),
   description: z.string().max(500).optional(),
@@ -26,7 +26,7 @@ export const endpointDtoSchema = z.object({
   slug: z.string(),
   gatewayUrl: z.string().url(),
   upstreamUrl: httpsUrlSchema,
-  priceAmount: baseUnitAmountSchema,
+  priceAmount: positiveBaseUnitAmountSchema,
   assetContract: z.string(),
   network: z.string(),
   payoutMode: z.enum(["direct", "intents"]),

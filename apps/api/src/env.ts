@@ -13,26 +13,67 @@ const booleanish = z
   .enum(["true", "false", "1", "0"])
   .transform((value) => value === "true" || value === "1");
 
+/**
+ * A number here is reported by key name with no value echoed, which is what
+ * `loadEnv`'s contract says and what throwing from a transform used to break: a
+ * bad `PORT` produced `expected a positive integer, got abc` with no key in it.
+ * `ctx.addIssue` keeps the path, so the names come from the schema (A4, G6).
+ */
 const positiveInt = (fallback: number) =>
   z
     .string()
     .optional()
-    .transform((value) => {
+    .transform((value, ctx) => {
       if (value === undefined || value === "") {
         return fallback;
       }
       const parsed = Number(value);
       if (!Number.isInteger(parsed) || parsed <= 0) {
-        throw new Error(`expected a positive integer, got ${value}`);
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: "expected a positive integer" });
+        return z.NEVER;
       }
       return parsed;
     });
 
+/** Basis points in a whole amount: a tolerance this wide tolerates everything. */
+const FULL_TOLERANCE_BPS = 10_000;
+
+/**
+ * Zero means "any shortfall at all is a shortfall", the strictest reading, so it
+ * is allowed; 10000 would leave `payout-shortfall` unable to ever fire, so it is
+ * not (G6 F4). `isShortfall` refuses the same range, so a config that got past
+ * here cannot disable the rule either.
+ */
+const toleranceBps = (fallback: number) =>
+  z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      if (value === undefined || value === "") {
+        return fallback;
+      }
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < 0 || parsed >= FULL_TOLERANCE_BPS) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `expected basis points from 0 to ${FULL_TOLERANCE_BPS - 1}`,
+        });
+        return z.NEVER;
+      }
+      return parsed;
+    });
+
+/**
+ * A money or gas amount in base units. Positive only, because both users are
+ * floors: `MIN_PRICE_BASE_UNITS=-1` used to boot and turn the price floor into a
+ * check that passes anything, and a negative gas cap is one no delegate can meet
+ * (G6 F1, PO-2).
+ */
 const baseUnits = (fallback: string) =>
   z
     .string()
     .default(fallback)
-    .refine((value) => /^-?\d+$/.test(value), "must be an integer base-units string")
+    .refine((value) => /^(?:0*[1-9]\d*)$/.test(value), "must be a positive base-units integer")
     .transform((value) => BigInt(value));
 
 export const envSchema = z.object({
@@ -73,7 +114,7 @@ export const envSchema = z.object({
   RECONCILE_INTERVAL_SECONDS: positiveInt(60),
   SWEEP_WINDOW_SECONDS: positiveInt(300),
   STUCK_WINDOW_SECONDS: positiveInt(900),
-  SHORTFALL_TOLERANCE_BPS: positiveInt(50),
+  SHORTFALL_TOLERANCE_BPS: toleranceBps(50),
 
   /** GW-8 relaxes only for local development; production is https-only. */
   ALLOW_INSECURE_UPSTREAM: booleanish.default("false"),

@@ -94,4 +94,16 @@ describe("isShortfall", () => {
     expect(() => isShortfall(1n, 1n, -1)).toThrow(RangeError);
     expect(() => isShortfall(1n, 1n, 1.5)).toThrow(RangeError);
   });
+
+  it("refuses a tolerance so wide the comparison could only ever pass (G6 F4)", () => {
+    // 10000 bps tolerates the whole amount and past it `10000 - bps` is negative,
+    // which reports a shortfall only for amounts below zero. Before this guard
+    // SHORTFALL_TOLERANCE_BPS=20000 booted and switched detection off in silence.
+    expect(() => isShortfall(1n, 1n, 10_000)).toThrow(RangeError);
+    expect(() => isShortfall(1n, 1n, 10_001)).toThrow(RangeError);
+    expect(() => isShortfall(1n, 1n, Number.MAX_SAFE_INTEGER)).toThrow(RangeError);
+    // the widest tolerance that still means something, on a real shortfall
+    expect(isShortfall(1_000_000n, 0n, 9_999)).toBe(true);
+    expect(isShortfall(1_000_000n, 999n, 9_999)).toBe(false);
+  });
 });

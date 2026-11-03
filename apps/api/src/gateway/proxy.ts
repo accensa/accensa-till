@@ -6,7 +6,9 @@ import type { UpstreamTarget } from "./ssrf.ts";
 /**
  * Upstream GET with hard limits (C5, GW-8): no redirects followed, response size
  * capped, time capped, and the socket connects to the address `ssrf.ts` already
- * validated instead of resolving the name again.
+ * validated instead of resolving the name again. Neither direction passes headers
+ * through untouched: the buyer's request by `isForwardableHeader`, the seller's
+ * response by `isForwardableResponseHeader`.
  *
  * GW-3 lives with the caller: non-2xx and timeouts abandon the payment, they are
  * never charged. This module only reports what happened.
@@ -59,6 +61,25 @@ export function isForwardableHeader(rawName: string): boolean {
   return !HOP_BY_HOP.has(name) && !isPaymentHeader(name) && !name.startsWith("proxy-");
 }
 
+/**
+ * What a seller's response may not put on the gateway's own answer (G6 F2). The
+ * request filter is not enough here, because the buyer's browser is on the
+ * gateway origin — the same host that carries the dashboard session cookie:
+ * - `set-cookie` would let any paywalled origin write a cookie into it.
+ * - `www-authenticate` is end-to-end by RFC 9110, so it is not hop-by-hop, but a
+ *   challenge from the seller makes the browser prompt for credentials against
+ *   the gateway, which is a phishing surface wearing a real realm.
+ * - `content-length` counts the upstream hop's framing. Till writes the bytes it
+ *   actually holds and lets its own server frame them, so a stale length from a
+ *   response that was re-serialised on the way out cannot desynchronise the two.
+ */
+const RESPONSE_ONLY = new Set(["set-cookie", "www-authenticate", "content-length"]);
+
+export function isForwardableResponseHeader(rawName: string): boolean {
+  const name = rawName.toLowerCase();
+  return isForwardableHeader(name) && !RESPONSE_ONLY.has(name);
+}
+
 function hostHeader(target: UpstreamTarget): string {
   const defaultPort = target.protocol === "https:" ? 443 : 80;
   return target.port === defaultPort ? target.hostname : `${target.hostname}:${target.port}`;
@@ -86,6 +107,9 @@ function forwardHeaders(
 function toHeaderMap(raw: http.IncomingHttpHeaders): ReadonlyMap<string, string> {
   const map = new Map<string, string>();
   for (const [name, value] of Object.entries(raw)) {
+    if (!isForwardableResponseHeader(name)) {
+      continue;
+    }
     if (Array.isArray(value)) {
       map.set(name, value.join(", "));
     } else if (value !== undefined) {

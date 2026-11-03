@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { PAYMENT_STATES } from "../states.ts";
-import { baseUnitAmountSchema, nearAccountIdSchema, uuidSchema } from "./common.ts";
+import { nearAccountIdSchema, positiveBaseUnitAmountSchema, uuidSchema } from "./common.ts";
 
 /** A payment as the dashboard sees it (UI-3: every row links its NEAR transaction). */
 export const paymentDtoSchema = z.object({
@@ -8,7 +8,7 @@ export const paymentDtoSchema = z.object({
   endpointId: uuidSchema,
   routeId: uuidSchema.nullable(),
   payerAccountId: nearAccountIdSchema,
-  amount: baseUnitAmountSchema,
+  amount: positiveBaseUnitAmountSchema,
   assetContract: z.string(),
   state: z.enum(PAYMENT_STATES),
   nearTxHash: z.string().nullable(),
@@ -28,7 +28,7 @@ export type PaymentDto = z.infer<typeof paymentDtoSchema>;
 export const paymentRequirementsSchema = z.object({
   scheme: z.literal("near-address"),
   network: z.string(),
-  amount: baseUnitAmountSchema,
+  amount: positiveBaseUnitAmountSchema,
   asset: z.string(),
   payTo: z.string(),
   maxTimeoutSeconds: z.number().int().positive(),

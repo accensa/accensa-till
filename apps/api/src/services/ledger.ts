@@ -63,9 +63,10 @@ export function recordAdjustment(db: Db, entry: LedgerWrite, note: string): Prom
 
 /**
  * UI-6 "in transit" is settled payments minus terminal swaps, computed by query
- * (6.1). TODO(E4): implement with a single grouped query and a test that it
- * equals the ledger rows it summarises.
+ * (6.1). The owner is F6 with the overview page, which is what needs the number:
+ * E4 was the `PAYOUT_REFUNDED` rule and is closed, so citing it here pointed a
+ * future reader at a finished task (G6 F7).
  */
 export function inTransitAmount(_db: Db, _sellerId: string): Promise<BaseUnitAmount> {
-  throw new Error("not implemented (E4)");
+  throw new Error("not implemented (F6, UI-6)");
 }
