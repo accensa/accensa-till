@@ -36,7 +36,8 @@ till/
 │   │   ├── migrations/           # generated SQL, committed, includes ledger trigger
 │   │   ├── drizzle.config.ts
 │   │   ├── src/
-│   │   │   ├── server.ts         # HTTP entry; starts the timer loops
+│   │   │   ├── server.ts         # Boot only: env, logger, app, listen; the timer loops start here
+│   │   │   ├── app.ts            # createApp(env, log) — every route lives where a test can reach it without a port
 │   │   │   ├── env.ts            # Zod env validation, fails fast
 │   │   │   ├── gateway/
 │   │   │   │   ├── route.ts      # /r/:slug handler
@@ -165,7 +166,7 @@ db                     ──►  lib
 | A reconciliation rule | New file in `packages/core/src/reconcile/`, register in `index.ts`, fixture test in `__tests__/` |
 | A discrepancy code | Enum in `packages/core/src/schemas/`, the rule, and UI copy in `apps/web/components/domain/DiscrepancyCard.tsx` |
 | A payout provider | New folder in `apps/api/src/payouts/`, implement `PayoutProvider`, register in `createProvider` |
-| A dashboard endpoint | Zod schema in `packages/core/src/schemas/`, route in `apps/api/src/routes/`, call in `apps/web/lib/api-client.ts` |
+| A dashboard endpoint | Zod schema in `packages/core/src/schemas/`, route in `apps/api/src/routes/`, mounted in `app.ts`, call in `apps/web/lib/api-client.ts` |
 | A table or column | `apps/api/src/db/schema.ts`, run `pnpm db:generate`, commit the migration |
 | A background loop | File in `apps/api/src/jobs/`, start it from `server.ts` |
 | A guard on paid requests | `apps/api/src/gateway/guards.ts` with a test in `apps/api/test/` |
