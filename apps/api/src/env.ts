@@ -1,3 +1,4 @@
+import { x402NetworkSchema } from "@till/core";
 import { z } from "zod";
 
 /**
@@ -81,11 +82,28 @@ export const envSchema = z.object({
   PORT: positiveInt(3000),
   DATABASE_URL: z.string().min(1),
 
-  NEAR_NETWORK: z.string().default("near:testnet"),
+  NEAR_NETWORK: x402NetworkSchema.default("near:testnet"),
   NEAR_RPC_URL: z.string().url().default("https://rpc.testnet.near.org"),
   /** Never logged, never returned, never committed. A10 records account ids only. */
   RELAYER_ACCOUNT_ID: z.string().min(3).default("relayer.testnet"),
-  RELAYER_SECRET_KEY: z.string().min(1).optional(),
+  /**
+   * Optional, and an empty value is read as absent so a copied `.env.example`
+   * boots. When present it must carry the curve prefix the key parser expects
+   * (`ed25519:` or `secp256k1:`), because `x402/near.ts` asserts that shape to the
+   * library and the library only discovers a malformed key when it signs — after
+   * the payer has been served. A bad key must cost a boot, not a payment (A4).
+   */
+  RELAYER_SECRET_KEY: z
+    .string()
+    .optional()
+    .refine(
+      (value) =>
+        value === undefined ||
+        value === "" ||
+        /^(?:ed25519|secp256k1):[0-9A-Za-z+/=]+$/.test(value),
+      "expected a base64 secret key prefixed ed25519: or secp256k1:",
+    )
+    .transform((value) => (value === undefined || value === "" ? undefined : value)),
 
   PAYOUT_PROVIDER: z.enum(["mock", "oneclick"]).default("mock"),
   // S5 (docs/spikes/S5.md): the OpenAPI `servers.url` of the 1Click Swap API.

@@ -112,3 +112,41 @@ describe("environment refusals (G6 F1, F4)", () => {
     expect(port).not.toContain("not-a-port");
   });
 });
+
+/**
+ * C1 pushed these two guards into the config. `x402/near.ts` asserts the curve
+ * prefix and the `namespace:reference` network to library types it cannot import,
+ * so the check has to happen where a value can still be reported by key name — at
+ * boot, before a payer is served.
+ */
+describe("relayer key and network shape (C1)", () => {
+  it("accepts a prefixed relayer key and treats an empty one as no relayer", () => {
+    expect(
+      loadEnv({ ...process.env, ...required, RELAYER_SECRET_KEY: SECRET_IN_VALUE })
+        .RELAYER_SECRET_KEY,
+    ).toBe(SECRET_IN_VALUE);
+    // The shape a copied `.env.example` has, and the documented safe default: an
+    // empty value is absent, not malformed, so compose still boots.
+    expect(
+      loadEnv({ ...process.env, ...required, RELAYER_SECRET_KEY: "" }).RELAYER_SECRET_KEY,
+    ).toBeUndefined();
+  });
+
+  it("refuses a relayer key the signer cannot parse, without echoing it", () => {
+    for (const value of ["0000", "ed25519:", "keypair", "secp256k1:!!", "ed35519:abc"]) {
+      const error = bootError({ RELAYER_SECRET_KEY: value });
+      expect(error, value).toContain("RELAYER_SECRET_KEY");
+      expect(error, value).not.toContain(value);
+    }
+  });
+
+  it("refuses a network that is not a v2 `namespace:reference`", () => {
+    for (const value of ["testnet", "near:", "mainnet", "NEAR:testnet", "near:testnet:extra"]) {
+      expect(bootError({ NEAR_NETWORK: value }), value).toContain("NEAR_NETWORK");
+    }
+    expect(loadEnv({ ...process.env, ...required }).NEAR_NETWORK).toBe("near:testnet");
+    expect(
+      loadEnv({ ...process.env, ...required, NEAR_NETWORK: "near:localnet" }).NEAR_NETWORK,
+    ).toBe("near:localnet");
+  });
+});

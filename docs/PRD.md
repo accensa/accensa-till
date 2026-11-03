@@ -203,7 +203,7 @@ This table is the plan at a glance. The live version, with task IDs, gates and s
 | Matching by transaction hash is impossible because deposits lack hashes | Unknown | Reconciliation weakens | Spike S2; drop the standing design if hashes are missing |
 | 1Click API key delay | Ruled out 2026-11-03: `HACKATHON.md` Q-006 says a partner JWT is optional, so no payout path waits on approval | No mainnet payouts | Ask for the key only for the fee; the fee number itself is contested (0.2% versus +25 bps, A11) |
 | Relayer drained by abusive payers | Medium, and now concrete: settlement is sponsored by our own relayer account holding a **full-access** key (`FacilitatorRelayerConfig` in `@x402/near`) | Loss of gas funds, or loss of the account | Balance re-check, one in flight, strikes, low relayer balance, `MAX_SPONSORED_GAS` bounded at 3e13 (A18) |
-| Concurrent agent payments fail on nonce ordering | Likely | Lost calls for parallel agents | One in flight per payer; spike S6 |
+| Concurrent agent payments fail on nonce ordering | **Measured, and it is worse than Likely: the scheme does not stop it.** S6 ran it — two delegates from one payer both verify and both submit, and the loser fails on-chain *after* the seller served | Lost calls for parallel agents, paid for | One in flight per payer, enforced by the gateway before serving (GW-6, `docs/spikes/S6.md`) |
 | Another entrant builds the same idea | Unknown | Weakens originality | Search before building; differentiate on the guard and reconciliation depth |
 | Scope exceeds the team | High if solo | Half-finished features | P0 only until all P0 pass |
 

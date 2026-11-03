@@ -10,7 +10,11 @@ import {
 import { endpointCreateSchema, endpointDtoSchema } from "../schemas/endpoint.ts";
 import { ledgerEntryDtoSchema } from "../schemas/ledger.ts";
 import { overviewDtoSchema } from "../schemas/overview.ts";
-import { paymentDtoSchema, paymentRequirementsSchema } from "../schemas/payment.ts";
+import {
+  paymentDtoSchema,
+  paymentPayloadSchema,
+  paymentRequirementsSchema,
+} from "../schemas/payment.ts";
 import { swapDtoSchema } from "../schemas/swap.ts";
 
 /**
@@ -94,13 +98,20 @@ const validLedgerDto = {
 } as const;
 
 const validRequirements = {
-  scheme: "near-address",
+  scheme: "exact",
   network: "near:testnet",
   amount: "10000",
   asset: "usdc.testnet",
   payTo: "seller.testnet",
   maxTimeoutSeconds: 60,
-  output: { contentType: "application/json", description: "Prices" },
+  extra: {},
+} as const;
+
+const validPayload = {
+  x402Version: 2,
+  resource: { url: "https://till.example/r/prices-7f3a", mimeType: "application/json" },
+  accepted: validRequirements,
+  payload: { signedDelegateAction: "DQAAAHBheWVyLnRlc3RuZXQ".padEnd(120, "A") },
 } as const;
 
 describe("positive base unit amounts (G6 F1)", () => {
@@ -167,6 +178,106 @@ describe("payment amount is positive (G6 F1)", () => {
     expect(
       paymentRequirementsSchema.safeParse({ ...validRequirements, amount: "-10000" }).success,
     ).toBe(false);
+  });
+
+  it("refuses a scheme name that is not the one the payer's wallet matches on (C1)", () => {
+    // The counterparty picks a requirement by comparing `scheme` and `network`, so
+    // a name of our own invention is an endpoint that can never be paid.
+    for (const scheme of ["near-address", "near", "exact ", ""]) {
+      expect([
+        scheme,
+        paymentRequirementsSchema.safeParse({ ...validRequirements, scheme }).success,
+      ]).toEqual([scheme, false]);
+    }
+  });
+});
+
+/**
+ * C1: the body a buyer posts is untrusted input that goes straight into the
+ * verifier, so its shape is bounded here rather than by whatever the library
+ * happens to tolerate.
+ */
+describe("the buyer's payment payload is bounded (C1)", () => {
+  it("accepts a well-formed v2 payload", () => {
+    expect(paymentPayloadSchema.safeParse(validPayload).success).toBe(true);
+  });
+
+  it("refuses the other x402 version, whose field names mean different things", () => {
+    for (const x402Version of [1, 3, 0]) {
+      expect([
+        x402Version,
+        paymentPayloadSchema.safeParse({ ...validPayload, x402Version }).success,
+      ]).toEqual([x402Version, false]);
+    }
+  });
+
+  it("refuses an absent, empty or absurdly large signed delegate action", () => {
+    for (const signedDelegateAction of ["", "short", "A".repeat(4097)]) {
+      const parsed = paymentPayloadSchema.safeParse({
+        ...validPayload,
+        payload: { signedDelegateAction },
+      });
+      expect([signedDelegateAction.length, parsed.success]).toEqual([
+        signedDelegateAction.length,
+        false,
+      ]);
+    }
+    expect(paymentPayloadSchema.safeParse({ ...validPayload, payload: {} }).success).toBe(false);
+  });
+
+  it("refuses a payload that carries a negative price in its accepted requirements", () => {
+    // The verifier is handed our cached requirements, not this field, but the
+    // shape still has to refuse the sign rather than pass it through (G6 F1).
+    expect(
+      paymentPayloadSchema.safeParse({
+        ...validPayload,
+        accepted: { ...validRequirements, amount: "-1" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("takes v2's resource as an object, not the v1 URL string", () => {
+    // v1 put a bare `resource: string` in PaymentRequirements; v2's payload
+    // carries a ResourceInfo with a required `url`. Accepting the string here
+    // would mean the shape we validate is not the shape we forward.
+    expect(paymentPayloadSchema.safeParse({ ...validPayload, resource: undefined }).success).toBe(
+      true,
+    );
+    for (const resource of [
+      "https://till.example/r/prices-7f3a",
+      {},
+      { url: "" },
+      { url: "not a url" },
+      { url: "https://till.example", tags: Array.from({ length: 33 }, (_, i) => `t${i}`) },
+    ]) {
+      expect(paymentPayloadSchema.safeParse({ ...validPayload, resource }).success).toBe(false);
+    }
+    expect(
+      paymentPayloadSchema.safeParse({
+        ...validPayload,
+        resource: { url: "https://till.example", tags: ["prices"], description: "x".repeat(2000) },
+      }).success,
+    ).toBe(true);
+  });
+
+  it("refuses a network with no chain namespace", () => {
+    // The library types `network` as `${string}:${string}`, so `testnet` is not a
+    // network at all and would fail at settlement, after the payer was served.
+    for (const network of ["testnet", "", "near:", ":testnet", "near:testnet:extra"]) {
+      const parsed = paymentPayloadSchema.safeParse({
+        ...validPayload,
+        accepted: { ...validRequirements, network },
+      });
+      expect([network, parsed.success]).toEqual([network, false]);
+    }
+    for (const network of ["near:testnet", "near:mainnet", "eip155:84532"]) {
+      expect(
+        paymentPayloadSchema.safeParse({
+          ...validPayload,
+          accepted: { ...validRequirements, network },
+        }).success,
+      ).toBe(true);
+    }
   });
 });
 
