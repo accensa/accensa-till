@@ -92,16 +92,16 @@ async function seed(): Promise<void> {
       ${AMOUNT}, ${ASSET}, 'near:testnet', 'direct')
     on conflict (id) do nothing`;
 
-  // The sweep is global by design. Two kinds of `verified` row cannot belong to
-  // a live test: one already past the window (the dead-process row this job
-  // exists for, left by an earlier session) and one this suite left on a
-  // previous run. The margin is five minutes rather than an hour because any
-  // `verified` row past `WINDOW_SECONDS` is precisely what the sweep is meant
-  // to consume, and a sibling suite's fixture is seconds old when it runs.
-  // Clearing both makes each case's count the rows that case inserted.
-  await sql`delete from payments where state = 'verified'
-    and (verified_at < now() - interval '5 minutes'
-      or endpoint_id in (select id from endpoints where slug like 'c10-%'))`;
+  // The sweep is global by design, so the only way to assert exact counts is to
+  // begin from no `verified` rows at all. Two things make that safe and
+  // complete. `vitest.config.ts` runs the database files in sequence, so no
+  // other suite is mid-test holding a `verified` row to assert on (C8's guards
+  // suite inserts a stale row for exactly one assertion, and a concurrent sweep
+  // would consume it). And deleting every `verified` row, not only those past
+  // some margin, removes what previous runs left behind: rows in the gap
+  // between the sweep window and the margin were still counted (`abandoned: 16`
+  // on 2026-11-04). A `verified` row has no ledger entry, so this is not history.
+  await sql`delete from payments where state = 'verified'`;
 }
 
 type StaleInput = {
@@ -168,9 +168,10 @@ suite("boot sweep of stale payments (C10, GW-2)", () => {
   // Each case owns the rows it inserts. Unproven/inside-window rows are left
   // `verified` on purpose (that is the assertion), and a later sweep sees the
   // whole table, so the leftovers are cleared here rather than counted twice.
-  // A `verified` row has no ledger entry, so this delete is not history.
+  // Global rather than per-endpoint because the sweep is global; safe because
+  // the database files run in sequence (`vitest.config.ts`).
   beforeEach(async () => {
-    await need().sql`delete from payments where endpoint_id = ${endpointId} and state = 'verified'`;
+    await need().sql`delete from payments where state = 'verified'`;
   });
 
   it("abandons a stale verified row that carries no settlement evidence", async () => {

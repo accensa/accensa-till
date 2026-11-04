@@ -162,7 +162,7 @@ Rules:
 
 Amounts are `numeric(78,0)` base units. Ids are UUID v7, minted in the app by `newId()` from `@till/core` and supplied by each table's column default, so the leading 48 bits are the creation millisecond and an id sorts with its row's insertion. Within one process that ordering is exact — the 12 bits beneath the timestamp are a counter, not noise — and across processes it is only approximate, because they share neither counter nor clock. An id is therefore an index-locality hint and a tiebreaker, never a timestamp: ordering of record is `created_at`, and time comparisons use database time. Every table has `created_at timestamptz default now()`.
 
-Where the sign of an amount is not information it is enforced at the JSON boundary, not left to the column, which has no CHECK: an endpoint price, a payment amount and the amount a 402 advertises to a payer must be positive (`positiveBaseUnitAmountSchema`, G6 F1). A ledger `adjustment` and a swap amount read back from the provider stay signed, because there a negative is either the correction itself or the fact the reconciler is supposed to raise a finding about.
+Where the sign of an amount is not information it is enforced twice, and the database is the inner layer. The JSON boundary refuses a non-positive endpoint price, payment amount and 402 amount (`positiveBaseUnitAmountSchema`, G6 F1), and A19 makes the same arithmetic true of the columns: `endpoints.price_amount >= 0`, `payments.amount >= 0`, a ledger entry non-negative unless its kind is `adjustment`, and `swaps.refunded_amount` never above `amount_in` when both are present. The JSON boundary stays stricter than the columns on purpose — "positive" is policy (a payable request) while "non-negative" is arithmetic — so a write path that skips the schema still cannot store a negative sum. A ledger `adjustment` and a swap amount read back from the provider stay signed, because there a negative is either the correction itself or the fact the reconciler is supposed to raise a finding about.
 
 ```
 sellers
@@ -175,7 +175,7 @@ endpoints
   seller_id         uuid fk sellers
   slug              text unique not null      -- random suffix, not enumerable
   upstream_url      text not null             -- https only outside local dev
-  price_amount      numeric(78,0) not null    -- >= MIN_PRICE_BASE_UNITS
+  price_amount      numeric(78,0) not null    -- >= MIN_PRICE_BASE_UNITS, and CHECK >= 0
   asset_contract    text not null             -- NEP-141 contract id
   network           text not null
   description       text
@@ -202,7 +202,7 @@ payments
   endpoint_id         uuid fk endpoints
   route_id            uuid fk payout_routes null   -- snapshot at verify time
   payer_account_id    text not null
-  amount              numeric(78,0) not null       -- snapshot of price
+  amount              numeric(78,0) not null       -- snapshot of price; CHECK >= 0
   asset_contract      text not null
   replay_key          text unique not null
   state               text not null   -- verified | abandoned | settled | served_unsettled
@@ -224,7 +224,7 @@ swaps
   min_amount_out      numeric(78,0)            -- only present for per-payment quotes
   origin_tx_hash      text                     -- match key against payments.near_tx_hash
   destination_tx_hash text
-  refunded_amount     numeric(78,0)
+  refunded_amount     numeric(78,0)            -- CHECK null or <= amount_in
   last_polled_at      timestamptz
   terminal_at         timestamptz
   raw                 jsonb not null
@@ -233,7 +233,7 @@ ledger_entries   -- append only, enforced by trigger
   id                  uuid pk
   seller_id           uuid fk sellers
   kind                text not null   -- payment_in | payout_out | refund_in | adjustment
-  amount              numeric(78,0) not null
+  amount              numeric(78,0) not null   -- CHECK: inflows >= 0; adjustment signed
   asset               text not null
   payment_id          uuid fk payments null
   swap_id             uuid fk swaps null

@@ -2,6 +2,7 @@ import { newId } from "@till/core";
 import { sql } from "drizzle-orm";
 import {
   boolean,
+  check,
   customType,
   index,
   integer,
@@ -93,7 +94,13 @@ export const endpoints = pgTable(
     active: boolean("active").notNull().default(true),
     createdAt: createdAt(),
   },
-  (table) => [index("endpoints_seller_idx").on(table.sellerId)],
+  (table) => [
+    // A19: a negative price is an arithmetic impossibility, not a policy, so the
+    // database refuses it even if a future write path forgets PO-2. Zero is left
+    // allowed on purpose: the floor is policy and lives in the config, not here.
+    check("endpoints_price_amount_non_negative", sql`${table.priceAmount} >= 0`),
+    index("endpoints_seller_idx").on(table.sellerId),
+  ],
 );
 
 export const payments = pgTable(
@@ -121,6 +128,9 @@ export const payments = pgTable(
     createdAt: createdAt(),
   },
   (table) => [
+    // A19: a payment amount is money received, so it cannot be negative. This is
+    // the last line behind the JSON boundary's positive-amount refusal (G6 F1).
+    check("payments_amount_non_negative", sql`${table.amount} >= 0`),
     index("payments_endpoint_idx").on(table.endpointId),
     index("payments_payer_idx").on(table.payerAccountId, table.state),
     // C8: one in-flight paid request per payer, and GW-7 strikes both read this.
@@ -187,6 +197,16 @@ export const swaps = pgTable(
     createdAt: createdAt(),
   },
   (table) => [
+    // A19: you cannot get back more than went in. Provider amounts stay signed
+    // on purpose (the DTO records what a provider reported, even "-5", so
+    // reconcile can raise a discrepancy), but when both sides are present the
+    // refund bound is arithmetic, not policy. A null `amount_in` leaves the
+    // bound unprovable and is left to reconcile rather than blocking the row.
+    check(
+      "swaps_refunded_amount_within_amount_in",
+      sql`${table.refundedAmount} is null or ${table.amountIn} is null
+        or ${table.refundedAmount} <= ${table.amountIn}`,
+    ),
     index("swaps_origin_tx_idx").on(table.originTxHash),
     index("swaps_route_idx").on(table.routeId, table.state),
   ],
@@ -214,7 +234,19 @@ export const ledgerEntries = pgTable(
     note: text("note"),
     createdAt: createdAt(),
   },
-  (table) => [index("ledger_seller_asset_idx").on(table.sellerId, table.asset)],
+  (table) => [
+    // A19: per-kind, because the kinds point in different directions. Money in
+    // and money out are non-negative; an `adjustment` is a signed correction and
+    // is the only kind allowed below zero. The same predicate is a whitelist, so
+    // a fifth kind cannot be written until a migration names it here.
+    check(
+      "ledger_entries_amount_sign_by_kind",
+      sql`(${table.kind} in ('payment_in', 'payout_out', 'refund_in')
+          and ${table.amount} >= 0)
+        or (${table.kind} = 'adjustment')`,
+    ),
+    index("ledger_seller_asset_idx").on(table.sellerId, table.asset),
+  ],
 );
 
 export const discrepancies = pgTable(

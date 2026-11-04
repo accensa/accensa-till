@@ -268,9 +268,9 @@ export function createRequirementsCache(deps: RequirementsCacheDeps): Requiremen
     if (!payTo.ok) {
       return payTo;
     }
-    // numeric(78,0) can hold 0 and a negative, because A19's CHECK constraints are
-    // still open work, and `BigInt("1.5")` would throw rather than refuse: the
-    // integer-string shape is checked before the floor compares it.
+    // A19 makes a negative price unwritable, but the value here is the driver's
+    // string: `BigInt("1.5")` throws rather than refuses, so the integer-string
+    // shape is checked before the floor compares it.
     if (!/^\d+$/.test(source.priceAmount)) {
       return refusal(
         "advertisement_invalid",

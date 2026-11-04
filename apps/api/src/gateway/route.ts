@@ -259,8 +259,8 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
 
     // A payout mode outside the two the schema means is not treated as `direct`.
     // Guessing would send money to the seller's own account on a row that meant a
-    // route, so it is refused here rather than at settlement; A19 puts the same rule
-    // in the database, where a value like this cannot be written at all.
+    // route, so it is refused here rather than at settlement. A19 constrained the
+    // money columns, not this text column, so this refusal is the only guard.
     if (row.payoutMode !== "direct" && row.payoutMode !== "intents") {
       requestLog.warn(
         { code: "endpoint_misconfigured", payoutMode: row.payoutMode },
