@@ -372,11 +372,17 @@ suite("guards (C8, GW-5, GW-6)", () => {
     const again = await openPayment(db, input, { windowSeconds: WINDOW });
     expect(again.kind).toBe("in_flight");
 
-    // And once it is abandoned, the same key is a replay with no receipt, which is
-    // C4's answer and C7's to improve.
+    // And once it is abandoned the two rules hand off to each other (C7, GW-4): the
+    // in-flight read finds no `verified` row, so the key's own conflict resolves into
+    // a retry of the same row -- and because that retry stamped `verified_at` again,
+    // the *next* request is in flight once more. One authorization gets one more
+    // serve, not an unlimited queue of them.
     await advancePayment(db, input.id, "abandoned", {});
     const after = await openPayment(db, input, { windowSeconds: WINDOW });
-    expect(after.kind).toBe("existing");
+    expect(after.kind).toBe("retried");
+
+    const third = await openPayment(db, input, { windowSeconds: WINDOW });
+    expect(third.kind).toBe("in_flight");
 
     await need().sql`delete from payments where payer_account_id = ${PAYER}`;
   });

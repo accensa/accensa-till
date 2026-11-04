@@ -129,6 +129,7 @@ const UPSTREAM = {
   hold: "/hold",
   moved: "/moved",
   slow: "/slow",
+  flaky: "/flaky",
 } as const;
 
 /**
@@ -137,6 +138,15 @@ const UPSTREAM = {
  * is about. Without it every concurrent test would be a test of the event loop.
  */
 let releaseHold: (() => void) | null = null;
+
+/**
+ * C7 needs one endpoint that is both a failure and a success: the first attempt has
+ * to leave an `abandoned` row and the retry of the *same* authorization has to be
+ * servable, and a retry at a different endpoint is a different payment (see the
+ * cross-endpoint test). So the seller's behaviour on `/flaky` is a switch the test
+ * throws between the two halves.
+ */
+let flakyFails = false;
 
 let upstreamServer: Server;
 let upstreamPort = 0;
@@ -195,6 +205,16 @@ beforeAll(async () => {
         "set-cookie": "from-a-redirect=1; Path=/",
       });
       response.end("moved");
+      return;
+    }
+    if (path === UPSTREAM.flaky) {
+      if (flakyFails) {
+        response.writeHead(503, { "content-type": "text/plain" });
+        response.end("the seller is having a moment");
+        return;
+      }
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ price: 4213, unit: "eur", path }));
       return;
     }
     if (path === UPSTREAM.slow) {
@@ -668,6 +688,18 @@ async function paymentByReplayKey(replayKey: string): Promise<PaymentLite | null
   };
 }
 
+/**
+ * How many rows one authorization made. GW-4's promise is the number `1`, and a
+ * retry that inserted a second row would still serve happily and still write one
+ * ledger line, so this is the assertion that catches it.
+ */
+async function paymentCountByReplayKey(replayKey: string): Promise<number> {
+  const { sql } = need();
+  const [row] = await sql<{ n: string }[]>`
+    select count(*)::text as n from payments where replay_key = ${replayKey}`;
+  return Number(row?.n ?? "0");
+}
+
 /** The ledger lines a payment produced, by replay key -- the tests all have one. */
 async function ledgerOf(replayKey: string): Promise<{ kind: string; amount: string }[]> {
   const payment = await paymentByReplayKey(replayKey);
@@ -757,6 +789,7 @@ suite("the gateway paid request (C4, GW-2)", () => {
     await insertFixture({ name: "hold", payoutMode: "direct", path: "hold" });
     await insertFixture({ name: "moved", payoutMode: "direct", path: "moved" });
     await insertFixture({ name: "slow", payoutMode: "direct", path: "slow" });
+    await insertFixture({ name: "flaky", payoutMode: "direct", path: "flaky" });
   });
 
   it("answers an unpaid request with the 402 a v2 payer can act on, and costs nothing", async () => {
@@ -996,6 +1029,143 @@ suite("the gateway paid request (C4, GW-2)", () => {
     // count never rises.
     expect(calls).toEqual(["verify"]);
     expect(await countPayments(fixture("intents").endpointId, "settled")).toBe(0);
+  });
+
+  it("retries an abandoned payment with the same authorization, serves it and charges once (C7, GW-4)", async () => {
+    const target = fixture("flaky");
+    const replayKey = randomUUID();
+    flakyFails = true;
+    let firstRowId = "";
+    try {
+      const firstCalls: Call[] = [];
+      const first = await call("flaky", {
+        x402: scriptedX402({ settle: "ok", hash: "near-tx-never-minted", replayKey }, firstCalls),
+        payment: payloadFor(target.sellerAccount),
+      });
+      expect(first.response.status).toBe(502);
+      const abandoned = await paymentByReplayKey(replayKey);
+      expect(abandoned?.state).toBe("abandoned");
+      expect(abandoned?.upstreamStatus).toBe(503);
+      expect(abandoned?.nearTxHash).toBeNull();
+      expect(firstCalls).toEqual(["verify"]);
+      expect(await ledgerOf(replayKey)).toEqual([]);
+      firstRowId = abandoned?.id ?? "";
+
+      // The retry. Same signature, same replay key, and the seller is awake now.
+      flakyFails = false;
+      const secondCalls: Call[] = [];
+      const second = await call("flaky", {
+        x402: scriptedX402({ settle: "ok", hash: "near-tx-second-half", replayKey }, secondCalls),
+        payment: payloadFor(target.sellerAccount),
+      });
+      expect(second.response.status).toBe(200);
+      expect(await second.response.json()).toMatchObject({ price: 4213 });
+      const retried = await paymentByReplayKey(replayKey);
+      // One authorization, one row: the retry moved the abandoned row back rather
+      // than inserting a second one, so the id the *first* attempt wrote is the id
+      // that is now settled. A second row would settle too and still write one
+      // ledger line, which is why this is an id and not a count.
+      expect(retried?.id).toBe(firstRowId);
+      expect(await paymentCountByReplayKey(replayKey)).toBe(1);
+      expect(retried).toMatchObject({
+        state: "settled",
+        nearTxHash: "near-tx-second-half",
+        // Attempt one's 503 is gone: the row describes the attempt being served.
+        upstreamStatus: 200,
+      });
+      expect(retried?.settledAt).not.toBeNull();
+      // The retry re-stamped `verified_at` from the database clock, so Guard 3's
+      // window and C10's sweep both measure this attempt, not the failed one.
+      expect(retried?.verifiedIsLive).toBe(true);
+      // Money moved once, and only after the second attempt's own 2xx.
+      expect(secondCalls).toEqual(["verify", "settle"]);
+      expect(await ledgerOf(replayKey)).toEqual([{ kind: "payment_in", amount: PRICE }]);
+      expect(decodeReceipt(second.response).transaction).toBe("near-tx-second-half");
+      expect(second.lines.some((line) => line.code === "payment_retried")).toBe(true);
+    } finally {
+      flakyFails = false;
+    }
+  });
+
+  it("will not reopen an abandoned row for a payment the scheme refuses (C7, GW-4)", async () => {
+    // Hard rule 2's order is what makes the retry safe, so it is asserted rather than
+    // assumed: verify runs at step 4 and the row is touched at step 6. A second
+    // attempt the scheme refuses therefore leaves the abandoned row exactly as the
+    // first attempt left it, dials nobody and settles nothing.
+    const target = fixture("flaky");
+    const replayKey = randomUUID();
+    flakyFails = true;
+    try {
+      const first = await call("flaky", {
+        x402: scriptedX402({ settle: "ok", replayKey }, []),
+        payment: payloadFor(target.sellerAccount),
+      });
+      expect(first.response.status).toBe(502);
+      const before = await paymentByReplayKey(replayKey);
+
+      const calls: Call[] = [];
+      const second = await call("flaky", {
+        x402: scriptedX402({ verify: "invalid", replayKey }, calls),
+        payment: payloadFor(target.sellerAccount),
+      });
+      expect(second.response.status).toBe(402);
+      expect(calls).toEqual(["verify"]);
+      const after = await paymentByReplayKey(replayKey);
+      expect(after?.id).toBe(before?.id);
+      expect(after?.state).toBe("abandoned");
+      expect(after?.upstreamStatus).toBe(503);
+      expect(await ledgerOf(replayKey)).toEqual([]);
+    } finally {
+      flakyFails = false;
+    }
+  });
+
+  it("refuses to reopen an abandoned row that carries a settlement hash (C7, GW-4)", async () => {
+    // The double-spend half of GW-4, and the state no route branch can write today
+    // because no abandonment path calls `settle`. C10's sweep is the writer that can:
+    // it abandons stale rows *after* reading the chain, and a row whose money moved
+    // while the process was dead is precisely the one a retry must never serve. So
+    // the guard is a predicate in the update, and it is tested by making the state by
+    // hand rather than by arguing it cannot happen.
+    const target = fixture("flaky");
+    const replayKey = randomUUID();
+    const hash = "near-tx-landed-while-we-were-dead";
+    flakyFails = true;
+    try {
+      const first = await call("flaky", {
+        x402: scriptedX402({ settle: "ok", replayKey }, []),
+        payment: payloadFor(target.sellerAccount),
+      });
+      expect(first.response.status).toBe(502);
+      const { sql } = need();
+      const row = await paymentByReplayKey(replayKey);
+      if (row === null) {
+        throw new Error("no abandoned row to put a settlement hash on");
+      }
+      await sql`update payments set near_tx_hash = ${hash} where id = ${row.id}`;
+
+      flakyFails = false;
+      const calls: Call[] = [];
+      const second = await call("flaky", {
+        x402: scriptedX402({ settle: "ok", hash: "near-tx-second-half", replayKey }, calls),
+        payment: payloadFor(target.sellerAccount),
+      });
+      expect(second.response.status).toBe(409);
+      expect(await second.response.json()).toMatchObject({ error: "payment_replay" });
+      // No receipt either: `settled` is the state that earns one, and this row is not
+      // settled -- it is money that moved without a receipt we can stand behind, which
+      // is E2's discrepancy and C10's problem, not a second free call for the payer.
+      expect(second.response.headers.get(PAYMENT_RESPONSE_HEADER)).toBeNull();
+      expect(calls).toEqual(["verify"]);
+      const after = await paymentByReplayKey(replayKey);
+      expect(after?.state).toBe("abandoned");
+      expect(after?.nearTxHash).toBe(hash);
+      expect(after?.settledAt).toBeNull();
+      expect(await paymentCountByReplayKey(replayKey)).toBe(1);
+      expect(await ledgerOf(replayKey)).toEqual([]);
+    } finally {
+      flakyFails = false;
+    }
   });
 
   it("passes a 4xx through and abandons the payment without charging", async () => {

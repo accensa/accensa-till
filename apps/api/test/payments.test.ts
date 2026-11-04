@@ -3,7 +3,12 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { IllegalPaymentTransition, PAYMENT_STATES, type PaymentState } from "@till/core";
+import {
+  IllegalPaymentTransition,
+  PAYMENT_STATES,
+  type PaymentState,
+  canTransitionPayment,
+} from "@till/core";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -23,6 +28,12 @@ import {
  * concurrent inserts into one row, that `verified_at` and `settled_at` come from
  * the database clock, and that a compare-and-set on `state` makes a second settle
  * attempt fail instead of writing a second receipt.
+ *
+ * C7 (GW-4) added the other half of that story here, because it is the same three
+ * facts in reverse: a retried authorization finds the abandoned row and moves it
+ * back rather than making a second one, the reopen is compare-and-set so two retries
+ * serve once, and a row that carries any evidence of a chain move cannot be reopened
+ * at all.
  *
  * Needs `DATABASE_URL`; without a reachable database the file skips, so a CI run
  * with no Postgres cannot be read as evidence (same deal as append-only.test.ts).
@@ -118,6 +129,21 @@ async function openFresh(overrides: Partial<OpenInput> = {}) {
     throw new Error("fixture replayed a key that was never used");
   }
   return outcome.payment;
+}
+
+/**
+ * A promise the test opens by hand, so another connection can be made to hold a row
+ * until the request under test is standing on it. Returned as an object rather than
+ * a `let release: (() => void) | null` assigned inside the executor: TypeScript's
+ * flow analysis cannot see that assignment, so calling it is a type error before it
+ * is anything else.
+ */
+function handGate(): { readonly promise: Promise<void>; readonly open: () => void } {
+  let open: () => void = () => {};
+  const promise = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open };
 }
 
 const suite = describe.skipIf(handle === null);
@@ -219,18 +245,277 @@ suite("payments service (C3, GW-2, GW-4)", () => {
     expect(settled.settledAt).not.toBeNull();
   });
 
-  it("refuses every move out of a terminal state, against the row in the database", async () => {
+  it("refuses every move out of `settled`, against the row in the database", async () => {
     const { db } = need();
-    for (const terminal of ["settled", "abandoned"] as const) {
-      const payment = await openFresh();
-      await advancePayment(db, payment.id, terminal);
+    const payment = await openFresh();
+    await advancePayment(db, payment.id, "settled", { nearTxHash: "tx-terminal" });
 
-      for (const to of PAYMENT_STATES) {
-        await expect(advancePayment(db, payment.id, to as PaymentState)).rejects.toThrow(
-          IllegalPaymentTransition,
-        );
-      }
+    for (const to of PAYMENT_STATES) {
+      await expect(advancePayment(db, payment.id, to as PaymentState)).rejects.toThrow(
+        IllegalPaymentTransition,
+      );
     }
+  });
+
+  it("moves an abandoned row back to verified and refuses every other move out of it (C7, GW-4)", async () => {
+    // The state-machine half of the retry, read from the row rather than from the
+    // table: `abandoned -> verified` is the one edge C7 opened, and the two that
+    // would cost money -- straight to `settled`, or to `served_unsettled` -- stay
+    // refused. `advancePayment` itself is not the reopen path (see the test below);
+    // this one asks the machine, through the service, what it makes of each move.
+    const { db } = need();
+    const payment = await openFresh();
+    await advancePayment(db, payment.id, "abandoned", { upstreamStatus: 502 });
+
+    expect(canTransitionPayment("abandoned", "verified")).toBe(true);
+    for (const to of ["abandoned", "settled", "served_unsettled"] as const) {
+      await expect(advancePayment(db, payment.id, to)).rejects.toThrow(IllegalPaymentTransition);
+    }
+    const after = await findPayment(db, payment.id);
+    expect(after?.state).toBe("abandoned");
+  });
+
+  it("reopens an abandoned row as the same row, with a fresh stamp and no stale answer (C7, GW-4)", async () => {
+    const { db, sql } = need();
+    const input = paymentInput();
+    const first = await openPayment(db, input);
+    if (first.kind !== "created") {
+      throw new Error(`first open returned ${first.kind}`);
+    }
+    await advancePayment(db, first.payment.id, "abandoned", {
+      upstreamStatus: 502,
+      upstreamMs: 15_000,
+    });
+    const before = await findPayment(db, first.payment.id);
+
+    // A retry carries the same authorization, so the same `replay_key`, and a fresh
+    // row id from the route's `newId()`: the service must find the old row, not the
+    // id, and must not be able to insert a second one.
+    const retry = await openPayment(
+      db,
+      paymentInput({ replayKey: input.replayKey, id: randomUUID() }),
+    );
+    if (retry.kind !== "retried") {
+      throw new Error(`retry returned ${retry.kind}`);
+    }
+    expect(retry.payment.id).toBe(first.payment.id);
+    expect(retry.payment.state).toBe("verified");
+    expect(retry.payment.upstreamStatus).toBeNull();
+    expect(retry.payment.upstreamMs).toBeNull();
+    expect(retry.payment.nearTxHash).toBeNull();
+    expect(retry.payment.settledAt).toBeNull();
+    // `verified_at` moves. Guard 3's window and C10's sweep both measure age from
+    // it, so a retry that kept the failed attempt's stamp would have a live request
+    // timed out of a dead one -- and the sweep would abandon a payment the payer is
+    // waiting on. Two statements a few milliseconds apart cannot share a stamp.
+    const after = await findPayment(db, first.payment.id);
+    expect(
+      (after?.verifiedAt ?? new Date(0)).getTime() > (before?.verifiedAt ?? new Date(0)).getTime(),
+    ).toBe(true);
+
+    const [row] =
+      await sql`select (extract(epoch from (now() - verified_at))::int) as age, upstream_status
+        from payments where replay_key = ${input.replayKey}`;
+    expect(row?.age).toBeLessThanOrEqual(5);
+    const [count] =
+      await sql`select (count(*))::int as count from payments where replay_key = ${input.replayKey}`;
+    expect(count?.count).toBe(1);
+  });
+
+  it("will not reopen an abandoned row that shows money moved (C7, GW-4's double-spend guard)", async () => {
+    const { db, sql } = need();
+    // No route branch writes a hash into an abandoned row, so this state is built
+    // here on purpose: it is what C10's sweep leaves when the chain says the settle
+    // landed while the process was dead. Re-serving it would be a second
+    // settlement for one signature, which is the argument C3 left for this row.
+    for (const which of ["hash", "stamp"] as const) {
+      const input = paymentInput();
+      const first = await openPayment(db, input);
+      if (first.kind !== "created") {
+        throw new Error(`first open returned ${first.kind}`);
+      }
+      await advancePayment(db, first.payment.id, "abandoned", { upstreamStatus: 502 });
+      if (which === "hash") {
+        await sql`update payments set near_tx_hash = 'tx-evidence-of-a-chain-move'
+          where id = ${first.payment.id}`;
+      } else {
+        await sql`update payments set settled_at = now() where id = ${first.payment.id}`;
+      }
+
+      const retry = await openPayment(db, paymentInput({ replayKey: input.replayKey }));
+      expect([which, retry.kind]).toEqual([which, "existing"]);
+      if (retry.kind !== "existing") {
+        throw new Error(`retry returned ${retry.kind}`);
+      }
+      expect(retry.payment.id).toBe(first.payment.id);
+      expect(retry.payment.state).toBe("abandoned");
+
+      const rows =
+        which === "hash"
+          ? await sql`select near_tx_hash as kept from payments where id = ${first.payment.id}`
+          : await sql`select settled_at is not null as kept from payments where id = ${first.payment.id}`;
+      // The evidence survives: refusing the retry must not quietly wipe the hash
+      // that reconcile needs, or the stamp the sweep wrote.
+      expect([which, rows[0]?.kept]).toEqual([
+        which,
+        which === "hash" ? "tx-evidence-of-a-chain-move" : true,
+      ]);
+      const [count] =
+        await sql`select count(*)::int as count from payments where replay_key = ${input.replayKey}`;
+      expect(count?.count).toBe(1);
+    }
+  });
+
+  it("reopens once when two retries of one abandoned authorization arrive together (C7, GW-4)", async () => {
+    const { db, sql } = need();
+    const input = paymentInput();
+    const first = await openPayment(db, input);
+    if (first.kind !== "created") {
+      throw new Error(`first open returned ${first.kind}`);
+    }
+    await advancePayment(db, first.payment.id, "abandoned", { upstreamStatus: 502 });
+
+    const outcomes = await Promise.all([
+      openPayment(db, paymentInput({ replayKey: input.replayKey })),
+      openPayment(db, paymentInput({ replayKey: input.replayKey })),
+    ]);
+    expect(outcomes.filter((outcome) => outcome.kind === "retried")).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.kind === "existing")).toHaveLength(1);
+
+    const [count] =
+      await sql`select count(*)::int as count from payments where replay_key = ${input.replayKey}`;
+    expect(count?.count).toBe(1);
+  });
+
+  it("reopens the row the writer that moved it first actually moved, mid-window (C7's compare-and-set)", async () => {
+    // What the Promise.all test above cannot reach, and why: this file's pool is
+    // `max: 1`, so two "concurrent" calls are a queue and the second only reads the
+    // row the first left. A second connection with an uncommitted UPDATE does not
+    // help either -- measured, and the retry's INSERT on the same unique key waits on
+    // that transaction (`wait_event: transactionid`), so by the time the service reads
+    // again the other writer has already committed and the reuse predicate is never
+    // exercised. A `SELECT ... FOR UPDATE` holds the row without touching the index,
+    // which leaves exactly the window the compare-and-set is for: the service has read
+    // `abandoned`, its UPDATE is now blocked on the lock, and the holder moves the row
+    // and commits underneath it. With `and state = 'abandoned'` the waking statement
+    // re-checks its predicate, matches nothing and answers `existing`; without it the
+    // same retry takes a row over that someone else already reopened, and the seller
+    // is dialled twice for one payment. That difference is what this test asserts, and
+    // dropping the predicate from the service is what kills it (mutation m4).
+    const { db, sql } = need();
+    const input = paymentInput();
+    const first = await openPayment(db, input);
+    if (first.kind !== "created") {
+      throw new Error(`first open returned ${first.kind}`);
+    }
+    await advancePayment(db, first.payment.id, "abandoned", { upstreamStatus: 502 });
+
+    const other = postgres(databaseUrl, { max: 1, idle_timeout: 5, connect_timeout: 3 });
+    const hold = handGate();
+    try {
+      const holder = other.begin(async (tx) => {
+        await tx`select id from payments where replay_key = ${input.replayKey} for update`;
+        await hold.promise;
+        await tx`update payments set state = 'verified' where replay_key = ${input.replayKey}`;
+      });
+      // The holder has the lock before the retry starts, and the retry is issued and
+      // reaches its blocked UPDATE before the holder is allowed to move the row.
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const raced = openPayment(db, paymentInput({ replayKey: input.replayKey }));
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      hold.open();
+      await holder;
+
+      const outcome = await raced;
+      expect(outcome.kind).toBe("existing");
+      if (outcome.kind !== "existing") {
+        throw new Error(`retry returned ${outcome.kind}`);
+      }
+      // The row the winner holds is the one writer that moved it first, and the
+      // blocked retry did not restamp it.
+      expect(outcome.payment.state).toBe("verified");
+      expect(outcome.payment.id).toBe(first.payment.id);
+      const [row] =
+        await sql`select (select (count(*))::int from payments where replay_key = ${input.replayKey}) as rows from payments where replay_key = ${input.replayKey}`;
+      expect(row?.rows).toBe(1);
+    } finally {
+      hold.open();
+      await other.end({ timeout: 5 }).catch(() => undefined);
+    }
+  });
+
+  it("will not hand a settled or served row back to a replay (C7, GW-4)", async () => {
+    const { db } = need();
+    for (const state of ["settled", "served_unsettled"] as const) {
+      const input = paymentInput();
+      const first = await openPayment(db, input);
+      if (first.kind !== "created") {
+        throw new Error(`first open returned ${first.kind}`);
+      }
+      await advancePayment(db, first.payment.id, state, {
+        ...(state === "settled" ? { nearTxHash: `tx-${state}` } : {}),
+      });
+
+      const retry = await openPayment(db, paymentInput({ replayKey: input.replayKey }));
+      expect([state, retry.kind]).toEqual([state, "existing"]);
+      if (retry.kind !== "existing") {
+        throw new Error(`retry returned ${retry.kind}`);
+      }
+      expect([state, retry.payment.state]).toEqual([state, state]);
+    }
+  });
+
+  it("keeps one abandoned row to the endpoint that opened it (C7, GW-4)", async () => {
+    // A delegate binds payer, relayer, nonce and the transfer, and nothing per
+    // endpoint, so two of one seller's endpoints at one price can present the same
+    // signed action. The retry must not move endpoint A's row and then serve
+    // endpoint B's upstream under it: `replay_key` is unique, so B gets a replay and
+    // A's row stays as A left it.
+    const { db, sql } = need();
+    const other = randomUUID();
+    await sql`insert into endpoints (id, seller_id, slug, upstream_url, price_amount,
+        asset_contract, network, payout_mode)
+      values (${other}, ${ids.sellerId}, ${`c7-${randomUUID()}`}, 'https://example.test/other',
+        '2500000', 'usdc.testnet', 'near:testnet', 'auto')`;
+
+    const input = paymentInput();
+    const first = await openPayment(db, input);
+    if (first.kind !== "created") {
+      throw new Error(`first open returned ${first.kind}`);
+    }
+    await advancePayment(db, first.payment.id, "abandoned", { upstreamStatus: 502 });
+
+    const retry = await openPayment(db, {
+      ...input,
+      replayKey: input.replayKey,
+      endpointId: other,
+    });
+    expect(retry.kind).toBe("existing");
+    const after = await findPayment(db, first.payment.id);
+    expect(after?.state).toBe("abandoned");
+    expect(after?.endpointId).toBe(input.endpointId);
+
+    const [count] =
+      await sql`select count(*)::int as count from payments where replay_key = ${input.replayKey}`;
+    expect(count?.count).toBe(1);
+  });
+
+  it("refuses to move a payment back to verified except through openPayment (C7)", async () => {
+    // The generic advance is how every *outcome* is written; letting it also write
+    // the opening move would put `REUSE_GUARD` behind the caller's good manners.
+    const { db } = need();
+    const input = paymentInput();
+    const first = await openPayment(db, input);
+    if (first.kind !== "created") {
+      throw new Error(`first open returned ${first.kind}`);
+    }
+    await advancePayment(db, first.payment.id, "abandoned", { upstreamStatus: 502 });
+
+    await expect(advancePayment(db, first.payment.id, "verified")).rejects.toThrow(
+      /may only move back to verified through openPayment/,
+    );
+    const after = await findPayment(db, first.payment.id);
+    expect(after?.state).toBe("abandoned");
   });
 
   it("refuses a move the machine disallows from verified, and leaves the row alone", async () => {

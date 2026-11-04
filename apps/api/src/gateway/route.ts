@@ -389,11 +389,14 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
     }
 
     if (opened.kind === "existing") {
-      // C7 is the row that lets an `abandoned` payment be retried with the same
-      // authorization: that needs `abandoned -> verified`, which the state machine
-      // forbids today, and the double-spend argument belongs with that change. So
-      // today every existing row is a 409 -- with the receipt attached when there is
-      // one, which is 4.4's answer for a buyer whose response was lost.
+      // C7, GW-4: this is the branch a replay lands in when its row may not be
+      // taken back over -- `settled` (money moved, and 4.4 says hand the receipt
+      // back), `served_unsettled` (served, money not yet confirmed, and a second
+      // delivery for one authorization is not on offer), or an `abandoned` row that
+      // carries a hash or a `settled_at`, which `services/payments.ts` refuses to
+      // reuse for exactly that reason. A `verified` row normally never gets here:
+      // Guard 3's in-flight read answers 429 above. The receipt travels only when
+      // the row is `settled`, because a receipt is a claim that money moved.
       const stored = opened.payment;
       const receipt =
         stored.state === "settled" && stored.nearTxHash !== null
@@ -421,6 +424,18 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
         detail: `this authorization was already answered, its payment is ${stored.state}`,
         headers: receipt,
       });
+    }
+
+    if (opened.kind === "retried") {
+      // GW-4's retry, and the reason it is a log line rather than a silent
+      // fall-through: one authorization made one row, that row bought nothing, and
+      // this request is now serving the same row. The payer verified again on the
+      // way in, so the fresh chain read is what re-opened it, not this branch's
+      // word that the last attempt failed.
+      requestLog.info(
+        { code: "payment_retried", paymentId: opened.payment.id },
+        "gateway retried an abandoned payment with the same authorization",
+      );
     }
 
     const payment = opened.payment;

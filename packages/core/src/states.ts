@@ -47,8 +47,28 @@ const PAYMENT_TRANSITIONS: Record<PaymentState, readonly PaymentState[]> = {
   // non-2xx, timeout or guard rejection.
   // GW-3 / SERVED_NOT_SETTLED: served_unsettled -> settled once settlement lands.
   verified: ["settled", "abandoned", "served_unsettled"],
+  // C7, GW-4: the one edge that is not about money leaving. An `abandoned` row is a
+  // payment that was verified and then bought nothing -- the upstream failed, the
+  // seller refused, a guard said not yet, or the socket died -- and on every one of
+  // those paths `settle` was never called, so the delegate's nonce is still unspent
+  // and the same authorization can still buy the answer it did not get. Moving the
+  // row back is what lets a retry serve without inserting a second row for one
+  // signature. `settled` stays the only terminal state, because a row that moved
+  // money has nothing left to decide.
+  //
+  // What keeps this from being a second spend: one authorization is one `replay_key`
+  // and the key is unique, so reuse cannot create a second row to settle; reuse only
+  // ever writes `verified`, never `settled`, so the settlement itself is still
+  // reached once per row through the compare-and-set on `verified`. And
+  // `services/payments.ts` refuses to move any abandoned row that carries a
+  // `near_tx_hash` or a `settled_at` at all, so a row bearing evidence of a chain
+  // move -- which C10's sweep may write after checking the chain -- can never be
+  // re-opened for a second settlement.
+  abandoned: ["verified"],
+  // Deliberately one-way too: `served_unsettled` has no edge back to `verified`. A
+  // replay must not get a second delivery for money that may already have moved, so
+  // a stuck row is settled by the sweep and the reconcile path, not by re-serving.
   served_unsettled: ["settled"],
-  abandoned: [],
   settled: [],
 };
 
