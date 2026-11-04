@@ -127,6 +127,8 @@ const UPSTREAM = {
   unavailable: "/unavailable",
   dropped: "/dropped",
   hold: "/hold",
+  moved: "/moved",
+  slow: "/slow",
 } as const;
 
 /**
@@ -182,6 +184,28 @@ beforeAll(async () => {
       response.writeHead(200, { "content-type": "application/json" });
       response.write('{"price":');
       response.destroy();
+      return;
+    }
+    if (path === UPSTREAM.moved) {
+      // C6's case. `location` is the whole answer, and it must survive the response
+      // filter; the seller's own `set-cookie` must not.
+      response.writeHead(302, {
+        location: `${UPSTREAM.data}?moved=1`,
+        "content-type": "text/plain",
+        "set-cookie": "from-a-redirect=1; Path=/",
+      });
+      response.end("moved");
+      return;
+    }
+    if (path === UPSTREAM.slow) {
+      // Outlives `UPSTREAM_TIMEOUT_MS` (2000 in `envFor`) without ever answering, so
+      // the route sees the proxy's timeout rather than a status.
+      setTimeout(() => {
+        if (!response.destroyed) {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(JSON.stringify({ price: 4213, unit: "eur", path }));
+        }
+      }, 3_000);
       return;
     }
     response.writeHead(418, { "content-type": "text/plain" });
@@ -731,6 +755,8 @@ suite("the gateway paid request (C4, GW-2)", () => {
     await insertFixture({ name: "unavailable", payoutMode: "direct", path: "unavailable" });
     await insertFixture({ name: "deadsocket", payoutMode: "direct", path: "dropped" });
     await insertFixture({ name: "hold", payoutMode: "direct", path: "hold" });
+    await insertFixture({ name: "moved", payoutMode: "direct", path: "moved" });
+    await insertFixture({ name: "slow", payoutMode: "direct", path: "slow" });
   });
 
   it("answers an unpaid request with the 402 a v2 payer can act on, and costs nothing", async () => {
@@ -1011,6 +1037,84 @@ suite("the gateway paid request (C4, GW-2)", () => {
       expect(payment?.state).toBe("abandoned");
       expect(payment?.nearTxHash).toBeNull();
       expect(await ledgerOf(replayKey)).toEqual([]);
+    }
+  });
+
+  it("passes a seller's 3xx through with an absolute Location and charges nothing (C6)", async () => {
+    const target = fixture("moved");
+    const calls: Call[] = [];
+    const replayKey = randomUUID();
+    const { response } = await call("moved", {
+      x402: scriptedX402({ settle: "ok", replayKey }, calls),
+      payment: payloadFor(target.sellerAccount),
+    });
+
+    // The decision C4 left to C6: a 3xx is the seller's answer about the resource,
+    // not a failure of theirs, so the buyer gets the seller's status. The body is
+    // theirs too, and tiny -- a redirect's whole content is the `Location`.
+    expect(response.status).toBe(302);
+    // Relative on the wire, absolute on the way out. Forwarded verbatim, the buyer
+    // would resolve `/data?moved=1` against the *gateway* origin and get a `404` from
+    // Till (RFC 9110 7.3.2 tells a proxy not to do that); rewritten against the
+    // endpoint's own upstream it is the target the seller chose. Till never follows
+    // it, so this is the buyer's browser dialling the seller, not our proxy.
+    expect(response.headers.get("location")).toBe(
+      `http://127.0.0.1:${upstreamPort}${UPSTREAM.data}?moved=1`,
+    );
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(await response.text()).toBe("moved");
+    // Nothing was delivered, so nothing moved: no settle, no ledger line, and the
+    // row says `abandoned` with the seller's status on it.
+    expect(calls).toEqual(["verify"]);
+    const payment = await paymentByReplayKey(replayKey);
+    expect(payment?.state).toBe("abandoned");
+    expect(payment?.upstreamStatus).toBe(302);
+    expect(payment?.nearTxHash).toBeNull();
+    expect(payment?.settledAt).toBeNull();
+    expect(await ledgerOf(replayKey)).toEqual([]);
+  });
+
+  it("settles on a 2xx and on nothing else, across all six shapes a seller can answer (C6, GW-3)", async () => {
+    // The requirement as one table rather than as five tests that each check the
+    // half they care about: what the payer sees, what the row says, whether the
+    // settlement was called at all, and whether the ledger has a line. A redirect and
+    // a timeout belong in the same column as a 5xx, which is the whole rule.
+    const cases = [
+      { name: "direct", status: 200, state: "settled", charged: true },
+      { name: "moved", status: 302, state: "abandoned", charged: false },
+      { name: "missing", status: 404, state: "abandoned", charged: false },
+      { name: "unavailable", status: 502, state: "abandoned", charged: false },
+      { name: "deadsocket", status: 502, state: "abandoned", charged: false },
+      { name: "slow", status: 502, state: "abandoned", charged: false },
+    ] as const;
+
+    for (const shape of cases) {
+      const target = fixture(shape.name);
+      const calls: Call[] = [];
+      const replayKey = randomUUID();
+      const { response } = await call(shape.name, {
+        x402: scriptedX402({ settle: "ok", replayKey }, calls),
+        payment: payloadFor(target.sellerAccount),
+      });
+      const payment = await paymentByReplayKey(replayKey);
+      const ledger = await ledgerOf(replayKey);
+      // One tuple per row, so a shape that serves without booking (or the reverse)
+      // cannot pass by asserting its own half only.
+      expect([
+        shape.name,
+        response.status,
+        payment?.state,
+        payment?.settledAt !== null,
+        calls,
+        ledger.map((entry) => entry.kind),
+      ]).toEqual([
+        shape.name,
+        shape.status,
+        shape.state,
+        shape.charged,
+        shape.charged ? ["verify", "settle"] : ["verify"],
+        shape.charged ? ["payment_in"] : [],
+      ]);
     }
   });
 

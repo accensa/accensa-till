@@ -451,8 +451,9 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
     // 8. GW-3, the only gate on settlement. A 4xx is the seller's answer and a 5xx is
     //    their failure; neither is money and neither is charged. What the buyer sees
     //    is ARCHITECTURE.md §2 step 8: the upstream's own status for a 4xx, `502` for
-    //    a 5xx or a timeout. C6 owns the fuller matrix; the rule lives here because
-    //    the order does.
+    //    a 5xx or a timeout. C6 closed the case C4 left open -- a 3xx is the seller's
+    //    answer, not their failure -- and the matrix is asserted as one table in
+    //    `test/gateway.test.ts`. The rule lives here because the order does.
     if (served.status < 200 || served.status > 299) {
       requestLog.warn(
         {
@@ -472,8 +473,16 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
           "abandonment did not land",
         ),
       );
-      if (served.status >= 400 && served.status <= 499) {
-        return responseOf(served);
+      if (served.status >= 300 && served.status <= 499) {
+        // C6 settled the case C4 left open: a 3xx is the seller's own answer about
+        // where the resource is, not a failure of theirs, so the buyer gets it -- and
+        // `Location` is the whole content of that answer, so withholding it to avoid
+        // leaking seller internals would leak nothing and hide the redirect. Till
+        // still never *follows* it (C5's rule): fetching the target here would dial a
+        // second, unvalidated address on the seller's say-so and serve bytes this
+        // payment never bought. The row is `abandoned` like any other non-2xx, because
+        // nothing was delivered.
+        return responseOf(rewriteLocation(served, row.upstreamUrl));
       }
       // The seller's 5xx body is theirs: forwarding it would put their stack trace,
       // their framework's error page, their version headers in front of the buyer.
@@ -561,6 +570,29 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
     );
     return responseOf(served, settled.nearTxHash);
   });
+
+  /**
+   * A proxy that forwards a relative `Location` verbatim hands the buyer a path on
+   * *our* origin, which is RFC 9110 7.3.2's objection and, here, a `404` on the
+   * gateway. Till never follows the redirect (C5), so the answer only means anything
+   * if its target is the seller's own; resolving against `upstreamUrl` cannot put the
+   * buyer anywhere the seller did not already choose to send them.
+   */
+  function rewriteLocation(served: ProxyResult, upstreamUrl: string): ProxyResult {
+    const location = served.headers.get("location");
+    if (location === undefined) {
+      return served;
+    }
+    let absolute: string;
+    try {
+      absolute = new URL(location, upstreamUrl).toString();
+    } catch {
+      return served;
+    }
+    const headers = new Map(served.headers);
+    headers.set("location", absolute);
+    return { ...served, headers };
+  }
 
   /** The seller's answer, with the payment headers already stripped by `proxy.ts`. */
   function responseOf(served: ProxyResult, nearTxHash?: string): Response {
