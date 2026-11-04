@@ -198,6 +198,20 @@ it: `no relayer key: the gateway can advertise but not settle (A10)`.
 The insert above lists the columns this build needs; if `db:migrate` has added
 NOT NULLs since, `psql "$DATABASE_URL" -c "\d endpoints"` shows the current set.
 
+The two halves C11 ships can be run on their own today:
+
+```sh
+pnpm exec tsx scripts/demo-upstream.ts       # 127.0.0.1:4100 — /data, /fail, /slow, /moved
+pnpm exec tsx scripts/demo-agent.ts <slug>   # reads the 402, prints the requirements
+```
+
+The agent exits `2` when `DEMO_PAYER_ACCOUNT_ID` and `DEMO_PAYER_SECRET_KEY` are
+unset, which is the honest state until A10's funded testnet payer and relayer
+exist; with both set it signs through the shipped `@fastnear/x402` client and
+asserts the `PAYMENT-RESPONSE` receipt. The upstream has no keys at all.
+`pnpm demo` (the orchestrator that seeds, runs both and drives the simulated
+failures) is G1 and still throws `not implemented`.
+
 Once the demo path closes:
 
 ```sh

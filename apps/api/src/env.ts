@@ -130,7 +130,6 @@ export const envSchema = z.object({
 
   POLL_INTERVAL_SECONDS: positiveInt(20),
   RECONCILE_INTERVAL_SECONDS: positiveInt(60),
-  SWEEP_WINDOW_SECONDS: positiveInt(300),
   STUCK_WINDOW_SECONDS: positiveInt(900),
   SHORTFALL_TOLERANCE_BPS: toleranceBps(50),
 

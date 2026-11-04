@@ -213,7 +213,12 @@ db                     ──►  lib
 - `UPSTREAM_TIMEOUT_MS`, `UPSTREAM_MAX_BYTES`, `AUTHORIZATION_EXPIRY_MARGIN_MS`
 - `MAX_SPONSORED_GAS`, `MIN_PRICE_BASE_UNITS`
 - `POLL_INTERVAL_SECONDS`, `RECONCILE_INTERVAL_SECONDS`
-- `SWEEP_WINDOW_SECONDS`, `STUCK_WINDOW_SECONDS`, `SHORTFALL_TOLERANCE_BPS`
+- `STUCK_WINDOW_SECONDS`, `SHORTFALL_TOLERANCE_BPS`
+
+`C10`'s boot sweep has no window variable of its own: it uses Guard 3's derived
+in-flight window (`UPSTREAM_TIMEOUT_MS + AUTHORIZATION_EXPIRY_MARGIN_MS`), because
+that is the rule that decides when a `verified` row stopped meaning "being served
+right now". A second knob could drift from it.
 
 ## AGENTS.md (suggested content, under 30 lines)
 

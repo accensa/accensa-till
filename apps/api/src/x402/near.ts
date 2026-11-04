@@ -2,7 +2,9 @@ import { createHash } from "node:crypto";
 
 import { type PaymentRequirementsDto, paymentPayloadSchema } from "@till/core";
 
+import { createNearPaymentFetch } from "@fastnear/x402";
 import { createNearFacilitator } from "@fastnear/x402/facilitator";
+import { createLocalNearSigner } from "@fastnear/x402/node";
 import { createNearResourceServer } from "@fastnear/x402/server";
 
 import type {
@@ -399,4 +401,39 @@ export function createX402Near(config: X402NearConfig): X402Near {
       };
     },
   };
+}
+
+/**
+ * C11: the buyer side of the same scheme, and it lives here only because hard
+ * rule 1 keeps every `@fastnear` import in this file. The demo agent is the one
+ * program that pays Till rather than serving it; wrapping `@fastnear/x402`'s
+ * reference client signer means the payer half is executed by the shipped
+ * library too, not re-signed by hand.
+ *
+ * The key is a testnet payer's, supplied by the caller and never logged here.
+ * Without A10's funded payer there is nothing this can do, which is the honest
+ * state the agent script reports instead of inventing a payment.
+ */
+export type PayerConfig = {
+  readonly accountId: string;
+  readonly secretKey: string;
+  /** `near:testnet` or `near:mainnet`. */
+  readonly network: string;
+  /** RPC endpoint override; the library defaults to the public one per network. */
+  readonly rpcUrl?: string;
+};
+
+export function createPayerFetch(config: PayerConfig): typeof globalThis.fetch {
+  const signer = createLocalNearSigner({
+    accountId: config.accountId,
+    // `KeyPairString` is the library's own branded type and is not importable
+    // under pnpm's isolation; the value is the `ed25519:...` string env.ts
+    // already shape-checks at boot for the relayer.
+    secretKey: config.secretKey as Parameters<typeof createLocalNearSigner>[0]["secretKey"],
+    ...(config.rpcUrl === undefined ? {} : { rpcUrls: { [config.network]: config.rpcUrl } }),
+  });
+  return createNearPaymentFetch({
+    signer,
+    network: config.network as NonNullable<Parameters<typeof createNearPaymentFetch>[0]["network"]>,
+  });
 }
