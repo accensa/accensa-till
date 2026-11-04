@@ -21,6 +21,12 @@ import {
   inFlightWindowSeconds,
 } from "./guards.ts";
 import {
+  type RequestLimiter,
+  type SponsoredGasBudget,
+  createRequestLimiter,
+  createSponsoredGasBudget,
+} from "./limits.ts";
+import {
   type ProxyResult,
   UpstreamRequestError,
   getUpstream,
@@ -56,7 +62,8 @@ import { UpstreamPolicyError, resolveUpstreamTarget } from "./ssrf.ts";
  *        price (4.2 step 2).
  *   404  unknown slug, or an endpoint the seller paused.
  *   409  this authorization has already been answered once (GW-4).
- *   429  a guard said not yet, with `Retry-After`.
+ *   429  a guard, the process-wide request limiter or the sponsored-gas budget
+ *        said not yet (GW-10).
  *   502  the upstream failed. The payment is abandoned and never charged (GW-3).
  *   503  Till could not decide: a row that cannot be advertised, or a verifier that
  *        could not run. Challenging instead would ask a stranger to pay for
@@ -91,13 +98,18 @@ export type OpenUpstream = (input: {
   readonly headers: Readonly<Record<string, string>>;
 }) => Promise<ProxyResult>;
 
+export type GatewayLimits = {
+  readonly requests: RequestLimiter;
+  readonly sponsoredGas: SponsoredGasBudget;
+};
+
 export type GatewayRouteDeps = {
   readonly env: Env;
   readonly log: Logger;
   readonly db: Db;
   readonly x402: X402Near;
   /**
-   * Two test seams, and why each is a seam rather than a fake.
+   * The test seams, and why each is a seam rather than a fake.
    *
    * `upstream`: `resolveUpstreamTarget` refuses a loopback address by design (C5),
    * so the only way to proxy real bytes to a real server inside one process is to
@@ -109,10 +121,15 @@ export type GatewayRouteDeps = {
    * `guards`: the shipped policy is `createGuards` and it reads the `payments` table,
    * so a test that wants the paid path with the guards open says so by injecting
    * `guardsPendingC8` rather than by not wiring a database.
+   *
+   * `limits`: GW-10's counters are per route instance, which is what makes them
+   * testable without time or a restart. Production builds both from env; a test
+   * that wants a window or a budget already spent injects the counter it means.
    */
   readonly upstream?: OpenUpstream;
   readonly guards?: GuardRunner;
   readonly requirements?: RequirementsCache;
+  readonly limits?: GatewayLimits;
 };
 
 /** Variables `createApp` sets on every request; declared locally to keep app.ts unimported. */
@@ -243,12 +260,40 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
       minPriceBaseUnits: env.MIN_PRICE_BASE_UNITS,
     });
 
+  // GW-10. Both counters live as long as this route, which is the process in
+  // production and one test in the suite; that is the "in-memory" in O11.
+  const limits: GatewayLimits = deps.limits ?? {
+    requests: createRequestLimiter({
+      maxRequests: env.RATE_LIMIT_REQUESTS,
+      windowMs: env.RATE_LIMIT_WINDOW_MS,
+    }),
+    sponsoredGas: createSponsoredGasBudget({
+      budget: env.SPONSORED_GAS_BUDGET,
+      perSettlement: env.MAX_SPONSORED_GAS,
+    }),
+  };
+
   const route = new Hono<GatewayEnv>();
 
   route.get("/r/:slug", async (c) => {
     const requestId = c.get("requestId");
     const slug = c.req.param("slug");
     const requestLog = log.child({ requestId, slug });
+
+    // 0. The process-wide request limit (GW-10), before the row read: the bound
+    //    is on the work, and a limiter that ran after the SELECT would put the
+    //    database under exactly the load it exists to bound. Every request counts,
+    //    paid or not, because the 402's own lookup and advertisement are work too.
+    if (!limits.requests.tryAcquire()) {
+      const retryAfterSeconds = limits.requests.retryAfterSeconds();
+      requestLog.warn({ code: "rate_limited", retryAfterSeconds }, "gateway 429");
+      return refuse({
+        status: 429,
+        code: "rate_limited",
+        detail: "this gateway has reached its request limit for now",
+        retryAfterSeconds,
+      });
+    }
 
     // 1. Resolve. One join, so the price and the pay-to come from the same moment.
     const row = await findGatewayEndpoint(db, slug);
@@ -355,6 +400,26 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
         ...(rejection.retryAfterSeconds === undefined
           ? {}
           : { retryAfterSeconds: rejection.retryAfterSeconds }),
+      });
+    }
+
+    // 5b. The global sponsored-gas budget (GW-10). The read happens here, after
+    //     the guards and before the row, so exhaustion costs this payer nothing
+    //     and leaves no `verified` row for Guard 3 to answer. The budget is a
+    //     process lifetime, not a window, so there is no `Retry-After` to give.
+    if (!limits.sponsoredGas.hasCapacity()) {
+      requestLog.warn(
+        {
+          code: "sponsored_gas_exhausted",
+          reserved: limits.sponsoredGas.reserved.toString(),
+          budget: limits.sponsoredGas.budget.toString(),
+        },
+        "gateway 429: sponsored-gas budget spent",
+      );
+      return refuse({
+        status: 429,
+        code: "sponsored_gas_exhausted",
+        detail: "this gateway has spent its sponsored-gas budget",
       });
     }
 
@@ -519,6 +584,38 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
     //    seller's loss into the buyer's. C9 counts that as a strike; the
     //    `SERVED_NOT_SETTLED` discrepancy is E2's write path and is not faked here,
     //    so this row logs it instead.
+    //
+    //    The gas is reserved before the one call that may spend it (GW-10). The
+    //    budget can fill between the check above and here, so this is the atomic
+    //    answer; a refusal abandons the row like any other non-chargeable answer,
+    //    because the seller worked but no money moved and nothing may be served.
+    if (!limits.sponsoredGas.reserve()) {
+      requestLog.warn(
+        {
+          code: "sponsored_gas_exhausted",
+          paymentId: payment.id,
+          outcome: "not_charged",
+          reserved: limits.sponsoredGas.reserved.toString(),
+          budget: limits.sponsoredGas.budget.toString(),
+        },
+        "gateway 429: sponsored-gas budget spent",
+      );
+      await advancePayment(db, payment.id, "abandoned", {
+        upstreamStatus: served.status,
+        upstreamMs: served.elapsedMs,
+      }).catch((error: unknown) =>
+        requestLog.error(
+          { code: "abandon_failed", paymentId: payment.id, error: String(error) },
+          "abandonment did not land",
+        ),
+      );
+      return refuse({
+        status: 429,
+        code: "sponsored_gas_exhausted",
+        detail: "this gateway has spent its sponsored-gas budget",
+      });
+    }
+
     const settled = await x402.settle(body, advertised);
     if (!settled.ok) {
       requestLog.error(

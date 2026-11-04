@@ -16,9 +16,15 @@ import type { Db } from "../src/db/client.ts";
 import * as schema from "../src/db/schema.ts";
 import { type Env, loadEnv } from "../src/env.ts";
 import { guardsPendingC8, inFlightWindowSeconds } from "../src/gateway/guards.ts";
+import {
+  type SponsoredGasBudget,
+  createRequestLimiter,
+  createSponsoredGasBudget,
+} from "../src/gateway/limits.ts";
 import { type ProxyResult, getUpstream } from "../src/gateway/proxy.ts";
 import { PAYMENT_REQUIRED_HEADER } from "../src/gateway/requirements.ts";
 import {
+  type GatewayLimits,
   LEGACY_PAYMENT_SIGNATURE_HEADER,
   PAYMENT_RESPONSE_HEADER,
   PAYMENT_SIGNATURE_HEADER,
@@ -576,6 +582,8 @@ function buildRoute(input: {
   readonly defaultUpstream?: boolean;
   /** C10's ordering test watches the writes; every other case uses the real handle. */
   readonly db?: Db;
+  /** GW-10's counters, when a case wants one already spent or one with a short window. */
+  readonly limits?: GatewayLimits;
 }): Built {
   const recorded = recordingLogger();
   const env = envFor();
@@ -585,6 +593,7 @@ function buildRoute(input: {
     db: input.db ?? need().db,
     x402: input.x402,
     ...(input.guards === undefined ? {} : { guards: input.guards }),
+    ...(input.limits === undefined ? {} : { limits: input.limits }),
     ...(input.defaultUpstream === true
       ? {}
       : {
@@ -621,6 +630,7 @@ type CallInput = {
   /** Ask for a slug other than this fixture's, which is how a miss is tested. */
   readonly slug?: string;
   readonly db?: Db;
+  readonly limits?: GatewayLimits;
 };
 
 async function call(name: string, input: CallInput) {
@@ -629,6 +639,7 @@ async function call(name: string, input: CallInput) {
     ...(input.guards === undefined ? {} : { guards: input.guards }),
     ...(input.defaultUpstream === undefined ? {} : { defaultUpstream: input.defaultUpstream }),
     ...(input.db === undefined ? {} : { db: input.db }),
+    ...(input.limits === undefined ? {} : { limits: input.limits }),
   });
   const target = fixture(name);
   const headers = new Headers(input.headers);
@@ -1806,5 +1817,149 @@ suite("the gateway paid request (C4, GW-2)", () => {
     expect(updates).toHaveLength(2);
     expect(updates[0]).toEqual({ nearTxHash: hash });
     expect(updates[1]).toMatchObject({ state: "settled", nearTxHash: hash });
+  });
+});
+
+/**
+ * GW-10 at the route: the two refusals and the one reservation. The counters are
+ * injected because both are per route instance -- production's instance is the
+ * process -- so a test can fill a window or a budget without a restart, and the
+ * clock seam is what makes the window testable without sleeping.
+ */
+suite("process-wide limits (C13, GW-10)", () => {
+  const LIMITS_PAYER = "limits-payer.testnet";
+  const GAS_PER_SETTLEMENT = 30_000_000_000_000n;
+
+  beforeAll(async () => {
+    await insertFixture({ name: "limits", payoutMode: "direct" });
+  });
+
+  /** A request limiter no single test will reach, so only the budget is under test. */
+  const openRequests = () => createRequestLimiter({ maxRequests: 100, windowMs: 60_000 });
+  const limitsWith = (sponsoredGas: SponsoredGasBudget): GatewayLimits => ({
+    requests: openRequests(),
+    sponsoredGas,
+  });
+
+  it("answers 429 with Retry-After and a warn once the request window is full", async () => {
+    const target = fixture("limits");
+    const built = buildRoute({
+      x402: scriptedX402({}, []),
+      limits: {
+        requests: createRequestLimiter({ maxRequests: 1, windowMs: 60_000 }),
+        sponsoredGas: createSponsoredGasBudget({
+          budget: GAS_PER_SETTLEMENT,
+          perSettlement: GAS_PER_SETTLEMENT,
+        }),
+      },
+    });
+    const hits = sellerHits.length;
+
+    // The first request is the free half: a challenge, and the one slot it took.
+    const first = await built.route.request(`/r/${target.slug}`);
+    expect(first.status).toBe(402);
+
+    // An unknown slug on purpose: a 404 would prove the limiter ran after the
+    // endpoint join, which is the ordering this case is about.
+    const second = await built.route.request("/r/not-a-real-slug");
+    expect(second.status).toBe(429);
+    const body = (await second.json()) as { error: string; retryAfterSeconds: number };
+    expect(body.error).toBe("rate_limited");
+    expect(body.retryAfterSeconds).toBeGreaterThan(0);
+    expect(second.headers.get("retry-after")).toBe(String(body.retryAfterSeconds));
+
+    // Refused before the seller and before any row: the bounded work did not happen.
+    expect(sellerHits).toHaveLength(hits);
+    expect(built.lines).toContainEqual(
+      expect.objectContaining({ level: "warn", code: "rate_limited" }),
+    );
+  });
+
+  it("answers 429 for an exhausted gas budget before a row or a request to the seller", async () => {
+    const target = fixture("limits");
+    const gas = createSponsoredGasBudget({
+      budget: GAS_PER_SETTLEMENT,
+      perSettlement: GAS_PER_SETTLEMENT,
+    });
+    expect(gas.reserve()).toBe(true);
+    const replayKey = randomUUID();
+    const calls: Call[] = [];
+    const hits = sellerHits.length;
+
+    const { response, lines } = await call("limits", {
+      x402: scriptedX402({ payer: LIMITS_PAYER, replayKey }, calls),
+      payment: payloadFor(target.sellerAccount),
+      guards: guardsPendingC8,
+      limits: limitsWith(gas),
+    });
+
+    expect(response.status).toBe(429);
+    expect(((await response.json()) as { error: string }).error).toBe("sponsored_gas_exhausted");
+    // The payment itself verified -- the refusal is not the payer's fault -- and
+    // nothing after the budget check ran.
+    expect(calls).toEqual(["verify"]);
+    expect(sellerHits).toHaveLength(hits);
+    expect(await paymentByReplayKey(replayKey)).toBeNull();
+    expect(lines).toContainEqual(
+      expect.objectContaining({ level: "warn", code: "sponsored_gas_exhausted" }),
+    );
+  });
+
+  it("refuses at the settle when the budget filled after the check, and abandons the row", async () => {
+    const target = fixture("limits");
+    // The read above the row says yes; the atomic reservation is what says no.
+    const gas: SponsoredGasBudget = {
+      hasCapacity: () => true,
+      reserve: () => false,
+      reserved: GAS_PER_SETTLEMENT,
+      budget: 2n * GAS_PER_SETTLEMENT,
+      perSettlement: GAS_PER_SETTLEMENT,
+    };
+    const replayKey = randomUUID();
+    const calls: Call[] = [];
+    const hits = sellerHits.length;
+
+    const { response, lines } = await call("limits", {
+      x402: scriptedX402({ payer: LIMITS_PAYER, replayKey }, calls),
+      payment: payloadFor(target.sellerAccount),
+      guards: guardsPendingC8,
+      limits: limitsWith(gas),
+    });
+
+    expect(response.status).toBe(429);
+    expect(calls).toEqual(["verify"]);
+    // The seller answered; without gas there is no settle, so nothing is served
+    // and the row records the answer that was not charged for.
+    expect(sellerHits.length).toBe(hits + 1);
+    const payment = await paymentByReplayKey(replayKey);
+    expect(payment?.state).toBe("abandoned");
+    expect(payment?.upstreamStatus).toBe(200);
+    expect(await ledgerOf(replayKey)).toEqual([]);
+    expect(lines).toContainEqual(
+      expect.objectContaining({
+        level: "warn",
+        code: "sponsored_gas_exhausted",
+        outcome: "not_charged",
+      }),
+    );
+  });
+
+  it("reserves exactly one settlement's gas on a served request", async () => {
+    const target = fixture("limits");
+    const gas = createSponsoredGasBudget({
+      budget: 2n * GAS_PER_SETTLEMENT,
+      perSettlement: GAS_PER_SETTLEMENT,
+    });
+    const replayKey = randomUUID();
+
+    const { response } = await call("limits", {
+      x402: scriptedX402({ payer: LIMITS_PAYER, settle: "ok", replayKey }),
+      payment: payloadFor(target.sellerAccount),
+      guards: guardsPendingC8,
+      limits: limitsWith(gas),
+    });
+
+    expect(response.status).toBe(200);
+    expect(gas.reserved).toBe(GAS_PER_SETTLEMENT);
   });
 });

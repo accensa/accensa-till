@@ -150,3 +150,55 @@ describe("relayer key and network shape (C1)", () => {
     ).toBe("near:localnet");
   });
 });
+
+/**
+ * GW-10's three values (C13). The budget is cross-checked against
+ * MAX_SPONSORED_GAS rather than only parsed, because a positive budget smaller
+ * than one settlement is the shape that boots and then 429s every paid request.
+ */
+describe("process-wide limits (GW-10, C13)", () => {
+  it("defaults to a 600-request minute and a budget of 1,000 settlements", () => {
+    const env = loadEnv({ ...process.env, ...required });
+    expect(env.RATE_LIMIT_REQUESTS).toBe(600);
+    expect(env.RATE_LIMIT_WINDOW_MS).toBe(60_000);
+    expect(env.SPONSORED_GAS_BUDGET).toBe(1_000n * env.MAX_SPONSORED_GAS);
+  });
+
+  it("refuses a request limit or window that is not a positive integer", () => {
+    for (const [key, value] of [
+      ["RATE_LIMIT_REQUESTS", "0"],
+      ["RATE_LIMIT_REQUESTS", "-1"],
+      ["RATE_LIMIT_REQUESTS", "1.5"],
+      ["RATE_LIMIT_REQUESTS", "abc"],
+      ["RATE_LIMIT_WINDOW_MS", "0"],
+      ["RATE_LIMIT_WINDOW_MS", "-1000"],
+      ["RATE_LIMIT_WINDOW_MS", "1.5"],
+    ] as const) {
+      expect(
+        () => loadEnv({ ...process.env, ...required, [key]: value }),
+        `${key}=${value}`,
+      ).toThrow(new RegExp(key));
+    }
+  });
+
+  it("refuses a gas budget that is not positive or fits no settlement", () => {
+    for (const value of ["0", "-30000000000000", "1.5e13"]) {
+      expect(
+        () => loadEnv({ ...process.env, ...required, SPONSORED_GAS_BUDGET: value }),
+        value,
+      ).toThrow(/SPONSORED_GAS_BUDGET/);
+    }
+    // One gas unit below the per-delegate cap: positive, and still fits nothing.
+    const belowCap = (loadEnv({ ...process.env, ...required }).MAX_SPONSORED_GAS - 1n).toString();
+    expect(
+      () => loadEnv({ ...process.env, ...required, SPONSORED_GAS_BUDGET: belowCap }),
+      belowCap,
+    ).toThrow(/SPONSORED_GAS_BUDGET/);
+
+    // The boundary itself is allowed: exactly one settlement.
+    const exact = loadEnv({ ...process.env, ...required }).MAX_SPONSORED_GAS.toString();
+    expect(
+      loadEnv({ ...process.env, ...required, SPONSORED_GAS_BUDGET: exact }).SPONSORED_GAS_BUDGET,
+    ).toBe(BigInt(exact));
+  });
+});

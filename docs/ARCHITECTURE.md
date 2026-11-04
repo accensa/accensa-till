@@ -300,7 +300,7 @@ Full-access key required by the underlying package. Mitigations:
 
 - Dedicated relayer account holding a small balance.
 - Key only in server environment; never logged; never in the web app.
-- Global and per-payer sponsored-gas caps; one-in-flight rule (D14) also bounds burn rate.
+- A global sponsored-gas budget and a process-wide request limiter, both in memory and reset on restart (C13, GW-10); the one-in-flight rule (D14) also bounds a payer's burn rate.
 - Dashboard header shows relayer balance and warns below a threshold.
 
 ### 8.2 Seller authentication
@@ -493,7 +493,7 @@ Three questions, answered against the v1 design. Each item states what changed.
 | O8 | `/admin/health` page | Header indicators cover it |
 | O9 | Eight reconciliation rules at P0 | Five at P0, three at P1 (section 7) |
 | O10 | Vercel plus Fly with cross-site cookie setup | Single origin through rewrites |
-| O11 | Per-payer rate-limit infrastructure | One in-flight rule (D14) plus a global in-memory cap |
+| O11 | Per-payer rate-limit infrastructure | One in-flight rule (D14) plus a global in-memory cap: C13's fixed-window request limiter and sponsored-gas budget |
 
 Kept on purpose despite looking heavy: the `PayoutProvider` interface and mock (they make the demo run without keys and survive a provider outage), the append-only ledger (the product is its audit trail), and the pure reconciliation rules (cheap to test, central to the pitch).
 
