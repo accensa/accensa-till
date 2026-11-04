@@ -9,7 +9,12 @@ import type { Logger } from "../lib/logger.ts";
 import { recordPaymentSettled } from "../services/ledger.ts";
 import { type PaymentRow, advancePayment, openPayment } from "../services/payments.ts";
 import type { X402Near } from "../x402/types.ts";
-import { type GuardRejection, type GuardRunner, guardsPendingC8 } from "./guards.ts";
+import {
+  type GuardRejection,
+  type GuardRunner,
+  createGuards,
+  inFlightWindowSeconds,
+} from "./guards.ts";
 import {
   type ProxyResult,
   UpstreamRequestError,
@@ -96,7 +101,9 @@ export type GatewayRouteDeps = {
    * asserts that a request going through the *default* refuses a loopback upstream,
    * so the seam cannot quietly become the production path.
    *
-   * `guards`: C8's policy, not C4's. See `guardsPendingC8`.
+   * `guards`: the shipped policy is `createGuards` and it reads the `payments` table,
+   * so a test that wants the paid path with the guards open says so by injecting
+   * `guardsPendingC8` rather than by not wiring a database.
    */
   readonly upstream?: OpenUpstream;
   readonly guards?: GuardRunner;
@@ -195,7 +202,17 @@ function describeUpstreamError(error: unknown): string {
 
 export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
   const { env, log, db, x402 } = deps;
-  const guards = deps.guards ?? guardsPendingC8;
+  const guards =
+    deps.guards ??
+    createGuards({
+      db,
+      upstreamTimeoutMs: env.UPSTREAM_TIMEOUT_MS,
+      authorizationExpiryMarginMs: env.AUTHORIZATION_EXPIRY_MARGIN_MS,
+    });
+  const inFlightWindow = inFlightWindowSeconds(
+    env.UPSTREAM_TIMEOUT_MS,
+    env.AUTHORIZATION_EXPIRY_MARGIN_MS,
+  );
 
   const upstream: OpenUpstream =
     deps.upstream ??
@@ -310,8 +327,9 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
     }
     const { authorization } = verified;
 
-    // 5. Guards, before any byte goes upstream. C8 owns the policy; the runner wired
-    //    today accepts, and the log line says so rather than looking checked.
+    // 5. Guards, before any byte goes upstream (C8). A rejection here is a refusal
+    //    of a payment that verified, so it is logged with the payer and never with a
+    //    reason that reads like the payer's signature was wrong.
     const rejection: GuardRejection | null = await guards({
       endpointId: row.endpointId,
       payerAccountId: authorization.payerAccountId,
@@ -336,18 +354,39 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
 
     // 6. The row. `replay_key` is this authorization's identity, so a retried request
     //    finds the payment it already made instead of making a second one (GW-4).
-    const opened = await openPayment(db, {
-      id: newId(),
-      endpointId: row.endpointId,
-      routeId: row.routeId,
-      payerAccountId: authorization.payerAccountId,
-      amount: BigInt(advertised.amount),
-      assetContract: advertised.asset,
-      replayKey: authorization.replayKey,
-      // Not knowable here, and null by fact rather than omission (S6): a NEP-366
-      // delegate expires at a block height the payer's signer chose.
-      delegateExpiresAt: null,
-    });
+    const opened = await openPayment(
+      db,
+      {
+        id: newId(),
+        endpointId: row.endpointId,
+        routeId: row.routeId,
+        payerAccountId: authorization.payerAccountId,
+        amount: BigInt(advertised.amount),
+        assetContract: advertised.asset,
+        replayKey: authorization.replayKey,
+        // Not knowable here, and null by fact rather than omission (S6): a NEP-366
+        // delegate expires at a block height the payer's signer chose.
+        delegateExpiresAt: null,
+      },
+      { windowSeconds: inFlightWindow },
+    );
+
+    if (opened.kind === "in_flight") {
+      // Guard 3's authoritative half (GW-6): the payer already has an unanswered
+      // payment, and this one would have been a second delegate on one access key,
+      // which S6 measured as two verifications and one chain refusal that arrives
+      // *after* the seller served. Nothing was inserted, nothing was called.
+      requestLog.info(
+        { code: "payer_in_flight", blockingPaymentId: opened.blocking.id },
+        "gateway refused a second in-flight payment",
+      );
+      return refuse({
+        status: 429,
+        code: "payer_in_flight",
+        detail: "this payer already has a paid request in flight",
+        retryAfterSeconds: inFlightWindow,
+      });
+    }
 
     if (opened.kind === "existing") {
       // C7 is the row that lets an `abandoned` payment be retried with the same

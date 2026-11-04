@@ -150,8 +150,13 @@ suite("payments service (C3, GW-2, GW-4)", () => {
 
     expect(first.kind).toBe("created");
     expect(second.kind).toBe("existing");
+    // Narrow by throwing, not by returning: a `return` here would let a mutation
+    // that makes either open answer `in_flight` pass the test by running nothing.
+    if (first.kind !== "created") {
+      throw new Error(`first open returned ${first.kind}`);
+    }
     if (second.kind !== "existing") {
-      return;
+      throw new Error(`second open returned ${second.kind}`);
     }
     expect(second.payment.id).toBe(first.payment.id);
 

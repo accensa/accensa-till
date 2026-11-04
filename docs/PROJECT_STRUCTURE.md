@@ -42,7 +42,7 @@ till/
 │   │   │   ├── gateway/
 │   │   │   │   ├── route.ts      # /r/:slug handler
 │   │   │   │   ├── requirements.ts   # cached x402 payment requirements
-│   │   │   │   ├── guards.ts     # expiry, balance, in-flight, strikes
+│   │   │   │   ├── guards.ts     # advertised window + in-flight read (C8); balance is inside verify, strikes are C9's
 │   │   │   │   ├── proxy.ts      # upstream GET, limits, no redirects
 │   │   │   │   └── ssrf.ts       # validated-address connect, self-loop check
 │   │   │   ├── x402/

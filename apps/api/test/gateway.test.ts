@@ -15,6 +15,7 @@ import { createApp } from "../src/app.ts";
 import type { Db } from "../src/db/client.ts";
 import * as schema from "../src/db/schema.ts";
 import { type Env, loadEnv } from "../src/env.ts";
+import { guardsPendingC8, inFlightWindowSeconds } from "../src/gateway/guards.ts";
 import { type ProxyResult, getUpstream } from "../src/gateway/proxy.ts";
 import { PAYMENT_REQUIRED_HEADER } from "../src/gateway/requirements.ts";
 import {
@@ -125,14 +126,34 @@ const UPSTREAM = {
   notFound: "/not-found",
   unavailable: "/unavailable",
   dropped: "/dropped",
+  hold: "/hold",
 } as const;
+
+/**
+ * The `/hold` route answers only when the test lets it, which is how a paid request
+ * is made to occupy the "row inserted, seller not yet answered" window that Guard 3
+ * is about. Without it every concurrent test would be a test of the event loop.
+ */
+let releaseHold: (() => void) | null = null;
 
 let upstreamServer: Server;
 let upstreamPort = 0;
+/** Every request the seller actually received, in order. A guard that refuses must add nothing. */
+const sellerHits: string[] = [];
 
 beforeAll(async () => {
   upstreamServer = createServer((request, response) => {
     const path = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    sellerHits.push(path);
+    if (path === UPSTREAM.hold) {
+      new Promise<void>((resolve) => {
+        releaseHold = resolve;
+      }).then(() => {
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ price: 4213, unit: "eur", path }));
+      });
+      return;
+    }
     if (path === UPSTREAM.data) {
       response.writeHead(200, {
         "content-type": "application/json",
@@ -405,14 +426,14 @@ afterAll(() => {
 });
 
 /** The chain as the verifier sees it: everything healthy, so only the payment decides. */
-function fakeChain(): NearViewSigner {
+function fakeChain(payerBalance = 1_000_000n): NearViewSigner {
   return {
     getRelayerIds: () => [RELAYER],
     getCurrentBlockHeight: async () => BigInt(BLOCK_HEIGHT + 5),
     viewAccount: async ({ accountId }) =>
       accountId === TOKEN ? { codeHash: HAS_CONTRACT } : { codeHash: NO_CONTRACT },
     viewAccessKey: async () => ({ nonce: 7n, permissionKind: "FullAccess" }),
-    ftBalanceOf: async () => 1_000_000n,
+    ftBalanceOf: async () => payerBalance,
     storageBalanceOf: async () => ({ supported: false }),
     submitSignedDelegateAction: async () => ({
       transaction: `real-${randomUUID().slice(0, 8)}`,
@@ -421,11 +442,11 @@ function fakeChain(): NearViewSigner {
   };
 }
 
-function shippedX402(): X402Near {
+function shippedX402(payerBalance?: bigint): X402Near {
   return createX402Near({
     network: "near:testnet",
     maxSponsoredGas: 30_000_000_000_000n,
-    signer: fakeChain(),
+    signer: fakeChain(payerBalance),
   });
 }
 
@@ -641,6 +662,25 @@ async function countPayments(endpointId: string, state: string): Promise<number>
   return Number(row?.n ?? "0");
 }
 
+/**
+ * A payment that is being served right now, for the payer the route will next
+ * present an authorization for. Inserted directly because the only way to leave a
+ * row in `verified` through the code is to stop mid-request, which a test should
+ * not do to a real database.
+ */
+async function insertVerifiedPayment(input: {
+  readonly endpointId: string;
+  readonly payer?: string;
+}): Promise<{ id: string; replayKey: string }> {
+  const { sql } = need();
+  const row = { id: randomUUID(), replayKey: `c8-verified-${randomUUID()}` };
+  await sql`insert into payments (id, endpoint_id, payer_account_id, amount, asset_contract,
+      replay_key, state, verified_at)
+    values (${row.id}, ${input.endpointId}, ${input.payer ?? PAYER}, ${PRICE}, ${TOKEN},
+      ${row.replayKey}, 'verified', now())`;
+  return row;
+}
+
 /** Decode the 402 the way the shipped client does: base64 header, then JSON. */
 function decodeChallenge(response: Response): {
   error: string;
@@ -690,6 +730,7 @@ suite("the gateway paid request (C4, GW-2)", () => {
     await insertFixture({ name: "missing", payoutMode: "direct", path: "notFound" });
     await insertFixture({ name: "unavailable", payoutMode: "direct", path: "unavailable" });
     await insertFixture({ name: "deadsocket", payoutMode: "direct", path: "dropped" });
+    await insertFixture({ name: "hold", payoutMode: "direct", path: "hold" });
   });
 
   it("answers an unpaid request with the 402 a v2 payer can act on, and costs nothing", async () => {
@@ -1223,6 +1264,140 @@ suite("the gateway paid request (C4, GW-2)", () => {
     // reason a payer's 402 can be found in the log by the line the access log has.
     expect(gateway?.requestId).toBe(access?.requestId);
     expect(gateway?.slug).toBe(target.slug);
+  });
+
+  it("429s a paid request from a payer already being served, and never dials the seller", async () => {
+    const target = fixture("direct");
+    const blocker = await insertVerifiedPayment({ endpointId: target.endpointId });
+    const hits = sellerHits.length;
+    const openRows = await countPayments(target.endpointId, "verified");
+    const calls: Call[] = [];
+    const { response } = await call("direct", {
+      x402: scriptedX402({ settle: "ok", replayKey: randomUUID() }, calls),
+      payment: payloadFor(target.sellerAccount),
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe(String(inFlightWindowSeconds(2000, 30_000)));
+    expect((await response.json()) as unknown).toMatchObject({ error: "payer_in_flight" });
+    // The order is the guard: verify passed, so the payer holds a valid
+    // authorization, and the answer is still "not yet" before any byte of the
+    // seller's response is bought (GW-6, and S6's reason it cannot be trusted
+    // downstream -- the chain would only refuse this payment *after* it was served).
+    expect(calls).toEqual(["verify"]);
+    expect(sellerHits).toHaveLength(hits);
+    // One row: the payer's live payment. The refused authorization booked nothing.
+    // Read as a delta, because the scratch database outlives a run and an absolute
+    // count would be a claim about the machine rather than about this request.
+    expect(await countPayments(target.endpointId, "verified")).toBe(openRows);
+
+    await need().sql`delete from payments where id = ${blocker.id}`;
+  });
+
+  it("lets exactly one of two authorizations that arrive together reach the seller", async () => {
+    // The case the pre-serve read cannot answer on its own: both requests skip it
+    // (`guardsPendingC8`, which is the shape of a race in which neither has
+    // inserted yet), so the only thing that can stop the second is the claim
+    // `openPayment` takes in a transaction behind the payer's advisory lock. Delete
+    // that third argument and this test sees two 200s and two rows -- S6's finding
+    // arriving in the route written to prevent it.
+    const target = fixture("hold");
+    const keyA = `c8-together-a-${randomUUID()}`;
+    const keyB = `c8-together-b-${randomUUID()}`;
+
+    const startedA = call("hold", {
+      guards: guardsPendingC8,
+      x402: scriptedX402({ settle: "ok", replayKey: keyA }, []),
+      payment: payloadFor(target.sellerAccount),
+    });
+    const startedB = call("hold", {
+      guards: guardsPendingC8,
+      x402: scriptedX402({ settle: "ok", replayKey: keyB }, []),
+      payment: payloadFor(target.sellerAccount),
+    });
+
+    // Let both reach the claim before the seller is allowed to answer.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    if (releaseHold === null) {
+      throw new Error("the holding seller never received the first request");
+    }
+    releaseHold();
+    const [a, b] = await Promise.all([startedA, startedB]);
+
+    expect([a.response.status, b.response.status].sort()).toEqual([200, 429]);
+    // The winner was served, so its response body is taken; the loser's is read
+    // here because this 429 comes from the claim rather than from the guard's read
+    // (`guardsPendingC8` is injected precisely so the guard cannot answer), and it
+    // is the only place that says when to come back.
+    const refused = a.response.status === 429 ? a : b;
+    expect(refused.response.headers.get("retry-after")).toBe(
+      String(inFlightWindowSeconds(2000, 30_000)),
+    );
+    expect((await refused.response.json()) as unknown).toMatchObject({
+      error: "payer_in_flight",
+      retryAfterSeconds: inFlightWindowSeconds(2000, 30_000),
+    });
+    const rowA = await paymentByReplayKey(keyA);
+    const rowB = await paymentByReplayKey(keyB);
+    // Exactly one payment exists: the refused authorization booked nothing.
+    expect([rowA !== null, rowB !== null].sort()).toEqual([false, true]);
+    // Nothing to clean up: the winner settled and owns a `payment_in`, and the
+    // append-only ledger is the point of the exercise, not an obstacle to it.
+  });
+
+  it("serves that payer again once the in-flight payment has been answered", async () => {
+    const target = fixture("direct");
+    const blocker = await insertVerifiedPayment({ endpointId: target.endpointId });
+    const first = await call("direct", {
+      x402: scriptedX402({ settle: "ok", replayKey: randomUUID() }, []),
+      payment: payloadFor(target.sellerAccount),
+    });
+    expect(first.response.status).toBe(429);
+
+    await need().sql`update payments set state = 'settled' where id = ${blocker.id}`;
+    const replayKey = randomUUID();
+    const second = await call("direct", {
+      x402: scriptedX402({ settle: "ok", replayKey }, []),
+      payment: payloadFor(target.sellerAccount),
+    });
+    expect(second.response.status).toBe(200);
+    expect((await paymentByReplayKey(replayKey))?.state).toBe("settled");
+
+    // Only the fixture's own blocker row is removed: the second payment wrote a
+    // `payment_in`, and `ledger_entries` is append-only, so neither the line nor
+    // the row it belongs to can be deleted by anyone, including a test.
+    await need().sql`delete from payments where id = ${blocker.id}`;
+  });
+
+  it("refuses an underfunded authorization before the seller is dialled (Guard 2's ordering)", async () => {
+    // S6 measured that the balance check already exists inside `verify`
+    // (`ft_balance_of` on the account the signature binds, refused at
+    // `balance < amount`), so C8's contribution to GW-5 is *when*: the answer must
+    // arrive before the proxied bytes, not after them. The chain stub here holds
+    // one yocto less than the price, which is the boundary the scheme draws.
+    const target = fixture("direct");
+    const unpaid = await call("direct", { x402: shippedX402() });
+    const advertised = decodeChallenge(unpaid.response).accepts[0];
+    if (advertised === undefined) {
+      throw new Error("the advertisement carried no price");
+    }
+    const minted = await mintPayment(advertised);
+    const hits = sellerHits.length;
+    const openRows = await countPayments(target.endpointId, "verified");
+    const settledRows = await countPayments(target.endpointId, "settled");
+    const paid = await call("direct", {
+      x402: shippedX402(BigInt(PRICE) - 1n),
+      payment: minted.body,
+    });
+
+    expect(paid.response.status).toBe(402);
+    // The scheme's own code, not a string this suite invented: `verify` calls
+    // `ft_balance_of` on the account the signature binds and refuses at
+    // `balance < amount`.
+    expect(decodeChallenge(paid.response).error).toContain("insufficient_funds");
+    expect(sellerHits).toHaveLength(hits);
+    expect(await countPayments(target.endpointId, "verified")).toBe(openRows);
+    expect(await countPayments(target.endpointId, "settled")).toBe(settledRows);
   });
 
   it("through the default seam a loopback seller is refused, which is what the seam is for", async () => {
