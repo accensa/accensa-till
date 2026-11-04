@@ -92,6 +92,16 @@ export const endpoints = pgTable(
     payoutMode: text("payout_mode").notNull(),
     routeId: uuid("route_id").references(() => payoutRoutes.id),
     active: boolean("active").notNull().default(true),
+    /**
+     * D4: why creation left the endpoint inactive, in the seller's words. Stored
+     * rather than returned once, because the seller reloads the dashboard and the
+     * reason has to survive the request that produced it (PO-2). The check set is
+     * fixed and small, so the array is capped by the service, not the database.
+     */
+    creationWarnings: jsonb("creation_warnings")
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     createdAt: createdAt(),
   },
   (table) => [

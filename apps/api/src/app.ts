@@ -4,6 +4,7 @@ import type { Db } from "./db/client.ts";
 import type { Env } from "./env.ts";
 import { type GatewayRouteDeps, createGatewayRoute } from "./gateway/route.ts";
 import { type Logger, newRequestId } from "./lib/logger.ts";
+import { type EndpointRouteDeps, createEndpointRoutes } from "./routes/endpoints.ts";
 import type { X402Near } from "./x402/types.ts";
 
 /**
@@ -36,6 +37,13 @@ export type AppDeps = {
    * inspect. Everything else the gateway needs comes from the deps above.
    */
   readonly gateway?: Partial<Pick<GatewayRouteDeps, "upstream" | "guards" | "requirements">>;
+  /**
+   * D4's route needs a seller identity and two reads a test cannot perform: the
+   * cookie signature is F1's and the chain is A10's, so both are seams with the
+   * shipped default behind them. The DNS seam is the same one the SSRF policy
+   * already exposes; production leaves it unset.
+   */
+  readonly endpoints?: Partial<Pick<EndpointRouteDeps, "session" | "storage" | "resolve">>;
 };
 
 export type Variables = { requestId: string };
@@ -74,6 +82,10 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    *   routes/discrepancies.ts E2 / UI-4
    *   routes/export.ts      LR-7 (P1)
    */
+
+  // D4, PO-1/PO-2. Under `/api` because it is a dashboard route and the browser
+  // reaches this process only through the rewrite (A5); the gateway stays outside.
+  app.route("/api", createEndpointRoutes({ db, env, log, ...deps.endpoints }));
 
   // C4, GW-1/GW-2. Mounted last and outside `/api` on purpose: a payer is not a
   // session, and `app.route` keeps the request middleware above it (the id the

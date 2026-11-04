@@ -392,10 +392,10 @@ Relayer balance and last successful poll time shown in the dashboard header. No 
 
 ### 11.3 Input validation at creation
 
-- Upstream URL passes the SSRF checks at creation, not just at request time.
-- Seller NEAR account is checked for storage registration on the payment token; if missing, the UI says so and the endpoint stays inactive. Refunds also land on the NEAR side, so this matters in `intents` mode too.
-- Destination address format is validated per chain and shown back to the seller for explicit confirmation. A well-formed address on the wrong chain is not detectable.
-- Price must be at least `MIN_PRICE_BASE_UNITS`, set from spike S7.
+- Upstream URL passes the SSRF checks at creation, not just at request time. **Shipped (D4):** creation calls the same `resolveUpstreamTarget` the proxy dials through, so the two cannot disagree about a host.
+- Seller NEAR account is checked for storage registration on the payment token; if missing, the UI says so and the endpoint stays inactive. Refunds also land on the NEAR side, so this matters in `intents` mode too. **Shipped (D4):** a JSON-RPC `storage_balance_of` read against the token contract, shaped exactly as `@x402/near`'s verify interprets it — `supported: false` skips the rule, a null balance fails it, and an unreadable node fails it as *unverifiable* rather than passing.
+- Destination address format is validated per chain and shown back to the seller for explicit confirmation. A well-formed address on the wrong chain is not detectable. **Shipped (D4):** NEAR, Solana, Bitcoin and twelve EVM chains; the create request must echo the shown value as `confirmedAddress` or it is refused `422`.
+- Price must be at least `MIN_PRICE_BASE_UNITS`. **The check shipped (D4) against the configured value; the number is still S7's.** `10000` base units is the placeholder the check runs with, not a measured minimum.
 
 ## 12. Spikes (resolve before building the dependent part)
 

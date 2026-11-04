@@ -142,7 +142,12 @@ export const envSchema = z
      */
     RATE_LIMIT_REQUESTS: positiveInt(600),
     RATE_LIMIT_WINDOW_MS: positiveInt(60_000),
-    /** Set from spike S7 measurements, not guessed (PO-2). */
+    /**
+     * The floor D4's creation check enforces (PO-2). It is a **configured** value,
+     * not a measured one: S7 owns the real minimum-deposit and fee numbers, and
+     * it is blocked on a real quote. 0.01 (10000 base units) is the placeholder
+     * the check runs with, named as such rather than dressed up as a spike result.
+     */
     MIN_PRICE_BASE_UNITS: baseUnits("10000"),
 
     POLL_INTERVAL_SECONDS: positiveInt(20),

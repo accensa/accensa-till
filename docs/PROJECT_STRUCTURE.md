@@ -67,11 +67,11 @@ till/
 │   │   │   │   ├── payments.ts   # state transitions
 │   │   │   │   ├── strikes.ts    # strike count + appended seller clear (C9)
 │   │   │   │   ├── ledger.ts     # the only writer of ledger_entries
-│   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address
+│   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address (D4)
 │   │   │   │   └── discrepancies.ts
 │   │   │   ├── routes/           # dashboard API
 │   │   │   │   ├── auth.ts
-│   │   │   │   ├── endpoints.ts
+│   │   │   │   ├── endpoints.ts  # GET list / POST create with confirmation (D4)
 │   │   │   │   ├── payments.ts
 │   │   │   │   ├── swaps.ts
 │   │   │   │   ├── discrepancies.ts

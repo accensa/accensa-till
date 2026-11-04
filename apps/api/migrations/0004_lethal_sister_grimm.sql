@@ -1,0 +1,1 @@
+ALTER TABLE "endpoints" ADD COLUMN "creation_warnings" jsonb DEFAULT '[]'::jsonb NOT NULL;
