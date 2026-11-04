@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createApp } from "../src/app.ts";
+import { createDb } from "../src/db/client.ts";
 import { type Env, loadEnv } from "../src/env.ts";
 import type { Logger } from "../src/lib/logger.ts";
+import { createX402Near } from "../src/x402/near.ts";
 
 /**
  * A21 acceptance: the app answers without a process.
@@ -48,7 +50,23 @@ type Built = {
 
 function appFor(overrides: Record<string, string> = {}): Built {
   const { logger, lines } = recordingLogger();
-  return { app: createApp({ env: envWith(overrides), log: logger }), lines };
+  return {
+    app: createApp({
+      env: envWith(overrides),
+      log: logger,
+      // C4 made these required, and these tests never reach either: they assert the
+      // health paths and the request middleware. An address that cannot resolve is
+      // the honest value to hand in — `postgres()` connects lazily, so nothing opens
+      // a socket unless a route queries, and if one ever does it will fail loudly
+      // rather than quietly reading a real database. The gateway's own suite
+      // (`test/gateway.test.ts`) runs against `DATABASE_URL` for exactly that reason.
+      db: createDb("postgres://till:till@unresolved.invalid/till"),
+      // No relayer, so `configured` is false: the health route does not ask, and a
+      // test that wanted a payment would have to bring the chain, which is A10.
+      x402: createX402Near({ network: "near:testnet", maxSponsoredGas: 30_000_000_000_000n }),
+    }),
+    lines,
+  };
 }
 
 describe("the app boots without a process (A21)", () => {

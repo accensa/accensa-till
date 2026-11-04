@@ -1,7 +1,10 @@
 import { Hono } from "hono";
 
+import type { Db } from "./db/client.ts";
 import type { Env } from "./env.ts";
+import { type GatewayRouteDeps, createGatewayRoute } from "./gateway/route.ts";
 import { type Logger, newRequestId } from "./lib/logger.ts";
+import type { X402Near } from "./x402/types.ts";
 
 /**
  * The HTTP app, built from injected dependencies (A21).
@@ -14,20 +17,31 @@ import { type Logger, newRequestId } from "./lib/logger.ts";
  * `process.env` and nothing listens: a test builds the app with a fake env and a
  * recording logger, then calls `app.request(path)`.
  *
- * No `db` in the deps, on purpose (G6's own complaint was a field nobody reads).
- * The first route that needs the database takes it, and the mount table below
- * says which task owns which route.
+ * `db` and `x402` arrived with C4, which is the first route that needed them
+ * (A21's own note: the first route that needs the database takes it as a dep).
+ * Both are required rather than optional, so a process cannot boot into an app
+ * whose gateway silently answers 500 for want of a handle.
  */
 
 export type AppDeps = {
   readonly env: Env;
   readonly log: Logger;
+  readonly db: Db;
+  readonly x402: X402Near;
+  /**
+   * Only the seams, and only for the suite that wants them: `upstream` because the
+   * SSRF policy refuses a loopback seller by design and a test needs to proxy to a
+   * real in-process server, `guards` because C8's policy is not written yet,
+   * `requirements` because C2's cache is a per-process object a test may want to
+   * inspect. Everything else the gateway needs comes from the deps above.
+   */
+  readonly gateway?: Partial<Pick<GatewayRouteDeps, "upstream" | "guards" | "requirements">>;
 };
 
 export type Variables = { requestId: string };
 
 export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
-  const { env, log } = deps;
+  const { env, log, db, x402 } = deps;
   const app = new Hono<{ Variables: Variables }>();
 
   app.use("*", async (c, next) => {
@@ -59,8 +73,13 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    *   routes/swaps.ts       D6 / UI-3
    *   routes/discrepancies.ts E2 / UI-4
    *   routes/export.ts      LR-7 (P1)
-   *   gateway/route.ts      C4 / GW-1  /r/:slug, outside the session middleware
    */
+
+  // C4, GW-1/GW-2. Mounted last and outside `/api` on purpose: a payer is not a
+  // session, and `app.route` keeps the request middleware above it (the id the
+  // gateway logs is the one this app set). The route path lives in the gateway
+  // module, so `/r/:slug` is stated once.
+  app.route("/", createGatewayRoute({ env, log, db, x402, ...deps.gateway }));
 
   return app;
 }

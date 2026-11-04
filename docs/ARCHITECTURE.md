@@ -90,16 +90,20 @@ Requirements are cached per endpoint, keyed by a fingerprint of the fields the a
 
 ### 4.2 Paid request
 
-1. Parse payment header. Reject if the payer is blocked (4.3).
-2. Facilitator `verify`. On failure: `402` with a reason.
+The steps below are the design; what `gateway/route.ts` runs today is C4, and where the two differ the sentence says so and names the task that owns the difference.
+
+1. Resolve the endpoint, then parse the payment header. Resolution comes first because a challenge must never be issued for a row Till could not honour: an unknown or paused slug is `404`, a payout mode this build does not run and an endpoint the advertisement layer refuses are both `503`. Reject if the payer is blocked (4.3) — that query is C9's, and until it lands the guard step runs `guardsPendingC8`, which performs no checks, so today no request is refused on a strike count.
+2. Facilitator `verify`. On failure: `402` with a reason. The reason is the only field that changes — price, asset, network and pay-to are re-encoded from the same cached advertisement, so a payer whose signature was refused mints a new signature against the requirement it was already shown rather than guessing which field moved. A verifier that could not run at all (`unconfigured`, `error`) is `503`, not `402`: asking a stranger to pay for something we have not established we can verify is the seller's failure, not the payer's.
 3. **Guard 1, expiry.** Reject if the authorization's window is shorter than the upstream timeout plus a margin; otherwise settlement can fail after the work is done. Since C1, `expiresAt` is `null` by fact (the expiry lives in the delegate's `max_block_height`, and reading it means decoding Borsh here), so the comparison is against the **advertised** `maxTimeoutSeconds`, which S6 measured to be exactly what the payer's client turns into `maxBlockHeight` at one block per second. The scheme's own refusals (`delegate_action_expired`, and the over-wide-window refusal) are then checked at verify and at settle, so the guard's job is the *before-serving* half.
 4. **Guard 2, balance.** Reject if the payer's token balance is below the price. S6 found `verify` already does this (`ft_balance_of` on `delegate.senderId`, refused at `balance < amount`), so the gateway's half is *when*: run it before the upstream call, so a payment that will be refused never buys a proxied response. Verification still does not **hold** funds, which is why Guard 4 exists.
 5. **Guard 3, in-flight.** If the payer already has a paid request in flight, return `429` with `Retry-After`. One in flight per payer (D14). S6 measured that the scheme will not do this: two delegates from one payer both verify and both submit, and only the chain refuses the second — after the seller has served. This guard is the whole defence, and it must be keyed per payer (the ledger's `replay_key` only collapses identical payments).
-6. Insert the `payments` row with `replay_key`. If a row with that key exists in state `abandoned`, reuse it (same authorization, retry allowed). If it exists in any other state, return `409` with the stored receipt and no charge (see 4.4).
+
+Steps 3 to 5 are one seam in the code (`gateway/guards.ts`), and C4 ships it as `guardsPendingC8`, which returns "allow" for everything: the policy, its thresholds and the env vars behind them are C8's, and a guard that silently passed is worse than one that says it has not been written.
+6. Insert the `payments` row with `replay_key`. If a row with that key exists in state `abandoned`, reuse it (same authorization, retry allowed). If it exists in any other state, return `409` with the stored receipt and no charge (see 4.4). **C4 answers `409` for every existing row, `abandoned` included, and the reuse half is C7's**; the receipt is attached only when the stored row is `settled` and carries a `near_tx_hash`, because a `409` that shows a receipt for a payment that did not settle would be a forged one.
 7. Forward a `GET` to the upstream. No redirects followed, timeout enforced, response size capped, payment headers stripped.
-8. Upstream returned 2xx: call facilitator `settle`. Anything else (4xx, 5xx, timeout): mark `abandoned`, do not settle, return the upstream status for 4xx and `502` for 5xx or timeout.
-9. Settle succeeded: state `settled`, write `payment_in`, return the upstream response with a receipt header carrying the NEAR transaction hash.
-10. **Guard 4, strikes.** Settle failed after a 2xx upstream: state `served_unsettled`, open a critical `SERVED_NOT_SETTLED` discrepancy, still return the response. Payers with two such events in 24 hours are blocked from new paid calls until a seller clears them. This turns the exploit "pay with an empty account" into a bounded loss of one or two calls.
+8. Upstream returned 2xx: call facilitator `settle`. Anything else (4xx, 5xx, timeout): mark `abandoned`, do not settle, return the upstream status for 4xx and `502` for 5xx or timeout. The `502` replaces the body rather than forwarding it: a seller's 5xx is their stack trace, their framework's error page, their version headers, and a buyer has no business reading them. A 3xx is neither case and is deliberately unresolved — C6 decides whether redirects are followed, and until then whatever `getUpstream` reports is what the response is.
+9. Settle succeeded: state `settled`, write `payment_in`, return the upstream response with a receipt header carrying the NEAR transaction hash. The header is v2's `PAYMENT-RESPONSE`, base64 of `SettleResponse` (`success`, `transaction`, `network`), read off `createSettlementHeaders` in the shipped client rather than invented here; `transaction` is the same string `payments.near_tx_hash` holds, which is what lets the reconciler join a receipt to a swap (LR-2) from one value.
+10. **Guard 4, strikes.** Settle failed after a 2xx upstream: state `served_unsettled`, open a critical `SERVED_NOT_SETTLED` discrepancy, still return the response. Payers with two such events in 24 hours are blocked from new paid calls until a seller clears them. This turns the exploit "pay with an empty account" into a bounded loss of one or two calls. **Today the state and the response are C4's and the discrepancy row is E2's write path**, so the event is logged at `error` with `code: "SERVED_NOT_SETTLED"` and no `discrepancies` row is inserted; the log is not the discrepancy, and nothing counts it until C9's query exists.
 
 ### 4.3 Blocked payers
 
@@ -108,6 +112,8 @@ Computed by query over `payments` (count of `served_unsettled` in the last 24 ho
 ### 4.4 Paid but not delivered
 
 If settlement succeeded but the response never reached the buyer, a retry with the same authorization hits the replay guard. Until the P1 response cache exists the buyer gets `409` and the receipt, and the seller sees a normal settled payment. This is a known limitation, documented in the README. The P1 fix stores small responses (up to 256 KB) for five minutes keyed by `replay_key` and replays them on retry.
+
+C4's half is narrower than the sentence above implies, in both directions. A retry against a `settled` row returns `409` with the header, which is the described behaviour; a retry against an `abandoned` or `served_unsettled` row also returns `409` and hands out no receipt, because the reuse rule in step 6 is C7's and this layer would rather refuse twice than serve twice. The case that is not in the design at all is a payment that was abandoned and then retried: today that payer cannot get an answer without minting a new authorization, and the tests pin that (`gateway.test.ts`, "409s a replayed authorization whose payment never settled").
 
 ### 4.5 Payout lifecycle
 
@@ -319,6 +325,18 @@ All secrets from environment, validated by Zod at boot. The process refuses to s
 |---|---|
 | `GET /r/:slug` | Paywalled resource; 402 or upstream response |
 | `GET /healthz` | Liveness |
+
+What `GET /r/:slug` answers, since the status is the payer's whole interface (4.2):
+
+- **200** the seller's body, with the settlement hash in a base64 `PAYMENT-RESPONSE` header.
+- **402** no payment header, a header this process cannot decode, or a payment the scheme refused. All three are challenges; the refused ones carry `error` and are otherwise byte-identical to the advertisement.
+- **404** unknown slug, or an endpoint whose `active` is false — read from the row rather than from a `where` clause, so the two are not distinguishable to a stranger.
+- **409** this authorization already produced a payment row. The stored hash travels in the receipt header only when that row is `settled`.
+- **429** a guard said not yet, with `Retry-After`.
+- **502** the upstream failed or answered 5xx; the payment is abandoned and never charged.
+- **503** Till could not decide — an endpoint it cannot advertise, a payout mode this build does not run, or a facilitator that could not run. A 503 challenges nobody.
+
+Stripping is by name list, in `gateway/proxy.ts`: hop-by-hop headers (RFC 9110 7.6.1), anything starting `proxy-`, and payment material — `payment-signature`, `x-402*`, `x-payment*` — never travel to the seller. A seller's answer loses those too, plus `set-cookie`, `www-authenticate` and a upstream `content-length`, because the buyer's browser is on the gateway origin and a paywalled seller must not be able to write a cookie into the host that carries the dashboard session (G6 F2). `authorization` is *not* in the list: a buyer sending a bearer token to a paywalled resource is a seller's concern, not a payment path, and if that ever reads wrong the change belongs here rather than in the route.
 
 ### 9.2 Dashboard API (session required)
 
