@@ -15,6 +15,13 @@
       "when": 1793631918731,
       "tag": "0001_ledger_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793796319295,
+      "tag": "0002_chunky_makkari",
+      "breakpoints": true
     }
   ]
 }

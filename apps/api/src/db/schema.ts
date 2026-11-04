@@ -130,6 +130,37 @@ export const payments = pgTable(
   ],
 );
 
+/**
+ * C9 (GW-7): a seller lifting a payer's strike block.
+ *
+ * The block itself is not stored — it is computed from `payments` (two
+ * `served_unsettled` rows in 24 hours, ARCHITECTURE 4.3) — so the only thing that
+ * needs a row is the seller's decision to end it. A clear is a watermark rather
+ * than a delete: the strike query counts only rows that came after the newest
+ * clear for this payer and seller, which keeps payment history unrewritten
+ * (PO-7) and makes every clear auditable.
+ *
+ * Scoped to a seller, because the block protects that seller's upstream: a
+ * second seller must not be able to lift a block that is not theirs to lift.
+ */
+export const payerClears = pgTable(
+  "payer_clears",
+  {
+    id: id(),
+    payerAccountId: text("payer_account_id").notNull(),
+    sellerId: uuid("seller_id")
+      .notNull()
+      .references(() => sellers.id),
+    /** The session subject that cleared it (UI-1), or a test's label until then. */
+    clearedBy: text("cleared_by").notNull(),
+    note: text("note"),
+    createdAt: createdAt(),
+  },
+  (table) => [
+    index("payer_clears_pair_idx").on(table.payerAccountId, table.sellerId, table.createdAt),
+  ],
+);
+
 export const swaps = pgTable(
   "swaps",
   {

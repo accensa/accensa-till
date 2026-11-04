@@ -2,14 +2,22 @@ import type { PaymentRequirementsDto } from "@till/core";
 
 import type { Db } from "../db/client.ts";
 import { inFlightPayment } from "../services/payments.ts";
+import { strikesForPayer } from "../services/strikes.ts";
 
 /**
- * Pre-serve guards, evaluated in this order (C8, C9 -- GW-5, GW-6, GW-7):
- *   1. payer not blocked          two served_unsettled in 24h blocks them  (C9, not here yet)
- *   2. authorization expiry       must outlast UPSTREAM_TIMEOUT_MS + margin (this file)
- *   3. payer balance              must cover the price                     (inside `verify`)
- *   4. one in flight per payer    else 429 with Retry-After                (here and at the insert)
- *   5. replay key                 abandoned retries, settled returns 409   (C7, in the route)
+ * Pre-serve guards, in the order the route evaluates them (C8, C9 -- GW-5, GW-6,
+ * GW-7). The numbers are ARCHITECTURE 4.2's, not this file's evaluation order.
+ *
+ *   Guard 4  strikes (C9)         two served_unsettled in 24h blocks them   (this file)
+ *   Guard 1  authorization expiry must outlast UPSTREAM_TIMEOUT_MS + margin (this file)
+ *   Guard 2  payer balance        must cover the price                      (inside `verify`)
+ *   Guard 3  one in flight        else 429 with Retry-After                 (here and at the insert)
+ *   replay key                    abandoned retried, settled 409            (C7, in the route)
+ *
+ * The strike block is answered first although 4.2 numbers it last: it needs no
+ * configuration to evaluate, and a misconfigured window must not convert a
+ * blocked payer's `403` into a `503` that reads like our outage rather than their
+ * record.
  *
  * Two of these are not policy this file writes, and saying so is the point of the
  * comments rather than an excuse: a guard listed here and not run is how a review
@@ -23,7 +31,7 @@ import { inFlightPayment } from "../services/payments.ts";
  * (C4's 503-not-402 rule, read the other way round).
  */
 export type GuardRejection = {
-  readonly status: 409 | 429 | 502 | 503;
+  readonly status: 403 | 409 | 429 | 502 | 503;
   readonly reason: string;
   readonly retryAfterSeconds?: number;
 };
@@ -40,6 +48,12 @@ export type GuardRejection = {
  */
 export type GuardContext = {
   readonly endpointId: string;
+  /**
+   * The endpoint's seller, because C9's block is per (payer, seller): the loss a
+   * strike measures is the seller who served, and a clear must not travel between
+   * tenants.
+   */
+  readonly sellerId: string;
   readonly payerAccountId: string;
   /** The advertised price in base units, taken from our requirements. */
   readonly priceAmount: bigint;
@@ -84,6 +98,26 @@ export function createGuards(deps: GuardDeps): GuardRunner {
   );
 
   return async (context) => {
+    // Guard 4, strikes (GW-7). Two payments served and not settled inside 24
+    // hours, at this seller, is the measured shape of "pay from an account that
+    // cannot settle": `verify` does not hold funds (S6), so the seller loses one
+    // answer per attempt, and nothing downstream counts them.
+    //
+    // `403` rather than `402`: this payer already holds a valid authorization and
+    // cannot fix the refusal by signing another one. No `Retry-After` either -- the
+    // documented exit is the seller's clear, so a date would be a promise the
+    // header cannot keep.
+    const strikes = await strikesForPayer(deps.db, {
+      payerAccountId: context.payerAccountId,
+      sellerId: context.sellerId,
+    });
+    if (strikes.blocked) {
+      return {
+        status: 403,
+        reason: "payer_blocked",
+      };
+    }
+
     // Guard 1, the authorization window (GW-5).
     //
     // ARCHITECTURE 4.2 step 3 asks for "reject if the authorization's window is

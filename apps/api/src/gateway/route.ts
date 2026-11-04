@@ -114,7 +114,7 @@ export type GatewayRouteDeps = {
 type GatewayEnv = { Variables: { requestId: string } };
 
 type Refusal = {
-  readonly status: 404 | 409 | 429 | 502 | 503;
+  readonly status: 403 | 404 | 409 | 429 | 502 | 503;
   readonly code: string;
   readonly detail: string;
   readonly retryAfterSeconds?: number;
@@ -332,6 +332,7 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
     //    reason that reads like the payer's signature was wrong.
     const rejection: GuardRejection | null = await guards({
       endpointId: row.endpointId,
+      sellerId: row.sellerId,
       payerAccountId: authorization.payerAccountId,
       priceAmount: BigInt(advertised.amount),
       assetContract: advertised.asset,

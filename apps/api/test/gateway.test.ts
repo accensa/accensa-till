@@ -26,6 +26,7 @@ import {
 } from "../src/gateway/route.ts";
 import type { UpstreamTarget } from "../src/gateway/ssrf.ts";
 import type { Logger } from "../src/lib/logger.ts";
+import { clearPayerBlock } from "../src/services/strikes.ts";
 import { createX402Near } from "../src/x402/near.ts";
 import type { NearViewSigner, RequirementsInput, X402Near } from "../src/x402/types.ts";
 
@@ -988,15 +989,18 @@ suite("the gateway paid request (C4, GW-2)", () => {
 
   it("409s a replayed authorization whose payment never settled, and hands out no receipt", async () => {
     const replayKey = randomUUID();
+    // Its own payer: C9 counts served_unsettled rows, and a payer shared with
+    // another test would carry strikes into whichever ran second.
+    const payer = "unsettled-replay.testnet";
     const first = await call("direct", {
-      x402: scriptedX402({ settle: "invalid", replayKey }, []),
+      x402: scriptedX402({ settle: "invalid", replayKey, payer }, []),
       payment: payloadFor(fixture("direct").sellerAccount),
     });
     expect(first.response.status).toBe(200);
     expect(await paymentByReplayKey(replayKey)).toMatchObject({ state: "served_unsettled" });
 
     const second = await call("direct", {
-      x402: scriptedX402({ settle: "ok", hash: "near-tx-arrived-later", replayKey }, []),
+      x402: scriptedX402({ settle: "ok", hash: "near-tx-arrived-later", replayKey, payer }, []),
       payment: payloadFor(fixture("direct").sellerAccount),
     });
     expect(second.response.status).toBe(409);
@@ -1293,7 +1297,9 @@ suite("the gateway paid request (C4, GW-2)", () => {
     const calls: Call[] = [];
     const replayKey = randomUUID();
     const { response, lines } = await call("direct", {
-      x402: scriptedX402({ settle: "invalid", replayKey }, calls),
+      // C9 counts this state, so this test owns its payer rather than inheriting
+      // the suite's default one.
+      x402: scriptedX402({ settle: "invalid", replayKey, payer: "unsettled-serve.testnet" }, calls),
       payment: payloadFor(target.sellerAccount),
     });
     // The payer paid for an answer that exists. Withholding it would move the
@@ -1308,6 +1314,59 @@ suite("the gateway paid request (C4, GW-2)", () => {
     expect(payment?.nearTxHash).toBeNull();
     expect(await ledgerOf(replayKey)).toEqual([]);
     expect(lines.some((line) => line.code === "SERVED_NOT_SETTLED")).toBe(true);
+  });
+
+  it("blocks a payer after two unsettled serves, and a seller clear restores access (C9, GW-7)", async () => {
+    const target = fixture("direct");
+    const payer = `c9-e2e-${randomUUID().slice(0, 8)}.testnet`;
+
+    // Two answers went out and the money did not. Each is a strike, and the second
+    // is the threshold -- measured here through the route, not just the query.
+    for (const replayKey of [randomUUID(), randomUUID()]) {
+      const served = await call("direct", {
+        x402: scriptedX402({ settle: "invalid", replayKey, payer }, []),
+        payment: payloadFor(target.sellerAccount),
+      });
+      expect(served.response.status).toBe(200);
+      expect((await paymentByReplayKey(replayKey))?.state).toBe("served_unsettled");
+    }
+
+    // The third attempt verifies and is then refused: `verify` ran, so the payer is
+    // one we could name, and nothing downstream of the guard ran at all.
+    const blockedKey = randomUUID();
+    const blockedCalls: Call[] = [];
+    const hits = sellerHits.length;
+    const blocked = await call("direct", {
+      x402: scriptedX402({ settle: "ok", replayKey: blockedKey, payer }, blockedCalls),
+      payment: payloadFor(target.sellerAccount),
+    });
+    expect(blocked.response.status).toBe(403);
+    expect((await blocked.response.json()) as unknown).toMatchObject({ error: "payer_blocked" });
+    // The exit is a seller's clear, so there is no date to promise.
+    expect(blocked.response.headers.get("retry-after")).toBeNull();
+    expect(blockedCalls).toEqual(["verify"]);
+    expect(await paymentByReplayKey(blockedKey)).toBeNull();
+    expect(sellerHits).toHaveLength(hits);
+
+    await clearPayerBlock(need().db, {
+      payerAccountId: payer,
+      sellerId: target.sellerId,
+      clearedBy: "c9-operator.testnet",
+      note: "seller accepted the explanation for the failed settles",
+    });
+
+    // The same payer, the same seller, and now a paid answer: the clear lifted the
+    // block without rewriting either strike.
+    const afterKey = randomUUID();
+    const afterCalls: Call[] = [];
+    const after = await call("direct", {
+      x402: scriptedX402({ settle: "ok", replayKey: afterKey, payer }, afterCalls),
+      payment: payloadFor(target.sellerAccount),
+    });
+    expect(after.response.status).toBe(200);
+    expect(afterCalls).toEqual(["verify", "settle"]);
+    expect((await paymentByReplayKey(afterKey))?.state).toBe("settled");
+    expect(after.response.headers.get(PAYMENT_RESPONSE_HEADER)).not.toBeNull();
   });
 
   it("inserts the verified row before the upstream is dialed, and it is still verified during", async () => {

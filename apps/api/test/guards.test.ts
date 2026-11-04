@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as schema from "../src/db/schema.ts";
 import { type GuardContext, createGuards, inFlightWindowSeconds } from "../src/gateway/guards.ts";
 import { advancePayment, openPayment } from "../src/services/payments.ts";
+import { clearPayerBlock } from "../src/services/strikes.ts";
 
 /**
  * C8 acceptance tests (GW-5, GW-6): the pre-serve guards, and the claim that makes
@@ -83,35 +84,55 @@ function need(): Handle {
 const run = randomUUID().slice(0, 8);
 const ids = {
   sellerId: randomUUID(),
+  sellerIdTwo: randomUUID(),
   endpointOne: randomUUID(),
   endpointTwo: randomUUID(),
+  endpointThree: randomUUID(),
   nearAccount: `till-c8-${run}.testnet`,
+  nearAccountTwo: `till-c8b-${run}.testnet`,
   slugOne: `c8-one-${run}`,
   slugTwo: `c8-two-${run}`,
+  slugThree: `c9-three-${run}`,
 } as const;
 
 const PAYER = `c8-payer-${run}.testnet`;
 const OTHER_PAYER = `c8-other-${run}.testnet`;
+
+/** C9's payers, kept apart from C8's so no test's leftovers become another's block. */
+const C9_PAYER = `c9-payer-${run}.testnet`;
+const C9_NEIGHBOUR = `c9-neighbour-${run}.testnet`;
+/**
+ * The window test owns a payer with no clear row. Sharing `C9_PAYER` with the
+ * clear test above would make "the strikes left the window" pass for the wrong
+ * reason: the old clear's watermark would hide them even if the window were wider
+ * than the rule says.
+ */
+const C9_WINDOW_PAYER = `c9-window-${run}.testnet`;
 
 async function seed(): Promise<void> {
   const { sql } = need();
   await sql`insert into sellers (id, near_account_id, display_name)
     values (${ids.sellerId}, ${ids.nearAccount}, 'C8 fixture')
     on conflict (id) do nothing`;
-  for (const [endpointId, slug] of [
-    [ids.endpointOne, ids.slugOne],
-    [ids.endpointTwo, ids.slugTwo],
+  await sql`insert into sellers (id, near_account_id, display_name)
+    values (${ids.sellerIdTwo}, ${ids.nearAccountTwo}, 'C9 fixture')
+    on conflict (id) do nothing`;
+  for (const [endpointId, slug, sellerId] of [
+    [ids.endpointOne, ids.slugOne, ids.sellerId],
+    [ids.endpointTwo, ids.slugTwo, ids.sellerId],
+    [ids.endpointThree, ids.slugThree, ids.sellerIdTwo],
   ] as const) {
     await sql`insert into endpoints (id, seller_id, slug, upstream_url, price_amount,
         asset_contract, network, payout_mode)
-      values (${endpointId}, ${ids.sellerId}, ${slug}, 'https://example.test/data',
+      values (${endpointId}, ${sellerId}, ${slug}, 'https://example.test/data',
         '10000', 'usdc.testnet', 'near:testnet', 'direct')
       on conflict (id) do nothing`;
   }
 }
 
-/** Two endpoints, so a test can show the gate is keyed on the payer and not the row. */
-const ENDPOINTS = { one: ids.endpointOne, two: ids.endpointTwo };
+/** Three endpoints across two sellers, so a test can show which key a gate uses. */
+const ENDPOINTS = { one: ids.endpointOne, two: ids.endpointTwo, three: ids.endpointThree };
+const SELLERS = { one: ids.sellerId, two: ids.sellerIdTwo };
 
 function requirementsOf(maxTimeoutSeconds: number): PaymentRequirementsDto {
   return paymentRequirementsSchema.parse({
@@ -128,12 +149,14 @@ function requirementsOf(maxTimeoutSeconds: number): PaymentRequirementsDto {
 function contextFor(
   input: {
     readonly payer?: string;
+    readonly sellerId?: string;
     readonly endpointId?: string;
     readonly maxTimeoutSeconds?: number;
   } = {},
 ): GuardContext {
   return {
     endpointId: input.endpointId ?? ENDPOINTS.one,
+    sellerId: input.sellerId ?? SELLERS.one,
     payerAccountId: input.payer ?? PAYER,
     priceAmount: 10_000n,
     assetContract: "usdc.testnet",
@@ -211,9 +234,11 @@ suite("guards (C8, GW-5, GW-6)", () => {
 
   afterAll(async () => {
     const { sql } = need();
-    await sql`delete from payments where payer_account_id in (${PAYER}, ${OTHER_PAYER})`;
-    await sql`delete from endpoints where id in (${ENDPOINTS.one}, ${ENDPOINTS.two})`;
-    await sql`delete from sellers where id = ${ids.sellerId}`;
+    await sql`delete from payments where payer_account_id in (${PAYER}, ${OTHER_PAYER},
+      ${C9_PAYER}, ${C9_NEIGHBOUR}, ${C9_WINDOW_PAYER})`;
+    await sql`delete from payer_clears where seller_id in (${SELLERS.one}, ${SELLERS.two})`;
+    await sql`delete from endpoints where id in (${ENDPOINTS.one}, ${ENDPOINTS.two}, ${ENDPOINTS.three})`;
+    await sql`delete from sellers where id in (${ids.sellerId}, ${ids.sellerIdTwo})`;
     await sql.end({ timeout: 1 }).catch(() => undefined);
   });
 
@@ -385,5 +410,107 @@ suite("guards (C8, GW-5, GW-6)", () => {
     expect(third.kind).toBe("in_flight");
 
     await need().sql`delete from payments where payer_account_id = ${PAYER}`;
+  });
+
+  // --- C9, GW-7: the strike block -----------------------------------------------------------
+
+  it("lets a payer with one unsettled serve through, because the threshold is two (C9, GW-7)", async () => {
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+    expect(await guardsRunner()(contextFor({ payer: C9_PAYER }))).toBeNull();
+    await need().sql`delete from payments where payer_account_id = ${C9_PAYER}`;
+  });
+
+  it("blocks a payer with two unsettled serves, and offers no retry date (C9, GW-7)", async () => {
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+
+    const rejection = await guardsRunner()(contextFor({ payer: C9_PAYER }));
+    expect(rejection?.status).toBe(403);
+    expect(rejection?.reason).toBe("payer_blocked");
+    // The design's exit from a block is the seller's clear, not a timer, so a
+    // `Retry-After` would be a promise Till does not intend to keep. (The window
+    // does age a block out as well; the header is still not the honest way to say so.)
+    expect(rejection?.retryAfterSeconds).toBeUndefined();
+
+    await need().sql`delete from payments where payer_account_id = ${C9_PAYER}`;
+  });
+
+  it("answers the block before its own configuration, so a blocked payer hears why (C9, GW-7)", async () => {
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+
+    // A window that would otherwise answer 503: the block is about the payer, and
+    // hiding it behind an unrelated misconfiguration would send them to support.
+    const rejection = await guardsRunner()(
+      contextFor({ payer: C9_PAYER, maxTimeoutSeconds: WINDOW - 1 }),
+    );
+    expect(rejection).toEqual({ status: 403, reason: "payer_blocked" });
+
+    await need().sql`delete from payments where payer_account_id = ${C9_PAYER}`;
+  });
+
+  it("keeps the block at the seller where the strikes happened (C9, GW-7)", async () => {
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+
+    expect(await guardsRunner()(contextFor({ payer: C9_PAYER }))).toMatchObject({ status: 403 });
+    // The same payer at a different seller: this seller has served them nothing,
+    // so their protection is not this payer's to trigger.
+    expect(
+      await guardsRunner()(
+        contextFor({ payer: C9_PAYER, sellerId: SELLERS.two, endpointId: ENDPOINTS.three }),
+      ),
+    ).toBeNull();
+    // And the reverse direction is not a free pass either: strikes recorded at the
+    // second seller's endpoint do not block the first.
+    await insertPayment({
+      payer: C9_NEIGHBOUR,
+      state: "served_unsettled",
+      endpointId: ENDPOINTS.three,
+    });
+    await insertPayment({
+      payer: C9_NEIGHBOUR,
+      state: "served_unsettled",
+      endpointId: ENDPOINTS.three,
+    });
+    expect(await guardsRunner()(contextFor({ payer: C9_NEIGHBOUR }))).toBeNull();
+    expect(
+      await guardsRunner()(
+        contextFor({ payer: C9_NEIGHBOUR, sellerId: SELLERS.two, endpointId: ENDPOINTS.three }),
+      ),
+    ).toMatchObject({ status: 403 });
+
+    await need().sql`delete from payments where payer_account_id in (${C9_PAYER}, ${C9_NEIGHBOUR})`;
+  });
+
+  it("lifts the block when the seller clears it, and not before (C9, GW-7)", async () => {
+    const { db } = need();
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+    await insertPayment({ payer: C9_PAYER, state: "served_unsettled" });
+    expect(await guardsRunner()(contextFor({ payer: C9_PAYER }))).toMatchObject({ status: 403 });
+
+    await clearPayerBlock(db, {
+      payerAccountId: C9_PAYER,
+      sellerId: SELLERS.one,
+      clearedBy: ids.nearAccount,
+    });
+    expect(await guardsRunner()(contextFor({ payer: C9_PAYER }))).toBeNull();
+
+    await need().sql`delete from payments where payer_account_id = ${C9_PAYER}`;
+  });
+
+  it("does not block on strikes that have left the twenty-four-hour window (C9, GW-7)", async () => {
+    await insertPayment({
+      payer: C9_WINDOW_PAYER,
+      state: "served_unsettled",
+      ageSeconds: 25 * 3_600,
+    });
+    await insertPayment({
+      payer: C9_WINDOW_PAYER,
+      state: "served_unsettled",
+      ageSeconds: 26 * 3_600,
+    });
+    expect(await guardsRunner()(contextFor({ payer: C9_WINDOW_PAYER }))).toBeNull();
+    await need().sql`delete from payments where payer_account_id = ${C9_WINDOW_PAYER}`;
   });
 });

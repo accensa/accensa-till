@@ -42,7 +42,7 @@ till/
 │   │   │   ├── gateway/
 │   │   │   │   ├── route.ts      # /r/:slug handler
 │   │   │   │   ├── requirements.ts   # cached x402 payment requirements
-│   │   │   │   ├── guards.ts     # advertised window + in-flight read (C8); balance is inside verify, strikes are C9's
+│   │   │   │   ├── guards.ts     # strike block (C9) + advertised window + in-flight read (C8); balance is inside verify
 │   │   │   │   ├── proxy.ts      # upstream GET, limits, no redirects
 │   │   │   │   └── ssrf.ts       # validated-address connect, self-loop check
 │   │   │   ├── x402/
@@ -63,6 +63,7 @@ till/
 │   │   │   │   └── queries/      # read helpers grouped by table
 │   │   │   ├── services/
 │   │   │   │   ├── payments.ts   # state transitions
+│   │   │   │   ├── strikes.ts    # strike count + appended seller clear (C9)
 │   │   │   │   ├── ledger.ts     # the only writer of ledger_entries
 │   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address
 │   │   │   │   └── discrepancies.ts
