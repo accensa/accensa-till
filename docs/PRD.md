@@ -82,7 +82,7 @@ P0 must ship. P1 ships if P0 is solid. Nothing below P1 is planned.
 
 | ID | Pri | Requirement | Acceptance criteria |
 |---|---|---|---|
-| GW-1 | P0 | Unpaid requests get an x402 v2 `402` with requirements | `curl` returns 402 with price, asset, network and pay-to |
+| GW-1 | P0 | Unpaid requests get an x402 v2 `402` with requirements | `curl` returns 402 with price, asset, network and pay-to **in the base64 `PAYMENT-REQUIRED` response header**; C2 read this off the shipped client, whose body path fires only for `x402Version: 1`, so a body-only 402 is a 402 no v2 wallet can pay. Till sends the header and the same JSON in the body |
 | GW-2 | P0 | Verify, proxy to upstream, then settle | Paid call returns the upstream body; settlement hash stored |
 | GW-3 | P0 | Settle only when upstream returns 2xx; 4xx passes through, 5xx and timeouts return 502, none are charged | Tests for 2xx, 4xx, 5xx and timeout show the expected ledger result |
 | GW-4 | P0 | Replay protection; an `abandoned` payment may be retried with the same authorization, a settled one gets 409 with its receipt | Tests cover both cases |

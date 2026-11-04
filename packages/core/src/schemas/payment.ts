@@ -69,7 +69,12 @@ export type PaymentRequirementsDto = z.infer<typeof paymentRequirementsSchema>;
  * from this field — but it is bounded here because it is forwarded on, and an
  * unbounded `tags` array or 4 MiB `description` costs us nothing to refuse.
  */
-const resourceInfoSchema = z.object({
+/**
+ * Exported because the gateway advertises this shape as well as parses it (C2,
+ * GW-1): the resource a payer sends back has the same bounds as the one we send
+ * out, and a second definition of a wire bound is how the two drift.
+ */
+export const resourceInfoSchema = z.object({
   url: z.string().url().max(2048),
   description: z.string().max(2000).optional(),
   mimeType: z.string().max(128).optional(),

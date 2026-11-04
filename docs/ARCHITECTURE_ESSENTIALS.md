@@ -49,7 +49,7 @@ Version 2.1. Outline of decisions that must not be violated. Detail: `ARCHITECTU
 
 ## Core flow
 
-1. No payment: 402 with cached requirements
+1. No payment: 402 with cached requirements, in the base64 `PAYMENT-REQUIRED` header (a body-only 402 is v1 and no v2 wallet reads it)
 2. Verify, guards, insert payment
 3. Proxy GET: no redirects, timeout, size cap, SSRF-safe connect
 4. Non-2xx or timeout: abandon, no settle
