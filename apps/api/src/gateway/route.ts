@@ -7,7 +7,12 @@ import { findGatewayEndpoint } from "../db/queries/endpoints.ts";
 import type { Env } from "../env.ts";
 import type { Logger } from "../lib/logger.ts";
 import { recordPaymentSettled } from "../services/ledger.ts";
-import { type PaymentRow, advancePayment, openPayment } from "../services/payments.ts";
+import {
+  type PaymentRow,
+  advancePayment,
+  openPayment,
+  recordSettlementHash,
+} from "../services/payments.ts";
 import type { X402Near } from "../x402/types.ts";
 import {
   type GuardRejection,
@@ -537,6 +542,19 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
       );
       return responseOf(served);
     }
+
+    // C10: the hash is evidence, and evidence is written before the state that
+    // depends on it. A crash between the settle and the terminal move used to leave
+    // a `verified` row the boot sweep could not tell from an unpaid one; with the
+    // hash on the row, the sweep asks the chain and books what landed. Best-effort:
+    // the terminal move below writes the same value, so a failure here costs the
+    // recovery hint, not the booking.
+    await recordSettlementHash(db, payment.id, settled.nearTxHash).catch((error: unknown) =>
+      requestLog.warn(
+        { code: "settlement_hash_not_recorded", paymentId: payment.id, error: String(error) },
+        "settlement hash not stamped before booking",
+      ),
+    );
 
     // `advancePayment` is compare-and-set on the state it read (C3), so a row some
     // other writer already moved throws rather than taking a second receipt.

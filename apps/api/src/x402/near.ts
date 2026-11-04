@@ -9,6 +9,7 @@ import type {
   NearViewSigner,
   RequirementsInput,
   SettleOutcome,
+  SettlementVerdict,
   VerifyOutcome,
   X402FailureKind,
   X402Near,
@@ -142,6 +143,86 @@ function buildServer(
   });
 }
 
+/**
+ * C10's boot sweep needs one question answered by the chain: the hash a settle
+ * returned, did that transaction land and did every receipt in it succeed? The
+ * answer decides whether a stale `verified` row is revenue to book or a payment
+ * to abandon, so "cannot tell" is its own verdict rather than an error a caller
+ * might read as either.
+ *
+ * The RPC call lives here rather than in the job because this is the module that
+ * owns chain reads (hard rule 1 keeps `@fastnear/*` in one file, and this one
+ * plain JSON-RPC `tx` needs no key, only the signer account id the transaction
+ * was submitted under — the relayer, or a test's signer seam).
+ */
+const SETTLEMENT_STATUS_TIMEOUT_MS = 5_000;
+
+function statusKind(status: unknown): "success" | "failure" | "other" {
+  if (typeof status !== "object" || status === null) {
+    return "other";
+  }
+  if ("Failure" in status) {
+    return "failure";
+  }
+  return "SuccessValue" in status || "SuccessReceiptId" in status ? "success" : "other";
+}
+
+/**
+ * A delegate action is wrapped: the outer relayer transaction can report success
+ * while the inner `ft_transfer` receipt failed. Both are "not settled" for the
+ * ledger, so any failed receipt in the outcome list outranks the outer status.
+ */
+function anyReceiptFailed(result: unknown): boolean {
+  const outcomes = (result as { receipts_outcome?: unknown }).receipts_outcome;
+  if (!Array.isArray(outcomes)) {
+    return false;
+  }
+  return outcomes.some(
+    (entry) =>
+      statusKind((entry as { outcome?: { status?: unknown } }).outcome?.status) === "failure",
+  );
+}
+
+async function settlementVerdict(
+  rpcUrl: string | undefined,
+  signerAccountId: string | undefined,
+  nearTxHash: string,
+): Promise<SettlementVerdict> {
+  if (rpcUrl === undefined || signerAccountId === undefined) {
+    return "unknown";
+  }
+  let result: unknown;
+  try {
+    const response = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: "till-sweep",
+        method: "tx",
+        params: [nearTxHash, signerAccountId, "FINAL"],
+      }),
+      signal: AbortSignal.timeout(SETTLEMENT_STATUS_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      return "unknown";
+    }
+    const body = (await response.json()) as { result?: unknown; error?: unknown };
+    if (body.error !== undefined || body.result === undefined) {
+      return "unknown";
+    }
+    result = body.result;
+  } catch {
+    return "unknown";
+  }
+  if (anyReceiptFailed(result)) {
+    return "failed";
+  }
+  const status = (result as { status?: unknown }).status;
+  const kind = statusKind(status);
+  return kind === "failure" ? "failed" : kind === "success" ? "settled" : "unknown";
+}
+
 export function createX402Near(config: X402NearConfig): X402Near {
   const relayer = config.relayer;
   let server: ResourceServer | null = null;
@@ -253,6 +334,12 @@ export function createX402Near(config: X402NearConfig): X402Near {
   return {
     configured: server !== null,
     requirements,
+    settlementStatus(nearTxHash: string): Promise<SettlementVerdict> {
+      // The relayer signed the outer transaction, so its id is what `tx` needs.
+      // The test seam stands in for it when no key is configured.
+      const signerAccountId = relayer?.accountId ?? config.signer?.getRelayerIds()[0];
+      return settlementVerdict(config.rpcUrl, signerAccountId, nearTxHash);
+    },
     async verify(body: unknown, requirementsDto: PaymentRequirementsDto): Promise<VerifyOutcome> {
       const result = await attempt(body, requirementsDto, "verify");
       if (!result.ok) {

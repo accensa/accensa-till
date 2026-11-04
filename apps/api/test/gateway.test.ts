@@ -416,6 +416,10 @@ function scriptedX402(script: Script, calls: Call[] = []): X402Near {
         reason: `scripted_${kind}`,
       };
     },
+    // The route never asks; the boot sweep does, and it owns that query's tests.
+    async settlementStatus() {
+      return "unknown" as const;
+    },
   };
 }
 
@@ -570,13 +574,15 @@ function buildRoute(input: {
   readonly x402: X402Near;
   readonly guards?: Parameters<typeof createGatewayRoute>[0]["guards"];
   readonly defaultUpstream?: boolean;
+  /** C10's ordering test watches the writes; every other case uses the real handle. */
+  readonly db?: Db;
 }): Built {
   const recorded = recordingLogger();
   const env = envFor();
   const route = createGatewayRoute({
     env,
     log: recorded.logger,
-    db: need().db,
+    db: input.db ?? need().db,
     x402: input.x402,
     ...(input.guards === undefined ? {} : { guards: input.guards }),
     ...(input.defaultUpstream === true
@@ -614,10 +620,16 @@ type CallInput = {
   readonly headers?: Record<string, string>;
   /** Ask for a slug other than this fixture's, which is how a miss is tested. */
   readonly slug?: string;
+  readonly db?: Db;
 };
 
 async function call(name: string, input: CallInput) {
-  const built = buildRoute(input);
+  const built = buildRoute({
+    x402: input.x402,
+    ...(input.guards === undefined ? {} : { guards: input.guards }),
+    ...(input.defaultUpstream === undefined ? {} : { defaultUpstream: input.defaultUpstream }),
+    ...(input.db === undefined ? {} : { db: input.db }),
+  });
   const target = fixture(name);
   const headers = new Headers(input.headers);
   if (input.payment !== undefined) {
@@ -1749,5 +1761,50 @@ suite("the gateway paid request (C4, GW-2)", () => {
     const payment = await paymentByReplayKey(replayKey);
     expect(payment?.state).toBe("abandoned");
     expect(await ledgerOf(replayKey)).toEqual([]);
+  });
+
+  it("stamps the settlement hash on the verified row before the terminal move (C10)", async () => {
+    // The boot sweep can only recover a payment whose process died after `settle`
+    // returned if the hash was written while the row was still `verified`. A real
+    // crash cannot be staged in-process, so this watches the two writes instead:
+    // hash first, state second. Removing the early write makes the first update the
+    // terminal one, and the sweep would have no evidence to ask the chain about.
+    const updates: Record<string, unknown>[] = [];
+    const hash = `tx-order-${randomUUID()}`;
+    const real = need().db;
+    const watched = new Proxy(real, {
+      get(target, property, receiver) {
+        if (property === "update") {
+          return (...args: Parameters<Db["update"]>) => {
+            const builder = target.update(...args);
+            return new Proxy(builder, {
+              get(inner, key) {
+                if (key === "set") {
+                  return (values: Record<string, unknown>) => {
+                    updates.push({ ...values });
+                    return (inner as unknown as { set(value: unknown): unknown }).set(values);
+                  };
+                }
+                const value = Reflect.get(inner, key) as unknown;
+                return typeof value === "function" ? value.bind(inner) : value;
+              },
+            });
+          };
+        }
+        const value = Reflect.get(target, property, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as Db;
+
+    const target = fixture("direct");
+    const { response } = await call("direct", {
+      x402: scriptedX402({ settle: "ok", hash }),
+      payment: payloadFor(target.sellerAccount),
+      db: watched,
+    });
+    expect(response.status).toBe(200);
+    expect(updates).toHaveLength(2);
+    expect(updates[0]).toEqual({ nearTxHash: hash });
+    expect(updates[1]).toMatchObject({ state: "settled", nearTxHash: hash });
   });
 });

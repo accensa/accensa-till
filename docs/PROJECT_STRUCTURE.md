@@ -46,7 +46,7 @@ till/
 │   │   │   │   ├── proxy.ts      # upstream GET, limits, no redirects
 │   │   │   │   └── ssrf.ts       # validated-address connect, self-loop check
 │   │   │   ├── x402/
-│   │   │   │   ├── near.ts       # the only importer of @fastnear x402 packages
+│   │   │   │   ├── near.ts       # the only importer of @fastnear x402 packages; verify, settle, settlementStatus
 │   │   │   │   └── types.ts      # our own types so library types do not leak
 │   │   │   ├── payouts/
 │   │   │   │   ├── provider.ts   # PayoutProvider interface, normalized types
@@ -78,7 +78,7 @@ till/
 │   │   │   │   ├── loop.ts       # timer helper with SKIP LOCKED claiming
 │   │   │   │   ├── poll-payouts.ts
 │   │   │   │   ├── reconcile.ts  # load snapshot, call core rules, persist findings
-│   │   │   │   └── sweep-stale.ts    # abandons stale `verified` payments after restart
+│   │   │   │   └── sweep-stale.ts    # boot sweep (C10): stale `verified` rows by row evidence + chain read
 │   │   │   └── lib/
 │   │   │       ├── logger.ts
 │   │   │       └── session.ts    # signed cookies via jose

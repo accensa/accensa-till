@@ -96,6 +96,14 @@ export type NearViewSigner = {
   }>;
 };
 
+/**
+ * What the chain says about a settlement hash Till recorded but did not finish
+ * booking (C10). `unknown` is a verdict, not an error: a node that cannot answer
+ * must not be read as either outcome, because both readings move money in the
+ * ledger or hand a paid row to a retry.
+ */
+export type SettlementVerdict = "settled" | "failed" | "unknown";
+
 export type X402Near = {
   /** False when no relayer key was configured, which is the testnet-default state. */
   readonly configured: boolean;
@@ -103,4 +111,10 @@ export type X402Near = {
   /** Takes the raw request body: it is untrusted, so this is where it is shaped. */
   verify(body: unknown, requirements: PaymentRequirementsDto): Promise<VerifyOutcome>;
   settle(body: unknown, requirements: PaymentRequirementsDto): Promise<SettleOutcome>;
+  /**
+   * The boot sweep's one chain read (C10): given the hash a settle returned, did
+   * the transaction land and did every receipt in it succeed? Only `settled` is
+   * evidence of money moving; `unknown` leaves the row alone for the next boot.
+   */
+  settlementStatus(nearTxHash: string): Promise<SettlementVerdict>;
 };

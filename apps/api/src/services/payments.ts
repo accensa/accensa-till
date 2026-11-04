@@ -246,6 +246,35 @@ export function findPayment(db: Db, paymentId: string): Promise<PaymentRow | nul
 }
 
 /**
+ * C10: the hash a settle returned, written while the row is still `verified`.
+ *
+ * The route used to learn the hash and move the row in one statement, which left
+ * a window: a process that died between `settle` returning and that statement
+ * left a `verified` row with no evidence, and the boot sweep could not tell it
+ * from a payment that never settled. Writing the hash first shrinks that window
+ * to "the relayer call had not returned", and the sweep can ask the chain about
+ * every row that has one (C10, `jobs/sweep-stale.ts`).
+ *
+ * Compare-and-set on `verified` and `near_tx_hash is null`, so a row another
+ * writer already finished is not rewritten and the first evidence wins. A `null`
+ * answer means the row moved on; the hash is then the winner's, not ours.
+ */
+export async function recordSettlementHash(
+  db: Db,
+  paymentId: string,
+  nearTxHash: string,
+): Promise<PaymentRow | null> {
+  const updated = await db
+    .update(payments)
+    .set({ nearTxHash })
+    .where(
+      sql`${payments.id} = ${paymentId} and ${payments.state} = 'verified' and ${payments.nearTxHash} is null`,
+    )
+    .returning();
+  return updated[0] ?? null;
+}
+
+/**
  * Move a payment to `to`, refusing anything the state machine disallows.
  *
  * The update is compare-and-set on the state it read: two settle attempts for one

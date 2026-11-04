@@ -19,6 +19,7 @@ import {
   findByReplayKey,
   findPayment,
   openPayment,
+  recordSettlementHash,
 } from "../src/services/payments.ts";
 
 /**
@@ -554,6 +555,42 @@ suite("payments service (C3, GW-2, GW-4)", () => {
 
     const settled = await findPayment(db, payment.id);
     expect(["first", "second"]).toContain(settled?.nearTxHash);
+  });
+
+  it("records the settlement hash while the row is still verified (C10's crash window)", async () => {
+    const { db } = need();
+    const payment = await openFresh();
+
+    const stamped = await recordSettlementHash(db, payment.id, "tx-before-booking");
+    expect(stamped?.state).toBe("verified");
+    expect(stamped?.nearTxHash).toBe("tx-before-booking");
+
+    // The terminal move keeps the evidence; it does not need to be told twice.
+    const settled = await advancePayment(db, payment.id, "settled", {
+      nearTxHash: "tx-before-booking",
+    });
+    expect(settled.state).toBe("settled");
+    expect(settled.nearTxHash).toBe("tx-before-booking");
+  });
+
+  it("does not rewrite a hash already on the row, and does not stamp a finished row", async () => {
+    const { db } = need();
+    const payment = await openFresh();
+
+    expect((await recordSettlementHash(db, payment.id, "first"))?.nearTxHash).toBe("first");
+    expect(await recordSettlementHash(db, payment.id, "second")).toBeNull();
+    expect((await findPayment(db, payment.id))?.nearTxHash).toBe("first");
+
+    await advancePayment(db, payment.id, "settled", { nearTxHash: "first" });
+    expect(await recordSettlementHash(db, payment.id, "third")).toBeNull();
+    expect((await findPayment(db, payment.id))?.nearTxHash).toBe("first");
+
+    // A finished row with no hash is the state predicate's own case: an abandoned
+    // payment must not gain settlement evidence after it stopped being in flight.
+    const abandoned = await openFresh();
+    await advancePayment(db, abandoned.id, "abandoned");
+    expect(await recordSettlementHash(db, abandoned.id, "late")).toBeNull();
+    expect((await findPayment(db, abandoned.id))?.nearTxHash).toBeNull();
   });
 
   it("refuses to move a payment that does not exist", async () => {

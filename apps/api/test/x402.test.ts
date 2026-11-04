@@ -652,3 +652,107 @@ describe("settle (GW-3)", () => {
     expect(chain.submits.length).toBeLessThanOrEqual(1);
   });
 });
+
+describe("settlementStatus reads the chain for the boot sweep (C10)", () => {
+  type TxCall = { readonly method: string; readonly params: readonly unknown[] };
+
+  /** A JSON-RPC stub that answers `tx` with whatever this case calls an answer. */
+  async function withTxStub(
+    answer: (call: TxCall) => { result?: unknown; error?: unknown },
+    run: (rpcUrl: string) => Promise<void>,
+  ): Promise<void> {
+    const server = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        const call = JSON.parse(body) as TxCall & { id: number };
+        const reply = answer(call);
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ jsonrpc: "2.0", id: call.id, ...reply }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+    try {
+      await run(url);
+    } finally {
+      server.close();
+    }
+  }
+
+  function nearWith(rpcUrl: string | undefined) {
+    return createX402Near({
+      network: "near:testnet",
+      maxSponsoredGas: 30_000_000_000_000n,
+      signer: fakeChain().signer,
+      ...(rpcUrl === undefined ? {} : { rpcUrl }),
+    });
+  }
+
+  it("asks `tx` for the exact hash under the relayer's account and calls a success settled", async () => {
+    const seen: TxCall[] = [];
+    await withTxStub(
+      (call) => {
+        seen.push({ method: call.method, params: call.params });
+        return {
+          result: {
+            status: { SuccessValue: "" },
+            receipts_outcome: [{ outcome: { status: { SuccessValue: "" } } }],
+          },
+        };
+      },
+      async (url) => {
+        expect(await nearWith(url).settlementStatus("hash-ok")).toBe("settled");
+      },
+    );
+    expect(seen).toEqual([{ method: "tx", params: ["hash-ok", RELAYER, "FINAL"] }]);
+  });
+
+  it("calls a failed final status failed", async () => {
+    await withTxStub(
+      () => ({ result: { status: { Failure: { ActionError: { index: 0 } } } } }),
+      async (url) => {
+        expect(await nearWith(url).settlementStatus("hash-failed")).toBe("failed");
+      },
+    );
+  });
+
+  it("reads a failed inner receipt as failed even when the outer transaction succeeded", async () => {
+    // The delegate is wrapped: the relayer's transaction can land while the
+    // `ft_transfer` it carried reverted. That is not money for the ledger.
+    await withTxStub(
+      () => ({
+        result: {
+          status: { SuccessValue: "" },
+          receipts_outcome: [
+            { outcome: { status: { SuccessReceiptId: "receipt-1" } } },
+            { outcome: { status: { Failure: { ActionError: { index: 0 } } } } },
+          ],
+        },
+      }),
+      async (url) => {
+        expect(await nearWith(url).settlementStatus("hash-inner-failed")).toBe("failed");
+      },
+    );
+  });
+
+  it("answers unknown for a node error, so nothing is booked or abandoned on a guess", async () => {
+    await withTxStub(
+      () => ({ error: { code: -32000, message: "transaction not found" } }),
+      async (url) => {
+        expect(await nearWith(url).settlementStatus("hash-missing")).toBe("unknown");
+      },
+    );
+  });
+
+  it("answers unknown with no URL or no account to ask as, rather than reaching the network", async () => {
+    expect(await nearWith(undefined).settlementStatus("hash")).toBe("unknown");
+    const anonymous = createX402Near({
+      network: "near:testnet",
+      maxSponsoredGas: 30_000_000_000_000n,
+    });
+    expect(await anonymous.settlementStatus("hash")).toBe("unknown");
+  });
+});

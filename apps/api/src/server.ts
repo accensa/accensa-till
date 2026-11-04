@@ -3,6 +3,8 @@ import { serve } from "@hono/node-server";
 import { createApp } from "./app.ts";
 import { createDb } from "./db/client.ts";
 import { loadEnv } from "./env.ts";
+import { inFlightWindowSeconds } from "./gateway/guards.ts";
+import { sweepStaleOnBoot } from "./jobs/sweep-stale.ts";
 import { createLogger } from "./lib/logger.ts";
 import { createX402Near } from "./x402/near.ts";
 
@@ -49,10 +51,22 @@ if (!x402.configured) {
 
 const app = createApp({ env, log, db, x402 });
 
-// TODO(D6, E2, C10): start the timer loops from here once they exist:
+// C10: recovery runs before the port opens, so no request can race the sweep.
+// The window is Guard 3's own, because that is the rule that decides when a
+// `verified` row stopped meaning "being served right now".
+const swept = await sweepStaleOnBoot({
+  db,
+  windowSeconds: inFlightWindowSeconds(env.UPSTREAM_TIMEOUT_MS, env.AUTHORIZATION_EXPIRY_MARGIN_MS),
+  probe: (hash) => x402.settlementStatus(hash),
+  log,
+});
+if (swept.abandoned + swept.recovered + swept.unproven > 0) {
+  log.info({ ...swept }, "boot sweep finished");
+}
+
+// TODO(D6, E2): start the timer loops from here once they exist:
 //   startLoop({ name: "poll-payouts", seconds: env.POLL_INTERVAL_SECONDS, run: pollPayouts })
 //   startLoop({ name: "reconcile", seconds: env.RECONCILE_INTERVAL_SECONDS, run: reconcile })
-//   sweepStaleOnBoot()   // C10, runs once before serving
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   log.info({ port: info.port, provider: env.PAYOUT_PROVIDER }, "api listening");
