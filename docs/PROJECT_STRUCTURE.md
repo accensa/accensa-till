@@ -44,6 +44,7 @@ till/
 │   │   │   │   ├── requirements.ts   # cached x402 payment requirements
 │   │   │   │   ├── guards.ts     # strike block (C9) + advertised window + in-flight read (C8); balance is inside verify
 │   │   │   │   ├── limits.ts     # GW-10: fixed-window request limiter and global sponsored-gas budget (C13)
+│   │   │   │   ├── response-cache.ts # GW-9: five-minute replay of a settled answer (C12)
 │   │   │   │   ├── proxy.ts      # upstream GET, limits, no redirects
 │   │   │   │   └── ssrf.ts       # validated-address connect, self-loop check
 │   │   │   ├── x402/

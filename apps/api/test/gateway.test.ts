@@ -23,6 +23,7 @@ import {
 } from "../src/gateway/limits.ts";
 import { type ProxyResult, getUpstream } from "../src/gateway/proxy.ts";
 import { PAYMENT_REQUIRED_HEADER } from "../src/gateway/requirements.ts";
+import { type ResponseCache, createResponseCache } from "../src/gateway/response-cache.ts";
 import {
   type GatewayLimits,
   LEGACY_PAYMENT_SIGNATURE_HEADER,
@@ -584,6 +585,8 @@ function buildRoute(input: {
   readonly db?: Db;
   /** GW-10's counters, when a case wants one already spent or one with a short window. */
   readonly limits?: GatewayLimits;
+  /** GW-9's cache, when a case wants a miss or the TTL already crossed. */
+  readonly responses?: ResponseCache;
 }): Built {
   const recorded = recordingLogger();
   const env = envFor();
@@ -594,6 +597,7 @@ function buildRoute(input: {
     x402: input.x402,
     ...(input.guards === undefined ? {} : { guards: input.guards }),
     ...(input.limits === undefined ? {} : { limits: input.limits }),
+    ...(input.responses === undefined ? {} : { responses: input.responses }),
     ...(input.defaultUpstream === true
       ? {}
       : {
@@ -631,6 +635,7 @@ type CallInput = {
   readonly slug?: string;
   readonly db?: Db;
   readonly limits?: GatewayLimits;
+  readonly responses?: ResponseCache;
 };
 
 async function call(name: string, input: CallInput) {
@@ -640,6 +645,7 @@ async function call(name: string, input: CallInput) {
     ...(input.defaultUpstream === undefined ? {} : { defaultUpstream: input.defaultUpstream }),
     ...(input.db === undefined ? {} : { db: input.db }),
     ...(input.limits === undefined ? {} : { limits: input.limits }),
+    ...(input.responses === undefined ? {} : { responses: input.responses }),
   });
   const target = fixture(name);
   const headers = new Headers(input.headers);
@@ -1961,5 +1967,123 @@ suite("process-wide limits (C13, GW-10)", () => {
 
     expect(response.status).toBe(200);
     expect(gas.reserved).toBe(GAS_PER_SETTLEMENT);
+  });
+});
+
+/**
+ * GW-9 at the route: a retry carrying an authorization whose payment already
+ * settled gets the answer back while it is still cached, and the `409` + receipt
+ * once it is not. Both halves matter -- the cache is a convenience, and the
+ * receipt is what the buyer is owed when convenience runs out.
+ */
+suite("paid response cache (C12, GW-9)", () => {
+  const CACHE_PAYER = "cache-payer.testnet";
+
+  beforeAll(async () => {
+    await insertFixture({ name: "cache", payoutMode: "direct" });
+  });
+
+  /** One authorization, one route, two requests: the shape a dropped delivery retries. */
+  function retryable(input: {
+    readonly responses: ResponseCache;
+    readonly replayKey: string;
+    readonly hash: string;
+    readonly calls: Call[];
+    readonly sellerAccount: string;
+  }) {
+    const target = fixture("cache");
+    const built = buildRoute({
+      x402: scriptedX402(
+        { payer: CACHE_PAYER, settle: "ok", replayKey: input.replayKey, hash: input.hash },
+        input.calls,
+      ),
+      guards: guardsPendingC8,
+      responses: input.responses,
+    });
+    const headers = new Headers({
+      [PAYMENT_SIGNATURE_HEADER]: paymentHeaderValue(payloadFor(input.sellerAccount)),
+    });
+    const request = () => built.route.request(`/r/${target.slug}`, { headers });
+    return { built, request };
+  }
+
+  it("replays the cached answer on a retry of the same authorization", async () => {
+    const replayKey = randomUUID();
+    const hash = `tx-cache-${randomUUID().slice(0, 8)}`;
+    const calls: Call[] = [];
+    const { built, request } = retryable({
+      responses: createResponseCache(),
+      replayKey,
+      hash,
+      calls,
+      sellerAccount: fixture("cache").sellerAccount,
+    });
+
+    const first = await request();
+    expect(first.status).toBe(200);
+    const body = await first.text();
+    const hits = sellerHits.length;
+
+    const second = await request();
+    expect(second.status).toBe(200);
+    expect(await second.text()).toBe(body);
+    expect(decodeReceipt(second).transaction).toBe(hash);
+
+    // verify ran again; settle and the seller did not. One authorization, one row.
+    expect(calls).toEqual(["verify", "settle", "verify"]);
+    expect(sellerHits).toHaveLength(hits);
+    expect(built.lines).toContainEqual(
+      expect.objectContaining({ code: "payment_replayed_from_cache" }),
+    );
+    expect(await paymentCountByReplayKey(replayKey)).toBe(1);
+    expect(await ledgerOf(replayKey)).toHaveLength(1);
+  });
+
+  it("falls back to 409 and the receipt when the answer was too large to cache", async () => {
+    const replayKey = randomUUID();
+    const hash = `tx-cache-${randomUUID().slice(0, 8)}`;
+    const calls: Call[] = [];
+    const { built, request } = retryable({
+      // Zero is the deterministic way to exercise GW-9's size limit: every body
+      // is over it, so the cache behaves like the pre-C12 build on the retry.
+      responses: createResponseCache({ maxEntryBytes: 0 }),
+      replayKey,
+      hash,
+      calls,
+      sellerAccount: fixture("cache").sellerAccount,
+    });
+
+    expect((await request()).status).toBe(200);
+    const hits = sellerHits.length;
+
+    const second = await request();
+    expect(second.status).toBe(409);
+    expect(decodeReceipt(second).transaction).toBe(hash);
+    expect(((await second.json()) as { error: string }).error).toBe("payment_replay");
+    expect(built.lines).toContainEqual(expect.objectContaining({ code: "response_not_cached" }));
+    expect(built.lines).toContainEqual(
+      expect.objectContaining({ code: "payment_replay", state: "settled" }),
+    );
+    expect(sellerHits).toHaveLength(hits);
+  });
+
+  it("stops replaying once the five minutes have passed", async () => {
+    let at = 0;
+    const replayKey = randomUUID();
+    const hash = `tx-cache-${randomUUID().slice(0, 8)}`;
+    const { request } = retryable({
+      responses: createResponseCache({ now: () => at }),
+      replayKey,
+      hash,
+      calls: [],
+      sellerAccount: fixture("cache").sellerAccount,
+    });
+
+    expect((await request()).status).toBe(200);
+    at += 5 * 60_000;
+
+    const second = await request();
+    expect(second.status).toBe(409);
+    expect(decodeReceipt(second).transaction).toBe(hash);
   });
 });

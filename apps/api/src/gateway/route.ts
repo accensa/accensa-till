@@ -39,6 +39,7 @@ import {
   type X402Challenge,
   createRequirementsCache,
 } from "./requirements.ts";
+import { type ResponseCache, createResponseCache } from "./response-cache.ts";
 import { UpstreamPolicyError, resolveUpstreamTarget } from "./ssrf.ts";
 
 /**
@@ -57,6 +58,8 @@ import { UpstreamPolicyError, resolveUpstreamTarget } from "./ssrf.ts";
  *
  * What a payer gets:
  *   200  the upstream body, with `PAYMENT-RESPONSE` carrying the settlement hash.
+ *        A retry within five minutes of a settled response whose delivery may have
+ *        been lost gets the cached body and the same receipt (GW-9).
  *   402  no payment, or a payment the scheme refused: a re-challenge whose only
  *        change is the reason, so a retry costs one new signature and not a new
  *        price (4.2 step 2).
@@ -125,11 +128,15 @@ export type GatewayRouteDeps = {
    * `limits`: GW-10's counters are per route instance, which is what makes them
    * testable without time or a restart. Production builds both from env; a test
    * that wants a window or a budget already spent injects the counter it means.
+   *
+   * `responses`: GW-9's cache, a seam for the same reason -- a test that wants the
+   * cache miss, or the five minutes to have passed, injects the cache it means.
    */
   readonly upstream?: OpenUpstream;
   readonly guards?: GuardRunner;
   readonly requirements?: RequirementsCache;
   readonly limits?: GatewayLimits;
+  readonly responses?: ResponseCache;
 };
 
 /** Variables `createApp` sets on every request; declared locally to keep app.ts unimported. */
@@ -272,6 +279,10 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
       perSettlement: env.MAX_SPONSORED_GAS,
     }),
   };
+
+  // GW-9. Also per route, and therefore per process in a boot. Its bounds are the
+  // requirement's five minutes and 256 KB, plus a total-size cap of its own.
+  const responses = deps.responses ?? createResponseCache();
 
   const route = new Hono<GatewayEnv>();
 
@@ -480,6 +491,28 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
               }),
             }
           : {};
+
+      // C12, GW-9: a paid answer that may never have reached its buyer is replayed
+      // for five minutes when its authorization comes back. Only a `settled` row is
+      // eligible -- the cache is filled on the serve path after that state is booked
+      // -- and the receipt is rebuilt from the row rather than stored with the body,
+      // so the hash a replayed answer names is the one the ledger holds. A miss,
+      // including one after the TTL, falls through to the 409 and receipt below.
+      if (stored.state === "settled" && stored.nearTxHash !== null) {
+        const cached = responses.get(authorization.replayKey);
+        if (cached !== null) {
+          requestLog.info(
+            {
+              code: "payment_replayed_from_cache",
+              paymentId: stored.id,
+              bytes: cached.body.byteLength,
+            },
+            "gateway replayed a cached paid response",
+          );
+          return responseOf(cached, stored.nearTxHash);
+        }
+      }
+
       requestLog.info(
         {
           code: "payment_replay",
@@ -689,6 +722,17 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
       );
     }
 
+    // C12, GW-9: keep the answer for five minutes, keyed by the authorization, so a
+    // buyer whose connection dropped before this `Response` reached it can retry.
+    // `set` owns the bounds and returns false only for a body over 256 KB; that is
+    // the documented fallback to the `409` + receipt, so it is logged, not silent.
+    if (!responses.set(authorization.replayKey, served)) {
+      requestLog.info(
+        { code: "response_not_cached", paymentId: payment.id, bytes: served.body.byteLength },
+        "a paid response was too large to cache for a retry",
+      );
+    }
+
     requestLog.info(
       {
         code: "served",
@@ -726,7 +770,10 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
   }
 
   /** The seller's answer, with the payment headers already stripped by `proxy.ts`. */
-  function responseOf(served: ProxyResult, nearTxHash?: string): Response {
+  function responseOf(
+    served: Pick<ProxyResult, "status" | "headers" | "body">,
+    nearTxHash?: string,
+  ): Response {
     const headers = new Headers();
     for (const [name, value] of served.headers) {
       headers.set(name, value);
