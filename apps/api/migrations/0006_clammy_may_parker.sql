@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "payout_routes_destination_key" ON "payout_routes" USING btree ("seller_id","provider","destination_chain","destination_asset","destination_address","refund_address","mode_detail") WHERE "payout_routes"."mode_detail" <> 'per_payment';

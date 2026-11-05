@@ -13,8 +13,9 @@ import {
 } from "@till/core";
 
 import type { Db } from "../db/client.ts";
-import { endpoints, payoutRoutes } from "../db/schema.ts";
+import { type PayoutRoute, endpoints } from "../db/schema.ts";
 import { type ResolveNames, UpstreamPolicyError, resolveUpstreamTarget } from "../gateway/ssrf.ts";
+import { type RoutePreparer, routeForDestination } from "./payout-routes.ts";
 
 /**
  * Endpoint creation checks (D4, PO-1/PO-2), in the order ARCHITECTURE 11.3 lists
@@ -22,9 +23,13 @@ import { type ResolveNames, UpstreamPolicyError, resolveUpstreamTarget } from ".
  * destination's format per chain, and the price floor.
  *
  * Every check answers with a sentence a seller can act on, and any failure leaves
- * the endpoint `active: false` with those sentences stored on the row. Creation
- * itself is one transaction: the payout route and the endpoint exist together or
- * not at all, so a failed insert cannot leave a half-configured seller.
+ * the endpoint `active: false` with those sentences stored on the row.
+ *
+ * The payout route (D5, PO-1) is resolved before the endpoint is written, not inside
+ * its transaction: a route belongs to a *destination* and is meant to outlive any one
+ * endpoint, so a route left by a creation that failed on the slug is the standing
+ * quote the next creation reuses rather than an orphan. `services/payout-routes.ts`
+ * owns that decision and what the provider is asked for.
  *
  * The confirmation step is the HTTP layer's, not this one's: the route refuses a
  * creation whose caller did not echo the destination it was shown back.
@@ -69,6 +74,13 @@ export type EndpointCreationDeps = {
   readonly gatewayOrigin: string;
   readonly gatewayPublicUrl: string;
   readonly payoutProvider: "mock" | "oneclick";
+  /**
+   * D5: the payout provider's quoting half, which is what turns an `intents`
+   * destination into a deposit address to advertise. Required rather than optional
+   * because an `intents` creation without one cannot be answered at all, and the
+   * only honest answer left would be a refusal nobody configured.
+   */
+  readonly routePreparer: RoutePreparer;
   readonly storage: TokenStorageReader;
   /** Test seam for the SSRF check's DNS read; production uses the resolver. */
   readonly resolve?: ResolveNames | undefined;
@@ -359,17 +371,13 @@ export async function checkEndpointCreation(
             `A direct endpoint pays the signed-in account ${seller.nearAccountId}; the destination must be that account.`,
           ),
     );
-  } else {
-    // S2 decides the standing-versus-per-payment shape, and D5 creates the route
-    // through the provider. Until that exists an intents endpoint has no deposit
-    // address to advertise, so creation says so instead of pretending it can serve.
-    checks.push(
-      failed(
-        "deposit_address",
-        "An intents endpoint needs a provider deposit address; none has been prepared yet.",
-      ),
-    );
   }
+
+  // The `deposit_address` check is not here, and cannot be: whether an intents
+  // destination has an address to advertise is a fact about the route
+  // `createEndpoint` resolves through the provider (D5), so asking it here would
+  // either call a provider from a function meant to be read-only about the input,
+  // or answer from a guess. `createEndpoint` appends it to this list.
 
   if (input.network === deps.network) {
     checks.push(...(await storageChecks(input, seller, deps)));
@@ -410,9 +418,41 @@ export type CreatedEndpoint = {
 };
 
 /**
- * Run the checks, then write the route and the endpoint in one transaction. The
- * endpoint is active only when no check failed; otherwise it keeps the reasons
- * on the row and the gateway ignores it (`active: false` answers 404).
+ * The checks that mean the destination itself is unusable. A route is a record of
+ * where money was going, so one is written only for a destination worth recording:
+ * a mistyped address must not cost a provider quote (B12), while every other failure
+ * — a low price, an unreadable storage registration — leaves the destination intact
+ * and the route meaningful.
+ */
+const DESTINATION_CODES: readonly CreationCheckCode[] = [
+  "destination_chain",
+  "destination_address",
+  "refund_address",
+  "direct_destination",
+];
+
+/**
+ * The intents half of the check list, from the route that now exists.
+ *
+ * It names the address because the address is what the seller's paywall will show a
+ * payer, and it says plainly when the provider was the mock: a judge reading
+ * `mock-deposit-1` on a screen must not have to guess whether a swap will run
+ * (DQ-2).
+ */
+function depositCheck(route: PayoutRoute, reused: boolean): CreationCheck {
+  const simulated =
+    route.provider === "mock" ? " The mock provider made this address up; no swap will run." : "";
+  return ok(
+    "deposit_address",
+    `Payouts on ${route.destinationChain} to ${route.destinationAddress} arrive at ${route.depositAddress}, ` +
+      `the ${reused ? "standing" : "newly prepared"} ${route.modeDetail} address for that destination.${simulated}`,
+  );
+}
+
+/**
+ * Resolve the payout route, then write the endpoint with the checks in hand. The
+ * endpoint is active only when no check failed; otherwise it keeps the reasons on the
+ * row and the gateway ignores it (`active: false` answers 404).
  */
 export async function createEndpoint(
   db: Db,
@@ -421,51 +461,69 @@ export async function createEndpoint(
   input: EndpointCreateInput,
 ): Promise<CreatedEndpoint> {
   const checks = await checkEndpointCreation(input, seller, deps);
+  const destinationSound = !checks.some(
+    (check) => !check.ok && DESTINATION_CODES.includes(check.code),
+  );
+  let routeId: string | null = null;
+
+  if (!destinationSound) {
+    if (input.payoutMode === "intents") {
+      checks.push(
+        failed(
+          "deposit_address",
+          "Till asks the payout provider for a deposit address only once the destination itself is sound; fix the address above first.",
+        ),
+      );
+    }
+  } else {
+    const route = await routeForDestination(
+      db,
+      { providerName: deps.payoutProvider, preparer: deps.routePreparer },
+      seller.id,
+      input,
+    );
+    if (route.ok) {
+      routeId = route.route.id;
+      if (input.payoutMode === "intents") {
+        checks.push(depositCheck(route.route, route.reused));
+      }
+    } else if (input.payoutMode === "intents") {
+      checks.push(
+        failed(
+          "deposit_address",
+          `Till has no address to advertise for this destination: ${route.detail}`,
+        ),
+      );
+    } else {
+      // A direct route asks nothing of a provider, so the only way to refuse one is
+      // the database itself, and that is a bug rather than a seller's problem.
+      throw new Error(`the direct payout route could not be written: ${route.detail}`);
+    }
+  }
+
   const warnings = checks.filter((check) => !check.ok).map((check) => check.message);
   const newSlug = deps.slug ?? slug;
 
-  const endpoint = await db.transaction(async (tx) => {
-    const [route] = await tx
-      .insert(payoutRoutes)
-      .values({
-        sellerId: seller.id,
-        destinationChain: input.destinationChain,
-        destinationAsset: input.destinationAsset,
-        destinationAddress: input.destinationAddress,
-        refundAddress: input.refundAddress,
-        provider: deps.payoutProvider,
-        depositAddress: null,
-        depositMemo: null,
-        quoteRef: null,
-        deadlineAt: null,
-        modeDetail: input.payoutMode === "direct" ? "direct" : "standing",
-      })
-      .returning();
-    if (route === undefined) {
-      throw new Error("payout route insert returned no row");
-    }
-
-    const [row] = await tx
-      .insert(endpoints)
-      .values({
-        sellerId: seller.id,
-        slug: newSlug(),
-        upstreamUrl: input.upstreamUrl,
-        priceAmount: input.priceAmount,
-        assetContract: input.assetContract,
-        network: input.network,
-        description: input.description ?? null,
-        payoutMode: input.payoutMode,
-        routeId: route.id,
-        active: warnings.length === 0,
-        creationWarnings: warnings,
-      })
-      .returning();
-    if (row === undefined) {
-      throw new Error("endpoint insert returned no row");
-    }
-    return row;
-  });
+  const inserted = await db
+    .insert(endpoints)
+    .values({
+      sellerId: seller.id,
+      slug: newSlug(),
+      upstreamUrl: input.upstreamUrl,
+      priceAmount: input.priceAmount,
+      assetContract: input.assetContract,
+      network: input.network,
+      description: input.description ?? null,
+      payoutMode: input.payoutMode,
+      routeId,
+      active: warnings.length === 0,
+      creationWarnings: warnings,
+    })
+    .returning();
+  const [endpoint] = inserted;
+  if (endpoint === undefined) {
+    throw new Error("endpoint insert returned no row");
+  }
 
   return { endpoint: toDto(endpoint, deps), checks };
 }

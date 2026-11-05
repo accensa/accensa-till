@@ -8,6 +8,8 @@ import type { Env } from "../env.ts";
 import type { ResolveNames } from "../gateway/ssrf.ts";
 import type { Logger } from "../lib/logger.ts";
 import { type SessionClaims, createSessionCodec } from "../lib/session.ts";
+import { createProvider } from "../payouts/index.ts";
+import type { PayoutProvider } from "../payouts/provider.ts";
 import {
   type EndpointCreationDeps,
   type TokenStorageReader,
@@ -15,6 +17,7 @@ import {
   createTokenStorageReader,
   listEndpoints,
 } from "../services/endpoints.ts";
+import type { RoutePreparer } from "../services/payout-routes.ts";
 
 /**
  * Dashboard endpoint create and list (UI-2, D4/D5). Requires a session.
@@ -43,6 +46,13 @@ export type EndpointRouteDeps = {
   readonly storage?: TokenStorageReader;
   /** Test seam for the SSRF check's DNS read. */
   readonly resolve?: ResolveNames;
+  /**
+   * D5: the payout provider an `intents` creation asks for a deposit address, built
+   * on first use rather than at mount. `oneclick` is D3 and its builder says so by
+   * throwing — that belongs in one endpoint's check list as a refusal the seller can
+   * read, not in a process that cannot boot.
+   */
+  readonly provider?: () => PayoutProvider;
 };
 
 export function createEndpointRoutes(deps: EndpointRouteDeps): Hono {
@@ -52,6 +62,21 @@ export function createEndpointRoutes(deps: EndpointRouteDeps): Hono {
     deps.session ??
     (async (cookie) =>
       cookie === undefined || cookie === "" ? null : await codec.verifySessionCookie(cookie));
+
+  const makeProvider = deps.provider ?? (() => createProvider(env, []));
+  let routeProvider: PayoutProvider | null = null;
+  const routePreparer: RoutePreparer = {
+    async prepareRoute(input) {
+      // One provider per app: the mock counts the addresses it mints, and a fresh
+      // instance per request would hand one destination a different pay-to every
+      // time somebody reloaded the form.
+      if (routeProvider === null) {
+        routeProvider = makeProvider();
+      }
+      return routeProvider.prepareRoute(input);
+    },
+  };
+
   const creationDeps: EndpointCreationDeps = {
     minPriceBaseUnits: env.MIN_PRICE_BASE_UNITS,
     network: env.NEAR_NETWORK,
@@ -59,6 +84,7 @@ export function createEndpointRoutes(deps: EndpointRouteDeps): Hono {
     gatewayOrigin: env.GATEWAY_PUBLIC_URL,
     gatewayPublicUrl: env.GATEWAY_PUBLIC_URL,
     payoutProvider: env.PAYOUT_PROVIDER,
+    routePreparer,
     storage: deps.storage ?? createTokenStorageReader({ rpcUrl: env.NEAR_RPC_URL }),
     resolve: deps.resolve,
   };

@@ -71,7 +71,39 @@ export const payoutRoutes = pgTable(
     modeDetail: text("mode_detail").notNull(),
     createdAt: createdAt(),
   },
-  (table) => [index("payout_routes_seller_idx").on(table.sellerId)],
+  (table) => [
+    index("payout_routes_seller_idx").on(table.sellerId),
+    /**
+     * D5: a route is the standing quote for one destination, so one seller has at
+     * most one per (provider, chain, asset, address, refund) *and mode_detail*. The
+     * lookup in `services/payout-routes.ts` is the polite version of this; the index
+     * is the version that holds when two creations race for the same destination,
+     * because a second quote for a destination nobody asked twice for is B12's quote
+     * spam arriving by accident rather than by attack.
+     *
+     * `mode_detail` is in the key, not merely in the predicate, because a `direct`
+     * route and a `standing` route answer different questions: the first has no
+     * deposit address at all (its pay-to is the seller's own account, PO-6), so
+     * letting an `intents` destination find and reuse one would advertise `null` as
+     * an address and hand the gateway a `pay_to_unresolved` refusal on a row the
+     * seller was told was active. One destination may therefore hold one of each.
+     *
+     * Partial on purpose: `per_payment` — the intents design S2 may still pick —
+     * wants a fresh row per payment, which is the opposite of a unique
+     * destination.
+     */
+    uniqueIndex("payout_routes_destination_key")
+      .on(
+        table.sellerId,
+        table.provider,
+        table.destinationChain,
+        table.destinationAsset,
+        table.destinationAddress,
+        table.refundAddress,
+        table.modeDetail,
+      )
+      .where(sql`${table.modeDetail} <> 'per_payment'`),
+  ],
 );
 
 export const endpoints = pgTable(

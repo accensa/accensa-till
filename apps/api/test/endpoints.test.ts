@@ -18,10 +18,13 @@ import {
 } from "@till/core";
 
 import { createApp } from "../src/app.ts";
+import { findGatewayEndpoint } from "../src/db/queries/endpoints.ts";
 import * as schema from "../src/db/schema.ts";
 import { type Env, loadEnv } from "../src/env.ts";
+import { PAYMENT_REQUIRED_HEADER, createRequirementsCache } from "../src/gateway/requirements.ts";
 import type { Logger } from "../src/lib/logger.ts";
 import type { SessionClaims } from "../src/lib/session.ts";
+import type { PrepareRouteInput, PreparedRoute } from "../src/payouts/provider.ts";
 import { createEndpointRoutes } from "../src/routes/endpoints.ts";
 import {
   type EndpointCreationDeps,
@@ -30,16 +33,18 @@ import {
   createEndpoint,
   listEndpoints,
 } from "../src/services/endpoints.ts";
+import type { RoutePreparer } from "../src/services/payout-routes.ts";
 import { createX402Near } from "../src/x402/near.ts";
 
 /**
- * D4 acceptance tests, the half that needs a real database (PO-1/PO-2).
+ * D4 and D5 acceptance tests, the half that needs a real database (PO-1/PO-2/PO-3).
  *
  * The checks themselves are exercised in `endpoint-checks.test.ts` with fakes.
  * What is pinned here is what a check *does*: an endpoint that failed one is
  * written `active: false` with the seller-facing sentences persisted on the row,
- * a passing one is written active, and the payout route arrives in the same
- * transaction — a failed insert must not leave a route nobody owns.
+ * a passing one is written active, and the payout route the seller is advertised is
+ * the one the row points at (D5) — so the address a payer's wallet is told to pay
+ * is the address the endpoint was created on, read through the gateway's own join.
  *
  * Needs `DATABASE_URL`; without a reachable database the file skips.
  */
@@ -111,7 +116,17 @@ const SELLER_R: SellerIdentity = {
   id: randomUUID(),
   nearAccountId: `till-d4-r-${run}.testnet`,
 };
-const SELLERS = [SELLER_A, SELLER_B, SELLER_C, SELLER_R] as const;
+/** D5: the seller whose intents creation a refusing provider stops. */
+const SELLER_D: SellerIdentity = {
+  id: randomUUID(),
+  nearAccountId: `till-d4-d-${run}.testnet`,
+};
+/** D5: the seller whose endpoint is read back the way the gateway reads it. */
+const SELLER_P: SellerIdentity = {
+  id: randomUUID(),
+  nearAccountId: `till-d4-p-${run}.testnet`,
+};
+const SELLERS = [SELLER_A, SELLER_B, SELLER_C, SELLER_R, SELLER_D, SELLER_P] as const;
 const REFUND = `till-d4-refund-${run}.testnet`;
 
 let env: Env;
@@ -139,10 +154,40 @@ function creationDeps(overrides: Partial<EndpointCreationDeps> = {}): EndpointCr
     gatewayOrigin: "https://gateway.test",
     gatewayPublicUrl: "https://gateway.test",
     payoutProvider: "mock",
+    routePreparer: preparer(),
     storage: { read: async () => ({ supported: true, registered: true }) },
     resolve: async (hostname) => (hostname === "gateway.test" ? ["8.8.8.8"] : [PUBLIC]),
     slug: () => `d4-${randomUUID()}`,
     ...overrides,
+  };
+}
+
+/**
+ * The quoting half the service is now required to be given (D5). Counted, because
+ * "the creation asked the provider" and "the creation reused the route" look
+ * identical in the row and differ entirely in what they cost (B12).
+ */
+type PreparerSpy = RoutePreparer & { readonly asked: PrepareRouteInput[] };
+
+function depositQuote(input: PrepareRouteInput): PreparedRoute {
+  return {
+    depositAddress: `dep-${run}-${input.destinationAddress}`,
+    depositMemo: null,
+    quoteRef: `quote-${run}-${input.destinationAddress}`,
+    minAmountOut: null,
+    deadlineAt: null,
+    modeDetail: "standing",
+  };
+}
+
+function preparer(answer?: (input: PrepareRouteInput) => PreparedRoute): PreparerSpy {
+  const asked: PrepareRouteInput[] = [];
+  return {
+    asked,
+    async prepareRoute(input) {
+      asked.push(input);
+      return (answer ?? depositQuote)(input);
+    },
   };
 }
 
@@ -174,6 +219,43 @@ const quiet: Logger = {
   error: () => undefined,
   child: () => quiet,
 };
+
+/**
+ * The 402 a payer would be handed for one slug, built from the gateway's own read
+ * (C4's join) rather than from a fixture row — which is the only way to check that
+ * what the creation wrote and what the advertisement names are the same address.
+ */
+async function advertised(endpointSlug: string) {
+  const row = await findGatewayEndpoint(need().db, endpointSlug);
+  if (row === null) {
+    throw new Error(`the gateway cannot read slug ${endpointSlug}`);
+  }
+  if (row.payoutMode !== "direct" && row.payoutMode !== "intents") {
+    throw new Error(`unexpected payout mode on the row: ${JSON.stringify(row.payoutMode)}`);
+  }
+  const cache = createRequirementsCache({
+    near: createX402Near({ network: "near:testnet", maxSponsoredGas: 30_000_000_000_000n }),
+    network: "near:testnet",
+    upstreamTimeoutMs: 15_000,
+    authorizationExpiryMarginMs: 30_000,
+    minPriceBaseUnits: 10_000n,
+  });
+  const { result } = cache.forEndpoint({
+    endpointId: row.endpointId,
+    network: row.network,
+    assetContract: row.assetContract,
+    priceAmount: row.priceAmount,
+    payoutMode: row.payoutMode,
+    sellerNearAccountId: row.sellerNearAccountId,
+    routeDepositAddress: row.routeDepositAddress,
+    gatewayUrl: `https://gateway.test/r/${row.slug}`,
+    description: row.description,
+  });
+  if (!result.ok) {
+    throw new Error(`the endpoint refuses to be advertised: ${result.reason}: ${result.detail}`);
+  }
+  return { row, result };
+}
 
 const suite = describe.skipIf(handle === null);
 
@@ -293,37 +375,139 @@ suite("endpoint creation writes what the checks decided (D4, PO-1/PO-2)", () => 
     }
   });
 
-  it("refuses an intents endpoint for want of a deposit address, and records the standing route shape", async () => {
+  it("activates an intents endpoint on the address the provider prepared (D5, PO-1)", async () => {
+    const prep = preparer();
     const created = await createEndpoint(
       need().db,
-      creationDeps(),
-      SELLER_A,
-      createInput(SELLER_A, { payoutMode: "intents" }),
+      creationDeps({ routePreparer: prep }),
+      SELLER_P,
+      createInput(SELLER_P, { payoutMode: "intents" }),
     );
-    expect(created.endpoint.active).toBe(false);
-    expect(failedCodes(created.checks)).toEqual(["deposit_address"]);
+
+    // D4 could only refuse this check for want of an address; D5 is the half that
+    // asks a provider for one, so an intents endpoint is now an active endpoint.
+    expect(created.endpoint.active).toBe(true);
+    expect(failedCodes(created.checks)).toEqual([]);
+    const deposit = created.checks.find((check) => check.code === "deposit_address");
+    expect(deposit?.ok).toBe(true);
+    // The seller is shown the address itself, because that is what the paywall will
+    // show a payer — and the route is the standing quote, not a fresh one.
+    expect(deposit?.message).toContain(`dep-${run}-${SELLER_P.nearAccountId}`);
+    expect(deposit?.message).toContain("newly prepared standing");
+    expect(prep.asked).toHaveLength(1);
 
     const { sql } = need();
     const [endpoint] = await sql`select route_id from endpoints where id = ${created.endpoint.id}`;
-    const [route] =
-      await sql`select mode_detail from payout_routes where id = ${endpoint?.route_id}`;
-    expect(route?.mode_detail).toBe("standing");
+    const [route] = await sql`select mode_detail, provider, deposit_address, quote_ref, deadline_at,
+          destination_address from payout_routes where id = ${endpoint?.route_id}`;
+    expect(route).toEqual({
+      mode_detail: "standing",
+      provider: "mock",
+      deposit_address: `dep-${run}-${SELLER_P.nearAccountId}`,
+      quote_ref: `quote-${run}-${SELLER_P.nearAccountId}`,
+      deadline_at: null,
+      destination_address: SELLER_P.nearAccountId,
+    });
   });
 
-  it("rolls the payout route back with the endpoint when the slug collides", async () => {
-    const fixedSlug = `d4-fixed-${run}`;
-    const deps = creationDeps({ slug: () => fixedSlug });
-    const input = createInput(SELLER_C);
+  it("refuses an intents endpoint the provider will not quote, and writes no route (D5, PO-1)", async () => {
+    const prep = preparer(() => {
+      throw new Error("1Click: no route for that asset pair");
+    });
+    const created = await createEndpoint(
+      need().db,
+      creationDeps({ routePreparer: prep }),
+      SELLER_D,
+      createInput(SELLER_D, { payoutMode: "intents" }),
+    );
 
-    await createEndpoint(need().db, deps, SELLER_C, input);
-    await expect(createEndpoint(need().db, deps, SELLER_C, input)).rejects.toThrow();
+    expect(created.endpoint.active).toBe(false);
+    expect(failedCodes(created.checks)).toEqual(["deposit_address"]);
+    const deposit = created.checks.find((check) => check.code === "deposit_address");
+    expect(deposit?.message).toContain("no route for that asset pair");
 
     const { sql } = need();
     const [routes] = await sql`select count(*)::int as count from payout_routes
+      where seller_id = ${SELLER_D.id}`;
+    expect(routes?.count).toBe(0);
+    const [endpoint] = await sql`select route_id from endpoints where id = ${created.endpoint.id}`;
+    expect(endpoint?.route_id).toBeNull();
+  });
+
+  it("asks a provider for nothing when the destination itself is broken (D5, B12)", async () => {
+    // A quote is the thing that costs (B12), so a destination that cannot be paid is
+    // not allowed to buy one: the route is only resolved once the address checks
+    // passed. The preparer throws if it is called, which makes the ask itself visible
+    // rather than inferred from a row count.
+    const prep = preparer(() => {
+      throw new Error("the provider was asked for a quote it should never have seen");
+    });
+    const created = await createEndpoint(
+      need().db,
+      creationDeps({ routePreparer: prep }),
+      SELLER_D,
+      createInput(SELLER_D, { payoutMode: "intents", destinationAddress: "Not A Near Account" }),
+    );
+
+    expect(created.endpoint.active).toBe(false);
+    expect(failedCodes(created.checks)).toEqual(["destination_address", "deposit_address"]);
+    const deposit = created.checks.find((check) => check.code === "deposit_address");
+    expect(deposit?.message).toContain("only once the destination itself is sound");
+    expect(prep.asked).toEqual([]);
+
+    const { sql } = need();
+    const [routes] =
+      await sql`select count(*)::int as count from payout_routes where seller_id = ${SELLER_D.id}`;
+    expect(routes?.count).toBe(0);
+  });
+
+  it("keeps the standing route when the endpoint insert fails, and reuses it (D5, B12)", async () => {
+    // The deliberate inversion of D4: a route belongs to a destination, not to the
+    // endpoint that happened to write it, so a creation that died on the slug leaves
+    // the quote behind instead of rolling it back — and the next creation pays for
+    // nothing. One route, two endpoints, one provider ask is the whole claim.
+    const prep = preparer();
+    const fixedSlug = `d5-fixed-${run}`;
+    const input = createInput(SELLER_C, {
+      payoutMode: "intents",
+      destinationAddress: `swap-to-${run}.testnet`,
+    });
+
+    const first = await createEndpoint(
+      need().db,
+      creationDeps({ slug: () => fixedSlug, routePreparer: prep }),
+      SELLER_C,
+      input,
+    );
+    await expect(
+      createEndpoint(
+        need().db,
+        creationDeps({ slug: () => fixedSlug, routePreparer: prep }),
+        SELLER_C,
+        input,
+      ),
+    ).rejects.toThrow();
+    const third = await createEndpoint(
+      need().db,
+      creationDeps({ routePreparer: prep }),
+      SELLER_C,
+      input,
+    );
+
+    expect(prep.asked).toHaveLength(1);
+    expect([first.endpoint.active, third.endpoint.active]).toEqual([true, true]);
+    const { sql } = need();
+    const [routes] = await sql`select count(*)::int as count from payout_routes
       where seller_id = ${SELLER_C.id}`;
-    const [endpoints] = await sql`select count(*)::int as count from endpoints
-      where seller_id = ${SELLER_C.id}`;
-    expect([routes?.count, endpoints?.count]).toEqual([1, 1]);
+    const [endpoints] =
+      await sql`select count(*)::int as count, count(distinct route_id)::int as routes
+        from endpoints where seller_id = ${SELLER_C.id}`;
+    expect([routes?.count, endpoints?.count, endpoints?.routes]).toEqual([1, 2, 1]);
+
+    const [linked] = await sql`select count(*)::int as count from endpoints
+        where seller_id = ${SELLER_C.id} and route_id = (select id from payout_routes
+          where seller_id = ${SELLER_C.id} limit 1)`;
+    expect(linked?.count).toBe(2);
   });
 
   it("lists only the seller's own endpoints, newest first", async () => {
@@ -350,6 +534,108 @@ suite("endpoint creation writes what the checks decided (D4, PO-1/PO-2)", () => 
 
     const otherSeller = await listEndpoints(need().db, deps, SELLER_A.id);
     expect(otherSeller.some((endpoint) => endpoint.id === second.endpoint.id)).toBe(false);
+  });
+});
+
+suite("what a created endpoint is advertised as (D5, PO-3)", () => {
+  beforeAll(seed);
+
+  it("names the route's deposit address as the pay-to an intents endpoint is paid to", async () => {
+    const deposit = `dep-${run}-swap-to-${run}.testnet`;
+    const created = await createEndpoint(
+      need().db,
+      creationDeps(),
+      SELLER_P,
+      createInput(SELLER_P, {
+        payoutMode: "intents",
+        destinationAddress: `swap-to-${run}.testnet`,
+      }),
+    );
+    expect(created.endpoint.active).toBe(true);
+
+    const { row, result } = await advertised(created.endpoint.slug);
+    // The address the provider prepared is the address the gateway's own join reads
+    // and the address the challenge names, with no second copy of the decision
+    // anywhere: an advertisement that disagreed with the route would only be found
+    // inside `verify`, on a stranger's paid request (S1).
+    expect(row.routeDepositAddress).toBe(deposit);
+    expect(result.requirements.payTo).toBe(deposit);
+
+    // And through the header a v2 client actually decodes, not just the object.
+    const header = result.challenge.headers[PAYMENT_REQUIRED_HEADER];
+    const decoded = JSON.parse(Buffer.from(header, "base64").toString("utf8")) as {
+      accepts: { payTo: string }[];
+    };
+    expect(decoded.accepts[0]?.payTo).toBe(deposit);
+  });
+
+  it("names the seller's own account for a direct endpoint beside the same seller's intents route (PO-6)", async () => {
+    await createEndpoint(
+      need().db,
+      creationDeps(),
+      SELLER_P,
+      createInput(SELLER_P, {
+        payoutMode: "intents",
+        destinationAddress: `beside-${run}.testnet`,
+      }),
+    );
+    const direct = await createEndpoint(need().db, creationDeps(), SELLER_P, createInput(SELLER_P));
+
+    const { row, result } = await advertised(direct.endpoint.slug);
+    // A direct route has no deposit address at all, so the pay-to comes from the
+    // mode. Reading it off the route instead would advertise `null`, and reading the
+    // *intents* route of the same seller would advertise an address nobody owns here.
+    expect(row.routeDepositAddress).toBeNull();
+    expect(result.requirements.payTo).toBe(SELLER_P.nearAccountId);
+  });
+
+  it("refuses to advertise an intents endpoint whose route has no address to name", async () => {
+    // The state D5's mode-aware lookup exists to prevent, checked from the other
+    // side: rather than trust the lookup, this row is written with the route the
+    // intents endpoint must never inherit.
+    const { sql } = need();
+    const endpointId = randomUUID();
+    const slug = `d5-null-route-${run}`;
+    const routeId = randomUUID();
+    await sql`insert into payout_routes (id, seller_id, destination_chain, destination_asset,
+        destination_address, refund_address, provider, mode_detail)
+      values (${routeId}, ${SELLER_P.id}, 'near', 'usdc', ${`orphan-${run}.testnet`},
+        ${REFUND}, 'mock', 'direct')`;
+    await sql`insert into endpoints (id, seller_id, slug, upstream_url, price_amount,
+        asset_contract, network, payout_mode, route_id, active)
+      values (${endpointId}, ${SELLER_P.id}, ${slug}, 'https://data.seller.test/prices',
+        '10000', 'usdc.testnet', 'near:testnet', 'intents', ${routeId}, true)`;
+
+    const row = await findGatewayEndpoint(need().db, slug);
+    if (row === null) {
+      throw new Error("the fixture row did not read back");
+    }
+    const cache = createRequirementsCache({
+      near: createX402Near({ network: "near:testnet", maxSponsoredGas: 30_000_000_000_000n }),
+      network: "near:testnet",
+      upstreamTimeoutMs: 15_000,
+      authorizationExpiryMarginMs: 30_000,
+      minPriceBaseUnits: 10_000n,
+    });
+    const { result } = cache.forEndpoint({
+      endpointId: row.endpointId,
+      network: row.network,
+      assetContract: row.assetContract,
+      priceAmount: row.priceAmount,
+      payoutMode: "intents",
+      sellerNearAccountId: row.sellerNearAccountId,
+      routeDepositAddress: row.routeDepositAddress,
+      gatewayUrl: `https://gateway.test/r/${row.slug}`,
+      description: row.description,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.reason).toBe("pay_to_unresolved");
+
+    await sql`delete from endpoints where id = ${endpointId}`;
+    await sql`delete from payout_routes where id = ${routeId}`;
   });
 });
 

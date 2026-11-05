@@ -14,10 +14,11 @@ import type {
  * reconciliation rules, so the payout flow runs offline.
  *
  * The script is supplied by the caller — `scripts/simulate.ts` or a test — and
- * never by a hidden default. A route with no script left, or a poll for a
- * reference this provider never issued, throws instead of inventing an outcome:
- * a mock that quietly fabricated `succeeded` is exactly the line DQ-2 says a
- * judge must not be misled over.
+ * never by a hidden default. A poll for a reference this provider never issued, or
+ * for one it issued with no outcome scripted, throws instead of reporting a state:
+ * a mock that quietly fabricated `succeeded` is exactly the line DQ-2 says a judge
+ * must not be misled over. Preparing a route is the other half, and D5 separated it
+ * from that rule — see `prepareRoute`.
  */
 
 export const MOCK_OUTCOMES = ["succeed", "refund", "fail", "stall"] as const;
@@ -66,7 +67,11 @@ function refFor(index: number): string {
   return `mock-quote-${index}`;
 }
 
-/** Deliberately not a resolvable account id, so a mock address cannot be mistaken for a real destination (DQ-2). */
+/**
+ * Shaped like a NEAR account id, so a route built on it passes the same advertisement
+ * checks a real one does, and not resolvable as one, so a mocked pay-to can never be
+ * paid by mistake (DQ-2). The word `mock` in it is the label.
+ */
 function depositFor(index: number): string {
   return `mock-deposit-${index}`;
 }
@@ -91,7 +96,7 @@ function statusFor(outcome: MockOutcome, state: SwapState): string {
 export class MockProvider implements PayoutProvider {
   readonly #scripts: readonly MockScript[];
   readonly #clock: () => Date;
-  readonly #issued = new Map<string, MockScript>();
+  readonly #issued = new Map<string, MockScript | null>();
   readonly #polls = new Map<string, number>();
   #next = 0;
 
@@ -100,22 +105,26 @@ export class MockProvider implements PayoutProvider {
     this.#clock = options.clock ?? (() => new Date());
   }
 
+  /**
+   * A quote is not an outcome, and D5 is what separated them: endpoint creation asks
+   * for a deposit address to advertise while there is still no payment to script an
+   * outcome *for*. So a route is always minted, and what stays refused is the state
+   * nobody chose — `getStatus` on a reference with no script attached throws rather
+   * than reporting one (DQ-2).
+   */
   async prepareRoute(input: PrepareRouteInput): Promise<PreparedRoute> {
-    const script = this.#scripts[this.#next];
     const index = this.#next + 1;
-    if (script === undefined) {
-      throw new Error(
-        `mock: no scripted outcome left for route ${index}; every payout must state what happens to it (D2, DQ-2)`,
-      );
-    }
     this.#next = index;
     const ref = refFor(index);
+    const script = this.#scripts[index - 1] ?? null;
     this.#issued.set(ref, script);
     return {
       depositAddress: depositFor(index),
       depositMemo: null,
       quoteRef: ref,
-      minAmountOut: script.minAmountOut ?? script.amountIn,
+      // With no script there is no floor either: picking a number here would be
+      // inventing a quote the caller never asked for (DQ-2).
+      minAmountOut: script === null ? null : (script.minAmountOut ?? script.amountIn),
       deadlineAt: input.amount === null ? null : new Date(this.#clock().getTime() + QUOTE_TTL_MS),
       modeDetail: input.amount === null ? "standing" : "per_payment",
     };
@@ -130,11 +139,19 @@ export class MockProvider implements PayoutProvider {
   }
 
   #swapFor(ref: string): NormalizedSwap {
-    const script = this.#issued.get(ref);
-    if (script === undefined) {
+    if (!this.#issued.has(ref)) {
       throw new Error(
         `mock: getStatus asked for ${ref}, which this provider never issued; refusing to invent an outcome (D2)`,
       );
+    }
+    const script = this.#issued.get(ref);
+    if (script === null) {
+      throw new Error(
+        `mock: ${ref} was prepared as a route and nothing was ever scripted for it; a payout must state what happens to it (D2, DQ-2)`,
+      );
+    }
+    if (script === undefined) {
+      throw new Error(`unreachable: ${ref} is issued but reads back as no script at all`);
     }
     const poll = (this.#polls.get(ref) ?? 0) + 1;
     this.#polls.set(ref, poll);

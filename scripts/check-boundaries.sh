@@ -80,6 +80,16 @@ hits=$(violations_in '1Click|ONECLICK_' 'payouts/oneclick/(client|map-status)\.t
 hits=$(violations_in 'insert\(ledgerEntries\)|into ledger_entries' 'services/ledger\.ts' apps/api/src)
 [ -z "$hits" ] || report "only services/ledger.ts inserts into ledger_entries (hard rule 4)" "$hits"
 
+# D5 (PO-1, PO-7): a payout route is written once, by one module, and never again.
+# Migration 0007 puts a trigger behind the UPDATE, but a trigger only fires on a row
+# that exists in a real database at runtime; these greps are the version that fails a
+# `pnpm boundaries` run instead of a seller's payout.
+hits=$(violations_in 'insert\(payoutRoutes\)' 'services/payout-routes\.ts' apps/api/src)
+[ -z "$hits" ] || report "only services/payout-routes.ts inserts into payout_routes (D5, PO-1)" "$hits"
+
+hits=$(violations_in 'update\(payoutRoutes\)|delete\(payoutRoutes\)|into payout_routes|payout_routes set' 'never-matches' apps/api/src)
+[ -z "$hits" ] || report "payout_routes is never rewritten from application code: insert a new route (D5, PO-7)" "$hits"
+
 hits=$(violations_in 'from "\.\./(db|services)/' 'never-matches' apps/api/src/payouts apps/api/src/x402)
 [ -z "$hits" ] || report "payouts/ and x402/ must not import upward from db/ or services/" "$hits"
 

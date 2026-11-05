@@ -121,9 +121,22 @@ describe("the mock scripts exactly the four outcomes (D2, PO-5)", () => {
 });
 
 describe("the mock refuses to invent an outcome (DQ-2)", () => {
-  it("throws when asked for a route it has no script for", async () => {
+  it("mints a route that has no outcome scripted, and refuses to report a status for it", async () => {
+    // D5 separated the two halves of this. Preparing a route is what endpoint
+    // creation does while there is still no payment to script an outcome for, so it
+    // succeeds; the state a poller reads is the part that must have been chosen, and
+    // a mock that answered `succeeded` for a quote nobody scripted is DQ-2's exact
+    // worry.
     const provider = new MockProvider([]);
-    await expect(provider.prepareRoute(routeInput())).rejects.toThrow(/no scripted outcome/);
+    const route = await provider.prepareRoute(routeInput({ amount: null }));
+    expect(route.depositAddress).toMatch(/^mock-deposit-\d+$/);
+    expect(route.modeDetail).toBe("standing");
+    // No script also means no floor: a number here would be a quote the caller never
+    // asked for, and reconciliation would read it as a shortfall threshold nobody set.
+    expect(route.minAmountOut).toBeNull();
+    await expect(provider.getStatus({ providerRefs: [refOf(route)] })).rejects.toThrow(
+      /nothing was ever scripted/,
+    );
   });
 
   it("throws for a reference it never issued, rather than returning a made-up swap", async () => {

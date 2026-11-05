@@ -5,6 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { type CreationCheck, type EndpointCreateInput, endpointCreateSchema } from "@till/core";
 
+import type { PrepareRouteInput } from "../src/payouts/provider.ts";
 import {
   type EndpointCreationDeps,
   type TokenStorage,
@@ -14,6 +15,7 @@ import {
   isSupportedDestinationChain,
   isValidDestinationAddress,
 } from "../src/services/endpoints.ts";
+import type { RoutePreparer } from "../src/services/payout-routes.ts";
 
 /**
  * D4 acceptance tests, the half that needs no database: each creation check and
@@ -47,6 +49,27 @@ function input(
   return endpointCreateSchema.parse({ ...validCreate, ...overrides });
 }
 
+/** A preparer that records what it was asked for, and refuses to be silent about it. */
+type PreparerSpy = RoutePreparer & { readonly asked: PrepareRouteInput[] };
+
+function preparer(): PreparerSpy {
+  const asked: PrepareRouteInput[] = [];
+  return {
+    asked,
+    async prepareRoute(input) {
+      asked.push(input);
+      return {
+        depositAddress: "dep.testnet",
+        depositMemo: null,
+        quoteRef: "quote-1",
+        minAmountOut: null,
+        deadlineAt: null,
+        modeDetail: "standing",
+      };
+    },
+  };
+}
+
 function deps(overrides: Partial<EndpointCreationDeps> = {}): EndpointCreationDeps {
   return {
     minPriceBaseUnits: 10_000n,
@@ -55,6 +78,7 @@ function deps(overrides: Partial<EndpointCreationDeps> = {}): EndpointCreationDe
     gatewayOrigin: "https://gateway.test",
     gatewayPublicUrl: "https://gateway.test",
     payoutProvider: "mock",
+    routePreparer: preparer(),
     storage: { read: async () => ({ supported: true, registered: true }) },
     resolve: async (hostname) => (hostname === "gateway.test" ? ["8.8.8.8"] : [PUBLIC]),
     ...overrides,
@@ -168,7 +192,7 @@ describe("creation checks (D4, PO-1/PO-2)", () => {
       SELLER,
       deps(),
     );
-    expect(codes(checks, false)).toEqual(["destination_chain", "deposit_address"]);
+    expect(codes(checks, false)).toEqual(["destination_chain"]);
   });
 
   it("validates a destination address against its own chain", async () => {
@@ -215,9 +239,24 @@ describe("creation checks (D4, PO-1/PO-2)", () => {
     expect(byCode(checks, "direct_destination")).toMatchObject({ ok: false });
   });
 
-  it("leaves an intents endpoint without a deposit address inactive", async () => {
-    const checks = await checkEndpointCreation(input({ payoutMode: "intents" }), SELLER, deps());
-    expect(byCode(checks, "deposit_address")).toMatchObject({ ok: false });
+  it("does not answer the deposit-address question, because only a route can (D5)", async () => {
+    // The deposit address is decided by `services/payout-routes.ts`, which is the one
+    // place that knows whether this destination already has a standing quote. Assert
+    // it here as well, because a form validation that spent a provider quote on every
+    // page load would look exactly the same in this list — B12 is about the call, not
+    // the message, and the checks run before anything is written.
+    const prep = preparer();
+
+    const intents = await checkEndpointCreation(
+      input({ payoutMode: "intents" }),
+      SELLER,
+      deps({ routePreparer: prep }),
+    );
+    const direct = await checkEndpointCreation(input(), SELLER, deps({ routePreparer: prep }));
+
+    expect(byCode(intents, "deposit_address")).toBeUndefined();
+    expect(byCode(direct, "deposit_address")).toBeUndefined();
+    expect(prep.asked).toEqual([]);
   });
 
   it("checks storage for the pay-to in direct mode and for both NEAR accounts in intents mode", async () => {

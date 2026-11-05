@@ -44,9 +44,12 @@ export type AppDeps = {
    * D4's route needs a seller identity and two reads a test cannot perform: the
    * cookie signature is F1's and the chain is A10's, so both are seams with the
    * shipped default behind them. The DNS seam is the same one the SSRF policy
-   * already exposes; production leaves it unset.
+   * already exposes; production leaves it unset. `provider` is D5's: an `intents`
+   * creation asks it for the deposit address it will advertise.
    */
-  readonly endpoints?: Partial<Pick<EndpointRouteDeps, "session" | "storage" | "resolve">>;
+  readonly endpoints?: Partial<
+    Pick<EndpointRouteDeps, "session" | "storage" | "resolve" | "provider">
+  >;
   /**
    * F1's route reads the chain to turn a signature into an identity, which is the
    * one thing a test cannot do and the one thing A10's accounts would let a live

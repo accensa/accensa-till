@@ -134,6 +134,8 @@ Two things make the retry safe rather than merely convenient, and both are predi
 - **Standing address (preferred).** One long-lived `ANY_INPUT` style quote per seller and destination, accumulating many small payments. Matches micropayment economics (14.1) and avoids per-request provider calls.
 - **Per-payment address.** A fresh quote per paid request. Easy one-to-one matching, but every swap pays minimums and fees and requires a quote deadline that outlives the buyer's retry window.
 
+**The route half of both modes is shipped (D5), and it is written to be neutral about which of the two S2 picks.** `services/payout-routes.ts` is the only writer of `payout_routes`: a creation reads for a standing route per (seller, provider, chain, asset, address, refund, `mode_detail`), and only when there is none does it call `prepareRoute({ amount: null })` and store what came back. `payout_routes_destination_key` (migration `0006`) is the same rule as a partial unique index, `WHERE mode_detail <> 'per_payment'`, so the `per_payment` design stays un-deduped rather than being silently forbidden — B8's choice survives both answers. `mode_detail` is part of the key, not just of the lookup, because a `direct` route's deposit address is null by definition and a mode-blind read would advertise it as an address. A route is resolved *before* the endpoint insert, so it outlives the creation that wrote it and the next one reuses the quote instead of paying for it twice (red-team B12). Migration `0007` puts a `BEFORE UPDATE` trigger on the table: a destination change inserts a new route and moves `endpoints.route_id`, while `payments.route_id` — snapshotted at verify time — keeps reading the payout the payment actually had (red-team B9, PO-7). `DELETE` is not refused, because a route no payment points at holds no history and a referenced one is already held by `payments_route_id_fkey`. What this does *not* prove: the address behind every test above was minted by the mock (`mock-deposit-<n>`, shaped like a NEAR account id so it survives the same advertisement checks a real one does, and resolving nowhere), because D3, A11/S3 and the spend itself are open (A17, DQ-2).
+
 ## 5. Payout provider interface
 
 ```ts
@@ -186,16 +188,19 @@ endpoints
 payout_routes   -- immutable; a change creates a new row
   id                  uuid pk
   seller_id           uuid fk sellers
-  destination_chain   text not null
+  destination_chain   text not null           -- lowercased before it is keyed
   destination_asset   text not null           -- stablecoin, 6 decimals (D11)
   destination_address text not null           -- format-validated per chain
   refund_address      text not null
   provider            text not null
-  deposit_address     text
+  deposit_address     text                    -- null for 'direct': pay-to is the seller
   deposit_memo        text
   quote_ref           text
   deadline_at         timestamptz
   mode_detail         text not null           -- 'standing' | 'per_payment' (one survives S2)
+  -- D5: unique (seller, provider, chain, asset, address, refund, mode_detail)
+  --   where mode_detail <> 'per_payment' (0006), and a BEFORE UPDATE trigger
+  --   that raises (0007). Only services/payout-routes.ts inserts.
 
 payments
   id                  uuid pk

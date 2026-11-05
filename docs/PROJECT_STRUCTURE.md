@@ -33,7 +33,7 @@ till/
 │
 ├── apps/
 │   ├── api/
-│   │   ├── migrations/           # generated SQL, committed, includes ledger trigger
+│   │   ├── migrations/           # generated SQL, committed; 0001 and 0007 are hand-written triggers (ledger append-only, payout_routes immutable)
 │   │   ├── drizzle.config.ts
 │   │   ├── src/
 │   │   │   ├── server.ts         # Boot only: env, logger, app, listen; the timer loops start here
@@ -67,7 +67,8 @@ till/
 │   │   │   │   ├── payments.ts   # state transitions; listPaymentsForSeller is UI-3's scoped read
 │   │   │   │   ├── strikes.ts    # strike count + appended seller clear (C9), and the grouped list of who is held on that same predicate (UI-4)
 │   │   │   │   ├── ledger.ts     # the only writer of ledger_entries
-│   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address (D4)
+│   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address (D4); resolves the payout route before the insert (D5)
+│   │   │   │   ├── payout-routes.ts # the only writer of payout_routes: one standing quote per destination and mode, never an update (D5)
 │   │   │   │   ├── access-keys.ts # the chain read sign-in needs: is this key full access on that account (F1)
 │   │   │   │   ├── sellers.ts    # the only place a seller row is created, keyed by account name (F1)
 │   │   │   │   └── discrepancies.ts  # the only writer of discrepancies; dedupe, auto-resolve, manual close (E8), the severity-ordered open worklist (UI-4)
@@ -206,6 +207,7 @@ db                     ──►  lib
 - Only `payouts/oneclick/client.ts` calls the 1Click API.
 - Only `x402/near.ts` imports `@fastnear/*` x402 packages.
 - Only `services/ledger.ts` inserts into `ledger_entries`.
+- Only `services/payout-routes.ts` inserts into `payout_routes`, and nothing in `apps/api/src` updates, deletes or raw-writes it (D5). Two guards, deliberately redundant: `scripts/check-boundaries.sh` greps the source so a rewrite fails the commit, and migration `0007_payout_routes_immutable.sql` raises at the database so a row cannot be edited after the fact. The grep cannot see a rewrite that already happened and the trigger cannot stop the code from being written, so neither alone is the rule.
 - `payouts` and `x402` never import from `db` or `services`.
 - `apps/web` never imports from `apps/api`.
 - `apps/web` never imports `@till/core` itself, only its browser-safe subtrees `@till/core/schemas`, `@till/core/money`, `@till/core/states`. The barrel reaches `node:crypto` and a client bundle cannot contain it, so `scripts/check-boundaries.sh` runs `next build` and lets the bundler judge the whole tree instead of grepping for one specifier: a core subtree that re-exported `ids.ts` passed every string rule and failed the build (observed 2026-11-05). Cost is about 16 seconds on `pnpm boundaries`.
