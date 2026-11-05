@@ -21,6 +21,9 @@ export function payment(overrides: Partial<PaymentRow> & { id: string }): Paymen
   return {
     endpointId: `ep-${overrides.id}`,
     routeId: "route-1",
+    // The swap rules' default: a payment that moved through a payout route. A
+    // direct payment overrides this and expects no swap (D8).
+    payoutMode: "intents",
     amount: 1_000_000n,
     state: "settled" satisfies PaymentState,
     nearTxHash: `tx-${overrides.id}`,

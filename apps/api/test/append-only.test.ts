@@ -8,7 +8,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import * as schema from "../src/db/schema.ts";
-import { recordAdjustment, recordPaymentSettled } from "../src/services/ledger.ts";
+import { recordAdjustment, recordSettlement } from "../src/services/ledger.ts";
 
 /**
  * A7 acceptance tests: the append-only ledger trigger (LR-1) and the discrepancy
@@ -115,13 +115,16 @@ async function newestLedgerId(): Promise<string> {
  */
 async function settledLedgerRow(): Promise<string> {
   const { db } = need();
-  await recordPaymentSettled(db, {
-    sellerId: ids.sellerId,
-    kind: "payment_in",
-    amount: 2_500_000n,
-    asset: "usdc.testnet",
-    paymentId: ids.paymentId,
-  });
+  await recordSettlement(
+    db,
+    {
+      sellerId: ids.sellerId,
+      amount: 2_500_000n,
+      asset: "usdc.testnet",
+      paymentId: ids.paymentId,
+    },
+    "intents",
+  );
   return newestLedgerId();
 }
 

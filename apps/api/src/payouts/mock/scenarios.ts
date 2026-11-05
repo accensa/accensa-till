@@ -207,6 +207,8 @@ export async function driveScenario(
     routeId: "route-1",
     amount: script.amountIn,
     state: "settled",
+    // These scenarios exercise the swap path, which only exists in `intents`.
+    payoutMode: "intents",
     nearTxHash: paymentTxHash,
     settledAt: new Date(at.getTime() - 10 * 60_000),
     verifiedAt: new Date(at.getTime() - 11 * 60_000),

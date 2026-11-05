@@ -117,7 +117,7 @@ till/
 │               ├── payout-refunded.ts         # P0
 │               ├── payout-failed.ts           # P0
 │               ├── payout-stuck.ts            # P0
-│               ├── payment-not-swept.ts       # P0
+│               ├── payment-not-swept.ts       # P0; skips direct payments (D8)
 │               ├── payout-shortfall.ts        # P1
 │               ├── incomplete-deposit.ts      # P1
 │               ├── orphan-deposit.ts          # P1

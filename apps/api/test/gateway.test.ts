@@ -44,8 +44,9 @@ import type { NearViewSigner, RequirementsInput, X402Near } from "../src/x402/ty
  *
  * - **Postgres.** The route's promises are about rows: a payment is inserted before
  *   the upstream is dialed, `verified_at` is the database clock, `abandoned` is what
- *   a refused response leaves behind, and exactly one `payment_in` is written per
- *   settled payment. An in-memory fake would be asserting my own bookkeeping rather
+ *   a refused response leaves behind, and a settled payment books exactly one
+ *   `payment_in` — plus, in `direct` mode, the `payout_out` the same transfer
+ *   already paid (D8). An in-memory fake would be asserting my own bookkeeping rather
  *   than the ledger's. The file skips without `DATABASE_URL`, like `payments.test.ts`.
  * - **The upstream.** A real `node:http` server on `127.0.0.1` dialed by the real
  *   `getUpstream`, because what the route consumes is what the proxy *returns*: a
@@ -885,7 +886,12 @@ suite("the gateway paid request (C4, GW-2)", () => {
     expect(typeof payment?.upstreamMs).toBe("number");
     expect(payment?.verifiedIsLive).toBe(true);
     expect(payment?.settledAt).not.toBeNull();
-    expect(await ledgerOf(replayKey)).toEqual([{ kind: "payment_in", amount: PRICE }]);
+    // D8: the pay-to was the seller's own account, so the same transfer is the
+    // payout and both lines are booked together, in one transaction.
+    expect(await ledgerOf(replayKey)).toEqual([
+      { kind: "payment_in", amount: PRICE },
+      { kind: "payout_out", amount: PRICE },
+    ]);
     expect(lines.filter((line) => line.code === "served")).toHaveLength(1);
   });
 
@@ -894,6 +900,22 @@ suite("the gateway paid request (C4, GW-2)", () => {
     const { response } = await call("intents", { x402: scriptedX402({}, []) });
     expect(response.status).toBe(402);
     expect(decodeChallenge(response).accepts[0]?.payTo).toBe(target.depositAddress);
+  });
+
+  it("books an intents payment without a payout line, because D6 owns that payout", async () => {
+    const target = fixture("intents");
+    const replayKey = randomUUID();
+    const calls: Call[] = [];
+    const { response } = await call("intents", {
+      x402: scriptedX402({ settle: "ok", replayKey }, calls),
+      payment: payloadFor(target.depositAddress ?? target.sellerAccount),
+    });
+
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["verify", "settle"]);
+    // The money is in; nothing has reached the seller yet, so booking a payout
+    // here would claim a swap that has not happened.
+    expect(await ledgerOf(replayKey)).toEqual([{ kind: "payment_in", amount: PRICE }]);
   });
 
   it("refuses to advertise a row it could not settle, and names the rule that fired", async () => {
@@ -1012,8 +1034,12 @@ suite("the gateway paid request (C4, GW-2)", () => {
       state: "settled",
       nearTxHash: hash,
     });
-    // One `payment_in` for one authorization, after two requests (GW-4).
-    expect(await ledgerOf(replayKey)).toHaveLength(1);
+    // One authorization, after two requests: the `payment_in`, plus the payout the
+    // same transfer already made because this endpoint is `direct` (GW-4, D8).
+    expect((await ledgerOf(replayKey)).map((line) => line.kind)).toEqual([
+      "payment_in",
+      "payout_out",
+    ]);
   });
 
   it("409s a replayed authorization whose payment never settled, and hands out no receipt", async () => {
@@ -1061,7 +1087,8 @@ suite("the gateway paid request (C4, GW-2)", () => {
     // per-endpoint, so the second endpoint's upstream is never dialed and its row
     // count never rises.
     expect(calls).toEqual(["verify"]);
-    expect(await countPayments(fixture("intents").endpointId, "settled")).toBe(0);
+    // One row, on the first endpoint; the refusal wrote none for this key.
+    expect(await paymentCountByReplayKey(replayKey)).toBe(1);
   });
 
   it("retries an abandoned payment with the same authorization, serves it and charges once (C7, GW-4)", async () => {
@@ -1112,7 +1139,10 @@ suite("the gateway paid request (C4, GW-2)", () => {
       expect(retried?.verifiedIsLive).toBe(true);
       // Money moved once, and only after the second attempt's own 2xx.
       expect(secondCalls).toEqual(["verify", "settle"]);
-      expect(await ledgerOf(replayKey)).toEqual([{ kind: "payment_in", amount: PRICE }]);
+      expect(await ledgerOf(replayKey)).toEqual([
+        { kind: "payment_in", amount: PRICE },
+        { kind: "payout_out", amount: PRICE },
+      ]);
       expect(decodeReceipt(second.response).transaction).toBe("near-tx-second-half");
       expect(second.lines.some((line) => line.code === "payment_retried")).toBe(true);
     } finally {
@@ -1316,7 +1346,7 @@ suite("the gateway paid request (C4, GW-2)", () => {
         shape.state,
         shape.charged,
         shape.charged ? ["verify", "settle"] : ["verify"],
-        shape.charged ? ["payment_in"] : [],
+        shape.charged ? ["payment_in", "payout_out"] : [],
       ]);
     }
   });
@@ -1576,7 +1606,10 @@ suite("the gateway paid request (C4, GW-2)", () => {
     expect(payment?.payer).toBe(PAYER);
     expect(payment?.amount).toBe(PRICE);
     expect(payment?.nearTxHash).toBe(receipt.transaction);
-    expect(await ledgerOf(replayKey)).toEqual([{ kind: "payment_in", amount: PRICE }]);
+    expect(await ledgerOf(replayKey)).toEqual([
+      { kind: "payment_in", amount: PRICE },
+      { kind: "payout_out", amount: PRICE },
+    ]);
   });
 
   it("402s a genuine delegate signed for the wrong price, and the seller is never called", async () => {
@@ -2036,7 +2069,11 @@ suite("paid response cache (C12, GW-9)", () => {
       expect.objectContaining({ code: "payment_replayed_from_cache" }),
     );
     expect(await paymentCountByReplayKey(replayKey)).toBe(1);
-    expect(await ledgerOf(replayKey)).toHaveLength(1);
+    // The fixture is `direct`, so the one authorization books both lines (D8).
+    expect((await ledgerOf(replayKey)).map((line) => line.kind)).toEqual([
+      "payment_in",
+      "payout_out",
+    ]);
   });
 
   it("falls back to 409 and the receipt when the answer was too large to cache", async () => {

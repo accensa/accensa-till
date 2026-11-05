@@ -14,6 +14,8 @@ import { ledgerEntries } from "../db/schema.ts";
 
 export type LedgerKind = "payment_in" | "payout_out" | "refund_in" | "adjustment";
 
+export type PayoutMode = "direct" | "intents";
+
 export type LedgerWrite = {
   readonly sellerId: string;
   readonly kind: LedgerKind;
@@ -24,11 +26,15 @@ export type LedgerWrite = {
   readonly note?: string | null;
 };
 
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
 /**
  * Drizzle types a numeric(78,0) column as a string; base units arrive as bigint
- * and are serialised here so no caller has to remember the convention.
+ * and are serialised here so no caller has to remember the convention. The
+ * writer accepts the transaction as well as the handle so a settlement's lines
+ * can be one atomic write.
  */
-async function insert(db: Db, entry: LedgerWrite): Promise<void> {
+async function insert(db: Db | Tx, entry: LedgerWrite): Promise<void> {
   await db.insert(ledgerEntries).values({
     sellerId: entry.sellerId,
     kind: entry.kind,
@@ -40,9 +46,29 @@ async function insert(db: Db, entry: LedgerWrite): Promise<void> {
   });
 }
 
-/** GW-2: a settled payment writes exactly one `payment_in`. */
-export function recordPaymentSettled(db: Db, entry: LedgerWrite): Promise<void> {
-  return insert(db, { ...entry, kind: "payment_in" });
+/**
+ * GW-2 + D8: a settled payment books its `payment_in`, and in `direct` mode it
+ * books the `payout_out` in the same transaction. There is no swap in that mode:
+ * the x402 transfer paid the seller's own account, so the payout is the same
+ * money moving once, and a ledger showing money in without the matching out
+ * would read as an unpaid seller. `intents` books only the payment; its payout
+ * belongs to D6 and arrives when the swap succeeds.
+ */
+export async function recordSettlement(
+  db: Db,
+  entry: Omit<LedgerWrite, "kind">,
+  payoutMode: PayoutMode,
+): Promise<void> {
+  await db.transaction(async (tx) => {
+    await insert(tx, { ...entry, kind: "payment_in" });
+    if (payoutMode === "direct") {
+      await insert(tx, {
+        ...entry,
+        kind: "payout_out",
+        note: "direct: the x402 transfer paid the seller's own account",
+      });
+    }
+  });
 }
 
 /** D6: a swap reaching `succeeded` writes one `payout_out`. */

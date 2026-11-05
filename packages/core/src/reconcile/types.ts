@@ -34,6 +34,12 @@ export type PaymentRow = {
   readonly id: string;
   readonly endpointId: string;
   readonly routeId: string | null;
+  /**
+   * D8: `direct` pays the seller's own account in the same x402 transfer, so there
+   * is no swap to sweep and its absence is not a finding. `intents` moves through
+   * a payout route and is the only mode a swap rule should judge.
+   */
+  readonly payoutMode: "direct" | "intents";
   readonly amount: BaseUnitAmount;
   readonly state: PaymentState;
   readonly nearTxHash: string | null;

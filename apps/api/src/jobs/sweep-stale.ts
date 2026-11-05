@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { endpoints, payments } from "../db/schema.ts";
 import type { Logger } from "../lib/logger.ts";
-import { recordPaymentSettled } from "../services/ledger.ts";
+import { recordSettlement } from "../services/ledger.ts";
 import { advancePayment } from "../services/payments.ts";
 import type { SettlementVerdict } from "../x402/types.ts";
 
@@ -25,9 +25,9 @@ import type { SettlementVerdict } from "../x402/types.ts";
  *                  this cannot remove is that a settle that landed in that
  *                  window is not booked here -- there is no hash to ask about --
  *                  so it is left to the reconcile path as an unmatched arrival.
- *   hash, settled  `settled`, and the `payment_in` the route never got to write,
- *                  through the ledger's only writer. Money moved and the row
- *                  says so.
+ *   hash, settled  `settled`, and the settlement lines the route never got to
+ *                  write, through the ledger's only writer. Money moved and the
+ *                  row says so.
  *   hash, failed   `abandoned` **with the hash kept**. C7's `REUSE_GUARD`
  *                  refuses to reopen a row that carries a hash, so evidence of
  *                  a chain attempt outranks the retry.
@@ -54,7 +54,11 @@ export type SweepResult = {
 export async function sweepStaleOnBoot(deps: SweepDeps): Promise<SweepResult> {
   const { db, log } = deps;
   const stale = await db
-    .select({ payment: payments, sellerId: endpoints.sellerId })
+    .select({
+      payment: payments,
+      sellerId: endpoints.sellerId,
+      payoutMode: endpoints.payoutMode,
+    })
     .from(payments)
     .innerJoin(endpoints, eq(endpoints.id, payments.endpointId))
     .where(
@@ -68,7 +72,7 @@ export async function sweepStaleOnBoot(deps: SweepDeps): Promise<SweepResult> {
   let recovered = 0;
   let unproven = 0;
 
-  for (const { payment, sellerId } of stale) {
+  for (const { payment, sellerId, payoutMode } of stale) {
     const hash = payment.nearTxHash;
     if (hash === null) {
       if (await moveOrSkip(db, payment.id, "abandoned", log)) {
@@ -125,13 +129,20 @@ export async function sweepStaleOnBoot(deps: SweepDeps): Promise<SweepResult> {
     recovered += 1;
 
     try {
-      await recordPaymentSettled(db, {
-        sellerId,
-        kind: "payment_in",
-        amount: BigInt(amount),
-        asset,
-        paymentId: settledId,
-      });
+      // The route's own booking rule (D8): a `direct` recovery writes the payout
+      // line too, or a restarted process would leave a direct sale half-booked.
+      await recordSettlement(
+        db,
+        {
+          sellerId,
+          amount: BigInt(amount),
+          asset,
+          paymentId: settledId,
+        },
+        // The route refuses to advertise any other mode, so a row here is already
+        // an anomaly; book the payment and do not invent a payout for it.
+        payoutMode === "direct" ? "direct" : "intents",
+      );
     } catch (error) {
       // Same posture as the route: the money arrived and the row is honest; a
       // missing ledger line is ours to chase and reconcile will see the payment.

@@ -6,7 +6,7 @@ import type { Db } from "../db/client.ts";
 import { findGatewayEndpoint } from "../db/queries/endpoints.ts";
 import type { Env } from "../env.ts";
 import type { Logger } from "../lib/logger.ts";
-import { recordPaymentSettled } from "../services/ledger.ts";
+import { recordSettlement } from "../services/ledger.ts";
 import {
   type PaymentRow,
   advancePayment,
@@ -704,15 +704,19 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
     }
 
     try {
-      await recordPaymentSettled(db, {
-        sellerId: row.sellerId,
-        // Fixed by the service (E1, hard rule 4); named here because `LedgerWrite`
-        // requires it and only `services/ledger.ts` may write this table.
-        kind: "payment_in",
-        amount: BigInt(booked.amount),
-        asset: booked.assetContract,
-        paymentId: booked.id,
-      });
+      // D8: in `direct` mode the seller's own account was the pay-to, so the same
+      // transfer is the payout and both lines are written together. `intents`
+      // writes only the payment; its payout arrives with D6's swap.
+      await recordSettlement(
+        db,
+        {
+          sellerId: row.sellerId,
+          amount: BigInt(booked.amount),
+          asset: booked.assetContract,
+          paymentId: booked.id,
+        },
+        row.payoutMode,
+      );
     } catch (error) {
       // The money is in and the answer is on its way. A missing line is ours to
       // chase, and the sweep and reconcile rows will see the payment without it.

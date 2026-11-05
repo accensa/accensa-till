@@ -6,6 +6,10 @@ import { type Finding, type ReconcileRule, dedupeKeyFor } from "./types.ts";
  * nothing else (AGENTS.md hard rule 7, LR-2), so a payment that settled without
  * a recorded hash cannot be judged here — that is a data problem, not a
  * reconciliation finding, and the payer-facing reason it is skipped is below.
+ *
+ * D8: a `direct` payment is skipped by definition. Its pay-to was the seller's
+ * own account, so the x402 transfer *was* the payout and no swap will ever carry
+ * its hash; treating that as un-swept would flag every direct sale.
  */
 export const paymentNotSwept: ReconcileRule = (snapshot) => {
   const findings: Finding[] = [];
@@ -16,6 +20,9 @@ export const paymentNotSwept: ReconcileRule = (snapshot) => {
 
   for (const payment of snapshot.payments) {
     if (payment.state !== "settled" || payment.settledAt === null) {
+      continue;
+    }
+    if (payment.payoutMode === "direct") {
       continue;
     }
     if (snapshot.now.getTime() - payment.settledAt.getTime() < sweepMs) {

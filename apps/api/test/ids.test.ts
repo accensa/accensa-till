@@ -8,7 +8,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import * as schema from "../src/db/schema.ts";
-import { recordPaymentSettled } from "../src/services/ledger.ts";
+import { recordSettlement } from "../src/services/ledger.ts";
 
 /**
  * A20 against a real insert. `packages/core/src/__tests__/ids.test.ts` proves the
@@ -109,13 +109,16 @@ async function writeBatch(count: number): Promise<{ byId: string[]; byInsertion:
   const tag = `a20-${batches}`;
   for (let i = 0; i < count; i += 1) {
     // No id passed: this is the whole point, the column default has to supply it.
-    await recordPaymentSettled(db, {
-      sellerId,
-      kind: "payment_in",
-      amount: 2_500_000n,
-      asset: "usdc.testnet",
-      note: `${tag}-${i}`,
-    });
+    await recordSettlement(
+      db,
+      {
+        sellerId,
+        amount: 2_500_000n,
+        asset: "usdc.testnet",
+        note: `${tag}-${i}`,
+      },
+      "intents",
+    );
   }
   const pattern = `${tag}-%`;
   const byId = await sql<{ id: string }[]>`select id from ledger_entries

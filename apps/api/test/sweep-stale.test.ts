@@ -77,6 +77,7 @@ function need(): Handle {
 const run = randomUUID().slice(0, 8);
 const sellerId = randomUUID();
 const endpointId = randomUUID();
+const intentsEndpointId = randomUUID();
 const WINDOW_SECONDS = 60;
 const AMOUNT = "10000";
 const ASSET = "usdc.testnet";
@@ -90,6 +91,11 @@ async function seed(): Promise<void> {
       asset_contract, network, payout_mode)
     values (${endpointId}, ${sellerId}, ${`c10-${run}`}, 'https://example.test/data',
       ${AMOUNT}, ${ASSET}, 'near:testnet', 'direct')
+    on conflict (id) do nothing`;
+  await sql`insert into endpoints (id, seller_id, slug, upstream_url, price_amount,
+      asset_contract, network, payout_mode)
+    values (${intentsEndpointId}, ${sellerId}, ${`c10-intents-${run}`},
+      'https://example.test/data', ${AMOUNT}, ${ASSET}, 'near:testnet', 'intents')
     on conflict (id) do nothing`;
 
   // The sweep is global by design, so the only way to assert exact counts is to
@@ -109,6 +115,7 @@ type StaleInput = {
   /** Whole seconds before now. Defaults to well past the window. */
   readonly ageSeconds?: number;
   readonly nearTxHash?: string | null;
+  readonly endpointId?: string;
 };
 
 async function insertPayment(input: StaleInput = {}): Promise<string> {
@@ -116,9 +123,9 @@ async function insertPayment(input: StaleInput = {}): Promise<string> {
   const id = randomUUID();
   await sql`insert into payments (id, endpoint_id, payer_account_id, amount, asset_contract,
       replay_key, state, near_tx_hash, verified_at)
-    values (${id}, ${endpointId}, ${`c10-payer-${randomUUID()}.testnet`}, ${AMOUNT}, ${ASSET},
-      ${`c10-${randomUUID()}`}, ${input.state ?? "verified"}, ${input.nearTxHash ?? null},
-      now() - make_interval(secs => ${input.ageSeconds ?? 120}::int))`;
+    values (${id}, ${input.endpointId ?? endpointId}, ${`c10-payer-${randomUUID()}.testnet`},
+      ${AMOUNT}, ${ASSET}, ${`c10-${randomUUID()}`}, ${input.state ?? "verified"},
+      ${input.nearTxHash ?? null}, now() - make_interval(secs => ${input.ageSeconds ?? 120}::int))`;
   return id;
 }
 
@@ -183,7 +190,7 @@ suite("boot sweep of stale payments (C10, GW-2)", () => {
     expect(await paymentById(id)).toMatchObject({ state: "abandoned", near_tx_hash: null });
   });
 
-  it("recovers a stale row the chain confirms, and books the payment_in the route never wrote", async () => {
+  it("recovers a stale row the chain confirms, and books the settlement the route never wrote", async () => {
     const hash = `c10-ok-${randomUUID()}`;
     const id = await insertPayment({ nearTxHash: hash });
     const { probe, calls } = probeOf({ [hash]: "settled" });
@@ -195,7 +202,12 @@ suite("boot sweep of stale payments (C10, GW-2)", () => {
     expect(row.state).toBe("settled");
     expect(row.near_tx_hash).toBe(hash);
     expect(row.settled_at).not.toBeNull();
-    expect(await ledgerFor(id)).toEqual([{ kind: "payment_in", amount: AMOUNT, asset: ASSET }]);
+    // The fixture endpoint is `direct` (D8), so the recovery books the payout the
+    // same transfer already paid, not only the payment_in.
+    expect(await ledgerFor(id)).toEqual([
+      { kind: "payment_in", amount: AMOUNT, asset: ASSET },
+      { kind: "payout_out", amount: AMOUNT, asset: ASSET },
+    ]);
   });
 
   it("abandons a stale row whose settle the chain reports failed, and keeps the hash", async () => {
@@ -264,7 +276,19 @@ suite("boot sweep of stale payments (C10, GW-2)", () => {
     expect((await paymentById(noEvidence)).state).toBe("abandoned");
     expect((await paymentById(settled)).state).toBe("settled");
     expect((await paymentById(unknown)).state).toBe("verified");
-    expect(await ledgerFor(settled)).toHaveLength(1);
+    expect((await ledgerFor(settled)).map((line) => line.kind)).toEqual([
+      "payment_in",
+      "payout_out",
+    ]);
+  });
+
+  it("books only the payment_in when the recovered endpoint pays out through intents (D8)", async () => {
+    const hash = `c10-intents-${randomUUID()}`;
+    const id = await insertPayment({ nearTxHash: hash, endpointId: intentsEndpointId });
+    const { probe } = probeOf({ [hash]: "settled" });
+
+    expect(await sweep(probe)).toEqual({ abandoned: 0, recovered: 1, unproven: 0 });
+    expect(await ledgerFor(id)).toEqual([{ kind: "payment_in", amount: AMOUNT, asset: ASSET }]);
   });
 
   it("does not double-book a row another instance settled while the probe was out", async () => {
