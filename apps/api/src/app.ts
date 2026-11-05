@@ -6,6 +6,7 @@ import { type GatewayRouteDeps, createGatewayRoute } from "./gateway/route.ts";
 import { type Logger, newRequestId } from "./lib/logger.ts";
 import { type AuthRouteDeps, createAuthRoutes } from "./routes/auth.ts";
 import { type EndpointRouteDeps, createEndpointRoutes } from "./routes/endpoints.ts";
+import { type PaymentRouteDeps, createPaymentRoutes } from "./routes/payments.ts";
 import type { X402Near } from "./x402/types.ts";
 
 /**
@@ -51,6 +52,11 @@ export type AppDeps = {
    * run do. Everything else the auth route needs is already in the deps above.
    */
   readonly auth?: Partial<Pick<AuthRouteDeps, "accessKeys">>;
+  /**
+   * UI-3's read needs nothing the deps above do not already hold, so the seam is
+   * the session alone.
+   */
+  readonly payments?: Partial<Pick<PaymentRouteDeps, "session">>;
 };
 
 export type Variables = { requestId: string };
@@ -84,7 +90,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    * process; the gateway stays outside `/api` and outside the session middleware.
    *   routes/auth.ts        A5 / UI-1  wallet signature session  (mounted, F1)
    *   routes/endpoints.ts   D4 / PO-1  creation checks           (mounted)
-   *   routes/payments.ts    C4 / UI-3
+   *   routes/payments.ts    UI-3                      (mounted, F3)
    *   routes/swaps.ts       D6 / UI-3
    *   routes/discrepancies.ts E2 / UI-4
    *   routes/export.ts      LR-7 (P1)
@@ -97,6 +103,10 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
   // D4, PO-1/PO-2. Under `/api` because it is a dashboard route and the browser
   // reaches this process only through the rewrite (A5); the gateway stays outside.
   app.route("/api", createEndpointRoutes({ db, env, log, ...deps.endpoints }));
+
+  // UI-3, F3. The seller's payments, read through the same session as their
+  // endpoints: one identity for both halves of the dashboard.
+  app.route("/api", createPaymentRoutes({ db, env, log, ...deps.payments }));
 
   // C4, GW-1/GW-2. Mounted last and outside `/api` on purpose: a payer is not a
   // session, and `app.route` keeps the request middleware above it (the id the

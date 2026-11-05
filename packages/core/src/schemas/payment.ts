@@ -15,6 +15,13 @@ export const paymentDtoSchema = z.object({
   payerAccountId: nearAccountIdSchema,
   amount: positiveBaseUnitAmountSchema,
   assetContract: z.string(),
+  /**
+   * The endpoint's own network (same shape as `endpointDtoSchema.network`, so the
+   * payment row cannot invent a stricter rule than the row it belongs to). Carried
+   * because UI-3's Done-when is a link per transaction, and a link needs to know
+   * which chain the hash is on — the dashboard has no `NEAR_NETWORK` of its own.
+   */
+  network: z.string().min(1),
   state: z.enum(PAYMENT_STATES),
   nearTxHash: z.string().nullable(),
   upstreamStatus: z.number().int().nullable(),
@@ -25,6 +32,16 @@ export const paymentDtoSchema = z.object({
   selfPayment: z.boolean(),
 });
 export type PaymentDto = z.infer<typeof paymentDtoSchema>;
+
+/**
+ * The seller's payment list (UI-3). Bounded at the read as well as the schema
+ * (C15): the dashboard renders every row it is given, so an unbounded list is an
+ * unbounded page.
+ */
+export const paymentListResponseSchema = z.object({
+  payments: boundedArray(paymentDtoSchema, 256),
+});
+export type PaymentListResponse = z.infer<typeof paymentListResponseSchema>;
 
 /**
  * x402 v2's `Network`: a chain namespace and a reference joined by one colon

@@ -1,9 +1,15 @@
-import { sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 
-import { type BaseUnitAmount, type PaymentState, assertPaymentTransition } from "@till/core";
+import {
+  type BaseUnitAmount,
+  type PaymentDto,
+  type PaymentState,
+  assertPaymentTransition,
+  paymentDtoSchema,
+} from "@till/core";
 
 import type { Db } from "../db/client.ts";
-import { payments } from "../db/schema.ts";
+import { endpoints, payments } from "../db/schema.ts";
 
 /**
  * The only writer of the `payments` table (AGENTS.md hard rule 4, C3). Every move
@@ -328,4 +334,77 @@ export async function advancePayment(
   const raced = await byId(db, paymentId);
   assertPaymentTransition((raced?.state ?? current.state) as PaymentState, to);
   throw new Error(`payment ${paymentId} changed while it was being updated`);
+}
+
+/**
+ * The seller's payment list (UI-3, F3).
+ *
+ * A `payments` row carries no seller id: it belongs to an endpoint, and the
+ * endpoint belongs to a seller. The join is therefore the whole of the access
+ * control on this read, and `innerJoin` is on purpose — a row whose endpoint has
+ * vanished is not evidence about this seller's money and is not shown.
+ *
+ * `selfPayment` is decided against the *account that is looking*, not against the
+ * endpoint's payout destination: UI-3's reason is that a seller testing with their
+ * own wallet must not read the row as revenue, and that question is about who
+ * signed in.
+ *
+ * Every row leaves through `paymentDtoSchema.parse`, the same way an endpoint does
+ * (D4). A stored row the contract refuses — a state the machine does not know, a
+ * verification timestamp that was never written — throws instead of being sent to
+ * a dashboard that would render it as if Till understood it.
+ */
+export type PaymentSeller = {
+  readonly id: string;
+  readonly nearAccountId: string;
+};
+
+/** Matches `paymentListResponseSchema`'s bound, so no page asks for more than it can render. */
+export const PAYMENT_LIST_LIMIT = 256;
+
+export async function listPaymentsForSeller(
+  db: Db,
+  seller: PaymentSeller,
+  limit = PAYMENT_LIST_LIMIT,
+): Promise<PaymentDto[]> {
+  const rows = await db
+    .select({
+      id: payments.id,
+      endpointId: payments.endpointId,
+      routeId: payments.routeId,
+      payerAccountId: payments.payerAccountId,
+      amount: payments.amount,
+      assetContract: payments.assetContract,
+      network: endpoints.network,
+      state: payments.state,
+      nearTxHash: payments.nearTxHash,
+      upstreamStatus: payments.upstreamStatus,
+      upstreamMs: payments.upstreamMs,
+      verifiedAt: payments.verifiedAt,
+      settledAt: payments.settledAt,
+    })
+    .from(payments)
+    .innerJoin(endpoints, eq(endpoints.id, payments.endpointId))
+    .where(eq(endpoints.sellerId, seller.id))
+    .orderBy(desc(payments.createdAt))
+    .limit(Math.min(limit, PAYMENT_LIST_LIMIT));
+
+  return rows.map((row) =>
+    paymentDtoSchema.parse({
+      id: row.id,
+      endpointId: row.endpointId,
+      routeId: row.routeId,
+      payerAccountId: row.payerAccountId,
+      amount: row.amount,
+      assetContract: row.assetContract,
+      network: row.network,
+      state: row.state,
+      nearTxHash: row.nearTxHash,
+      upstreamStatus: row.upstreamStatus,
+      upstreamMs: row.upstreamMs,
+      verifiedAt: row.verifiedAt?.toISOString() ?? null,
+      settledAt: row.settledAt?.toISOString() ?? null,
+      selfPayment: row.payerAccountId === seller.nearAccountId,
+    }),
+  );
 }

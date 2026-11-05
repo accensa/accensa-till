@@ -11,7 +11,7 @@ import {
   endpointCreateResponseSchema,
   endpointListResponseSchema,
   healthDtoSchema,
-  paymentDtoSchema,
+  paymentListResponseSchema,
 } from "@till/core/schemas";
 import type { z } from "zod";
 
@@ -74,6 +74,18 @@ export type EndpointListResult =
 export type EndpointCreateResult =
   | { readonly kind: "created"; readonly result: EndpointCreateResponse }
   | { readonly kind: "rejected"; readonly error: DashboardError }
+  | Unreachable;
+
+/**
+ * The same three answers for the payment list (UI-3, F3). A `500`
+ * `payment_unreadable` is a refusal Till is telling the seller about, so it comes
+ * back as `unreachable` carrying the API's own sentence rather than one written
+ * here — the rule that decided it is in the route, and a second copy in the
+ * dashboard could only disagree with it.
+ */
+export type PaymentListResult =
+  | { readonly kind: "ok"; readonly payments: readonly PaymentDto[] }
+  | { readonly kind: "signed_out" }
   | Unreachable;
 
 async function readJson(response: Response): Promise<unknown> {
@@ -162,7 +174,38 @@ export const api = {
         };
   },
 
-  payments: (): Promise<readonly PaymentDto[]> => get("/api/payments", paymentDtoSchema.array()),
+  /**
+   * The seller's payments (UI-3, F3), read with the session the page was rendered
+   * under. The scope is the API's — it joins through the seller's own endpoints —
+   * so nothing here can ask for another seller's money.
+   */
+  payments: async (cookie?: string): Promise<PaymentListResult> => {
+    let response: Response;
+    try {
+      response = await fetch(requestUrl("/api/payments"), fetchOptions(cookie));
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (response.status === 401) {
+      return { kind: "signed_out" };
+    }
+    if (!response.ok) {
+      const refusal = dashboardErrorSchema.safeParse(await readJson(response));
+      return {
+        kind: "unreachable",
+        detail: refusal.success
+          ? refusal.data.message
+          : `/api/payments returned ${response.status} with no readable reason`,
+      };
+    }
+    const parsed = paymentListResponseSchema.safeParse(await readJson(response));
+    return parsed.success
+      ? { kind: "ok", payments: parsed.data.payments }
+      : { kind: "unreachable", detail: "/api/payments answered a body Till's own schema refuses" };
+  },
   discrepancies: (): Promise<readonly DiscrepancyDto[]> =>
     get("/api/discrepancies", discrepancyDtoSchema.array()),
 };

@@ -61,6 +61,7 @@ const validPaymentDto = {
   payerAccountId: "payer.testnet",
   amount: "10000",
   assetContract: "usdc.testnet",
+  network: "near:testnet",
   state: "verified",
   nearTxHash: null,
   upstreamStatus: null,

@@ -96,7 +96,10 @@ describe("the app boots without a process (A21)", () => {
 
   it("404s a path nobody mounted, and logs that too", async () => {
     const { app, lines } = appFor();
-    const response = await app.request("/api/payments");
+    // Deliberately not one of the dashboard's own paths: `/api/payments` was this
+    // test's example until F3 mounted it, and a route that arrives later must not
+    // be able to satisfy "unmounted" by accident.
+    const response = await app.request("/api/nothing-is-here-yet");
     expect(response.status).toBe(404);
     expect(lines.length).toBe(1);
     expect(lines[0]?.status).toBe(404);

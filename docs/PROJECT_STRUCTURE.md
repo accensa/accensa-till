@@ -64,7 +64,7 @@ till/
 │   │   │   │   ├── client.ts
 │   │   │   │   └── queries/      # read helpers grouped by table
 │   │   │   ├── services/
-│   │   │   │   ├── payments.ts   # state transitions
+│   │   │   │   ├── payments.ts   # state transitions; listPaymentsForSeller is UI-3's scoped read
 │   │   │   │   ├── strikes.ts    # strike count + appended seller clear (C9)
 │   │   │   │   ├── ledger.ts     # the only writer of ledger_entries
 │   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address (D4)
@@ -74,7 +74,7 @@ till/
 │   │   │   ├── routes/           # dashboard API
 │   │   │   │   ├── auth.ts       # nonce + verify, the only routes that answer without a session (F1)
 │   │   │   │   ├── endpoints.ts  # GET list / POST create with confirmation (D4)
-│   │   │   │   ├── payments.ts
+│   │   │   │   ├── payments.ts  # GET /payments, scoped by the endpoint join, 500 on an unreadable row (UI-3)
 │   │   │   │   ├── swaps.ts
 │   │   │   │   ├── discrepancies.ts
 │   │   │   │   └── export.ts     # ledger CSV (P1)
@@ -97,16 +97,17 @@ till/
 │       │   ├── (app)/
 │       │   │   ├── page.tsx              # overview (P1 totals)
 │       │   │   ├── endpoints/            # page.tsx is UI-2: lists and creates, server component
-│       │   │   ├── payments/
+│       │   │   ├── payments/             # page.tsx is UI-3: the seller's ledger, server component
 │       │   │   └── reconciliation/
 │       │   └── layout.tsx                # nav; F5's header status (balance, last poll) is still to come
 │       ├── components/
 │       │   ├── ui/                       # shadcn components
 │       │   └── domain/                   # EndpointCard, CreateEndpointForm, CreationCheckResults,
-│       │                                 #   SessionNotice, DiscrepancyCard, PaymentRow, SwapTimeline
+│       │                                 #   SessionNotice, PaymentTable, DiscrepancyCard, PaymentRow, SwapTimeline
 │       └── lib/
 │           ├── api-client.ts             # every fetch, each response parsed or answered `unreachable`
 │           ├── endpoint-form.ts          # the form's rules as plain functions, no React
+│           ├── payments.ts                 # explorer link per row, the four state words, the copy
 │           └── format.ts                 # base units to display amounts
 │
 ├── packages/
@@ -149,20 +150,25 @@ till/
 Runs beside `apps/api` as its own process and talks to it over HTTP on one origin.
 
 ```
-app/(app)/endpoints/page.tsx     # the only page that reads a session today (UI-2)
+app/(app)/endpoints/page.tsx     # lists and creates on the session (UI-2)
+app/(app)/payments/page.tsx        # the same read shape for the ledger (UI-3)
 components/domain/               # what a seller sees; each renders a named type
   EndpointCard.tsx               # one endpoint: live, or not live with D4's reasons
   CreateEndpointForm.tsx         # edit → confirm → result ("use client")
   CreationCheckResults.tsx       # failed checks first, then the passed ones
   SessionNotice.tsx              # the three screens that are not a list
+PaymentTable.tsx                 # one row per payment, linked to its transaction (UI-3)
 lib/api-client.ts                # every fetch in the app, and the only place that parses
 lib/endpoint-form.ts             # the rules, as plain functions (buildCreateInput, orderChecks)
+lib/payments.ts                    # paymentTxLink, paymentStateWords, the seller-facing copy
 lib/format.ts                    # base units → decimal, for display only
 test/                            # the rules, the client against a fetch stub, the rendered markup
 next.config.ts                   # /api/* → API_ORIGIN, which makes the cookie first-party
 ```
 
 - **A body that will not parse is `unreachable`, never an empty list** (F2). `api.endpoints()` and `api.createEndpoint()` return a small named union — `ok`/`created`, `signed_out`/`rejected`, `unreachable` — and each arm is checked against the schemas in `packages/core/src/schemas/endpoint.ts` before it is returned. An unverified response is not a verified empty one: on the client this replaced, contract drift rendered "No endpoints yet" and invited the seller to create a second endpoint that already exists. `test/api-client.test.ts` pins the negative case.
+- **A payment list is scoped by a join, and a link is only drawn where one exists** (UI-3). `listPaymentsForSeller` filters on `endpoints.seller_id` because a payment row has no seller of its own; adding a column would put the same fact in two places that can disagree. `paymentTxLink` returns `null` for a hash that is not on chain yet and for a network Till has no explorer for, and `PaymentTable` then says so in words instead of wrapping the hash in an anchor — a wrong explorer URL is read as evidence. `selfPayment` is decided against the session's own account, so a seller testing with their wallet sees *a test, not revenue*.
+- **"The page contains this string" is not a test of a Next page.** `next start` ships both the rendered markup and the RSC payload with the same text inside `<script>` tags, so a count over raw HTML reads 2 where a browser paints 1. Live checks strip the scripts first (`ROADMAP.md` section 8, 2026-11-05).
 - **The form's rules are functions, not JSX.** `lib/endpoint-form.ts` decides what is valid, what the confirmation table shows and what a refusal's sentence is; `CreateEndpointForm.tsx` only calls it. That is what makes UI-2's acceptance testable in Node, which is where it runs today.
 - **`apps/web` imports `@till/core/schemas` and `@till/core/money`, never `@till/core`.** The barrel re-exports `ids.ts` and `auth/nep413.ts`, both of which import `node:crypto`, and webpack refuses a `node:` specifier in a client bundle. The dependency rule below says what enforces it.
 - **`API_ORIGIN` is read twice with different lifetimes**: `next build` bakes the `/api/*` rewrite into `.next/routes-manifest.json`, while `lib/api-client.ts` reads the variable per request for the server component's fetch. Set it before the build when the API is not on `PORT`'s default, or the rewrite answers 500 while the page itself loads.
@@ -214,7 +220,7 @@ db                     ──►  lib
 | A domain UI component | `apps/web/components/domain/` |
 | A rule the dashboard enforces before sending | A pure function in `apps/web/lib/`, beside `endpoint-form.ts`, with its own test — a component cannot be asserted on without a browser |
 | A screen a seller reaches with no session, or with one the API refuses | `apps/web/components/domain/SessionNotice.tsx`; the route's server component chooses which of the three kinds to show |
-| A field of the dashboard contract | `packages/core/src/schemas/`, and then make `apps/api/test/endpoints.test.ts` parse it — a schema the API's own suite never reads is documentation, not a guard |
+| A field of the dashboard contract | `packages/core/src/schemas/`, and then make the API's own suite parse it (`endpoints.test.ts`, `payments-route.test.ts`) — a schema the API never reads is documentation, not a guard |
 
 ## Naming and conventions
 

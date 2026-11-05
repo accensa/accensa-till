@@ -114,7 +114,15 @@ export const endpointIssueSchema = z.object({
   code: z.string(),
 });
 export const dashboardErrorSchema = z.object({
-  code: z.enum(["unauthenticated", "invalid_json", "invalid_request", "destination_not_confirmed"]),
+  code: z.enum([
+    "unauthenticated",
+    "invalid_json",
+    "invalid_request",
+    "destination_not_confirmed",
+    // UI-3: a stored payment the contract refuses. Named here so the dashboard can
+    // show the sentence rather than the shorter list it got.
+    "payment_unreadable",
+  ]),
   message: z.string(),
   /** Per-field refusals, for the form to put next to the input they came from. */
   issues: boundedArray(endpointIssueSchema, 32).optional(),

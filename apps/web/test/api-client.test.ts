@@ -1,4 +1,4 @@
-import { endpointCreateRequestSchema } from "@till/core/schemas";
+import { endpointCreateRequestSchema, paymentDtoSchema } from "@till/core/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api-client.ts";
@@ -234,5 +234,89 @@ describe("creating an endpoint", () => {
 
     stubFailure("socket closed");
     expect((await api.createEndpoint(REQUEST)).kind).toBe("unreachable");
+  });
+});
+
+describe("listing the seller's payments", () => {
+  // Parsed rather than written out, so `amount` is the branded string the contract
+  // asks for and the fixture cannot drift from what the API actually sends.
+  const PAYMENT = paymentDtoSchema.parse({
+    id: "6f0e2d1c-3b4a-4f5e-8d7c-1a2b3c4d5e6f",
+    endpointId: "3b0c8b6a-2b0f-4a11-9c1d-2f4a6b8c0e11",
+    routeId: null,
+    payerAccountId: "payer.testnet",
+    amount: "1250000",
+    assetContract: "usdc.testnet",
+    network: "near:testnet",
+    state: "settled",
+    nearTxHash: "7GkP1mYcH3nTzQp9rWvBxLdJsF5uYaOcNeIe8b1fKn2q",
+    upstreamStatus: 200,
+    upstreamMs: 412,
+    verifiedAt: "2026-11-04T10:00:00.000Z",
+    settledAt: "2026-11-04T10:00:03.000Z",
+    selfPayment: false,
+  });
+
+  it("forwards the session and keeps every row it was given", async () => {
+    const calls = stubAnswer(json({ payments: [PAYMENT] }));
+    const listed = await api.payments("till_session=token-value");
+
+    expect(listed.kind).toBe("ok");
+    if (listed.kind !== "ok") {
+      throw new Error("unreachable");
+    }
+    expect(listed.payments.map((payment) => payment.id)).toEqual([PAYMENT.id]);
+    expect(first(calls).url).toBe("http://localhost:3000/api/payments");
+    expect(headerOf(first(calls), "cookie")).toBe("till_session=token-value");
+    expect(first(calls).init.credentials).toBe("same-origin");
+    expect(first(calls).init.cache).toBe("no-store");
+  });
+
+  it("says signed_out for the 401, which is the only answer that means it", async () => {
+    stubAnswer(json({ code: "unauthenticated", message: "Sign in to list payments." }), 401);
+    expect(await api.payments("till_session=expired")).toEqual({ kind: "signed_out" });
+  });
+
+  it("answers the 500 with the API's own sentence, because the unreadable row is the fact", async () => {
+    const calls = stubAnswer(
+      json({
+        code: "payment_unreadable",
+        message: "A payment on record is not one Till can read, so it is not shown at all.",
+      }),
+      500,
+    );
+    const refused = await api.payments("till_session=token-value");
+    expect(refused.kind).toBe("unreachable");
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain("not one Till can read");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("says there is no readable reason when the 500 body is not the contract's", async () => {
+    stubAnswer("<html>500</html>", 500, "text/html");
+    const refused = await api.payments("till_session=token-value");
+    expect(refused.kind).toBe("unreachable");
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain("no readable reason");
+  });
+
+  it("refuses to turn a list it cannot read into an empty one", async () => {
+    stubAnswer(json({ payments: [{ ...PAYMENT, state: "paid_please_ignore" }] }));
+    const listed = await api.payments("till_session=token-value");
+    expect(listed.kind).toBe("unreachable");
+    if (listed.kind === "ok") {
+      throw new Error("a state the shared schema refuses must never render as a ledger");
+    }
+    expect("payments" in listed).toBe(false);
+
+    // A 200 with no list in it is the same failure, not the same screen.
+    stubAnswer(json({}));
+    expect((await api.payments("till_session=token-value")).kind).toBe("unreachable");
+  });
+
+  it("reports a dead socket as unreachable, not as a seller with no payments", async () => {
+    const calls = stubFailure("fetch failed: ECONNREFUSED");
+    const refused = await api.payments("till_session=token-value");
+    expect(refused.kind).toBe("unreachable");
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain("ECONNREFUSED");
+    expect(calls).toHaveLength(1);
   });
 });
