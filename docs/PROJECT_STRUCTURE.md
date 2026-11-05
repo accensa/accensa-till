@@ -68,7 +68,7 @@ till/
 │   │   │   │   ├── strikes.ts    # strike count + appended seller clear (C9)
 │   │   │   │   ├── ledger.ts     # the only writer of ledger_entries
 │   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address (D4)
-│   │   │   │   └── discrepancies.ts
+│   │   │   │   └── discrepancies.ts  # the only writer of discrepancies; dedupe, auto-resolve, manual close (E8)
 │   │   │   ├── routes/           # dashboard API
 │   │   │   │   ├── auth.ts
 │   │   │   │   ├── endpoints.ts  # GET list / POST create with confirmation (D4)

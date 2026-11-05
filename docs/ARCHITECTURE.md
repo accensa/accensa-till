@@ -254,9 +254,11 @@ discrepancies
   resolved_at         timestamptz
   resolution          text                -- auto | manual
 
-  -- one OPEN discrepancy per cause; a resolved one may reopen later
+  -- one OPEN discrepancy per cause PER SELLER; a resolved one may reopen later.
+  -- The seller is part of the key because a cause with no payment or swap id has
+  -- the same dedupe_key for every seller (E8).
   create unique index discrepancies_open_dedupe
-    on discrepancies (dedupe_key) where resolved_at is null;
+    on discrepancies (seller_id, dedupe_key) where resolved_at is null;
 
 response_cache   -- P1, see 4.4
   replay_key          text pk
@@ -278,7 +280,7 @@ response_cache   -- P1, see 4.4
 Runs every 60 seconds per seller and after any swap status change, inside the API process.
 
 - **Pure core.** Rules are pure functions in `packages/core`: `(snapshot) => Finding[]`. No I/O.
-- **Idempotent.** `dedupe_key` plus the partial unique index prevents duplicate open discrepancies, including those with a null payment or swap id (a plain unique constraint would treat nulls as distinct and fail to deduplicate; see 14.1).
+- **Idempotent.** `dedupe_key` plus the per-seller partial unique index prevents duplicate open discrepancies, including those with a null payment or swap id (a plain unique constraint would treat nulls as distinct and fail to deduplicate; see 14.1). The seller is in the index because the key cannot carry it for every rule: a null-subject cause is otherwise the same row for every seller.
 - **Auto-resolution.** When the cause clears, the discrepancy closes with `resolution = auto`.
 - **Config windows.** Sweep delay and stuck threshold come from environment.
 - **Shortfall.** With stablecoin payouts only (D11), shortfall is `amount_out < amount_in * (1 - SHORTFALL_TOLERANCE_BPS / 10000)`. No oracle needed.
@@ -447,7 +449,7 @@ Three questions, answered against the v1 design. Each item states what changed.
 | B2 | **Settle-after-serve is an exploit.** A buyer with an empty account gets responses for free, because verify does not hold funds. [Certain] that verification alone does not lock a balance | v1 returned the response even when settlement failed | Guards 1 to 4 in 4.2: expiry check, balance re-check, one in flight, strike-based blocking. **C8 shipped the first and third** (the balance check is the scheme's inside `verify`, and Till's half is that it runs before the upstream); **C9 shipped the fourth**: two `served_unsettled` payments in 24 hours at one seller block the payer's next paid request with `403` until the seller clears it (4.3), so sequential attempts are bounded to two per window instead of unbounded |
 | B3 | **Delegate expiry.** If the signed authorization expires while the upstream call runs, settlement fails after the work is done. [Likely] | Settle happens after upstream | Guard 1 rejects authorizations that are too short-lived |
 | B4 | **Concurrent payments from one payer.** Agents parallelize; delegates from one access key can fail on nonce ordering if settled out of order. **[Measured, S6] the scheme does not prevent it:** both verify, both submit, and the loser fails on-chain *after* the seller served | Settlement order follows upstream latency, not payment order | D14 caps one in flight per payer, and Guard 3 has to do it before serving — nothing downstream can. **Shipped by C8, at the insert rather than at the read:** a per-payer `pg_advisory_xact_lock` held across the read-and-insert of `openPayment`, so the second of two simultaneous authorizations gets `429` and no row. The read in `guards.ts` is the same answer without a transaction, and provably not enough — deleting the lock is a test, and the first version of that test was not (see `ROADMAP.md` C8's mutation list) |
-| B5 | **Discrepancy deduplication was broken.** A unique constraint over `(code, payment_id, swap_id)` does not deduplicate rows where an id is null, because Postgres treats nulls as distinct unless told otherwise. [Certain] A resolved row would also block reopening | Orphan deposits have no payment id | `dedupe_key` plus a partial unique index on open rows |
+| B5 | **Discrepancy deduplication was broken.** A unique constraint over `(code, payment_id, swap_id)` does not deduplicate rows where an id is null, because Postgres treats nulls as distinct unless told otherwise. [Certain] A resolved row would also block reopening | Orphan deposits have no payment id | `dedupe_key` plus a per-seller partial unique index on open rows |
 | B6 | **Heuristic matching hides real errors.** Matching a payment to a swap by amount and time can pair the wrong two and make a genuine mismatch look clean | Standing address design in v1 | D13: match on transaction hash only. If S2 shows hashes are unavailable, the standing design is dropped |
 | B7 | **Shortfall rule had no baseline.** Standing addresses have no per-payment quote, so there is no `min_amount_out` | Rule assumed a quote | Stablecoin-only payouts and a tolerance in basis points (D11, section 7) |
 | B8 | **Ledger claimed more than it was.** v1 called it double-entry and derived cross-asset balances that mean nothing. Lint rules do not stop a stray `UPDATE` | Loose wording and weak enforcement | Honest naming (event ledger), per-asset entries, trigger-based immutability |

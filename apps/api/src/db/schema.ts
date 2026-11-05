@@ -281,11 +281,13 @@ export const discrepancies = pgTable(
     createdAt: createdAt(),
   },
   (table) => [
-    // LR-5: at most one OPEN discrepancy per cause, including causes with a null
-    // payment or swap id — a plain unique constraint would treat nulls as
-    // distinct and fail to dedupe (ARCHITECTURE.md 14.1).
+    // LR-5: at most one OPEN discrepancy per cause per seller, including causes
+    // with a null payment or swap id — a plain unique constraint would treat
+    // nulls as distinct and fail to dedupe (ARCHITECTURE.md 14.1). The seller is
+    // part of the index because a null-subject cause has the same key for every
+    // seller; without it one seller's orphan would silence every other's (E8).
     uniqueIndex("discrepancies_open_dedupe")
-      .on(table.dedupeKey)
+      .on(table.sellerId, table.dedupeKey)
       .where(sql`resolved_at is null`),
     index("discrepancies_seller_open_idx")
       .on(table.sellerId, table.openedAt)
