@@ -123,6 +123,39 @@ function ipv4Octets(input: string): readonly number[] | undefined {
 }
 
 /**
+ * Canonical text for an address, so two spellings of the same host compare
+ * equal: `::1` against `0:0:0:0:0:0:0:1`, and a v4-mapped IPv6 address against
+ * the IPv4 it carries. Text that is not a literal is returned lowercased; the
+ * self-loop check only ever compares values that `isIP` already accepted.
+ */
+function normalizeAddress(input: string): string {
+  const address = (input.split("%")[0] ?? "").toLowerCase();
+  const v4 = ipv4Octets(address);
+  if (v4 !== undefined) {
+    return v4.join(".");
+  }
+  const groups = expandIpv6(address);
+  if (groups === undefined || groups.length !== 8) {
+    return address;
+  }
+  if (
+    groups[0] === 0 &&
+    groups[1] === 0 &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0 &&
+    groups[5] === 0xffff
+  ) {
+    return `${(groups[6] ?? 0) >> 8}.${(groups[6] ?? 0) & 0xff}.${(groups[7] ?? 0) >> 8}.${(groups[7] ?? 0) & 0xff}`;
+  }
+  return groups.map((group) => group.toString(16)).join(":");
+}
+
+function effectivePort(url: URL): number {
+  return url.port === "" ? (url.protocol === "https:" ? 443 : 80) : Number(url.port);
+}
+
+/**
  * Everything that is not publicly routable, or is reserved and should never be
  * reached from a seller's URL: loopback, RFC 1918, RFC 6598 carrier-grade NAT,
  * link-local (which is where the cloud metadata services live), the
@@ -215,12 +248,8 @@ export async function resolveUpstreamTarget(
     throw new UpstreamPolicyError("host_forbidden", hostname);
   }
 
-  const gatewayOrigin =
-    policy.gatewayOrigin === undefined ? undefined : new URL(policy.gatewayOrigin).origin;
-  // Strings, so a URL naming the gateway's own public IP instead of its hostname
-  // is not caught here. Logged as G4's residual risk: closing it means resolving
-  // `gatewayOrigin`, which costs a DNS call on every validated URL.
-  if (gatewayOrigin === url.origin) {
+  const gateway = policy.gatewayOrigin === undefined ? undefined : new URL(policy.gatewayOrigin);
+  if (gateway !== undefined && gateway.origin === url.origin) {
     throw new UpstreamPolicyError("self_loop", hostname);
   }
 
@@ -248,11 +277,40 @@ export async function resolveUpstreamTarget(
     }
   }
 
+  const port = effectivePort(url);
+
+  // G4's residual self_loop hole, closed (C17): the origin comparison above is
+  // text, so a seller URL naming the gateway's public IP — or another name that
+  // resolves to it — passed. The gateway's own name is resolved through the same
+  // seam and the target is refused when the socket would reach the gateway's
+  // origin. Resolution failure leaves the text check in place rather than
+  // refusing every upstream: a split-horizon or public-only GATEWAY_PUBLIC_URL
+  // must not take the gateway down with the hole it is trying to close.
+  if (
+    gateway !== undefined &&
+    gateway.protocol === url.protocol &&
+    effectivePort(gateway) === port
+  ) {
+    const gatewayHost = gateway.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const gatewayAddresses =
+      isIP(gatewayHost) !== 0
+        ? [gatewayHost]
+        : await (policy.resolve ?? defaultResolve)(gatewayHost).catch(() => undefined);
+    if (gatewayAddresses !== undefined) {
+      const ownAddresses = new Set(gatewayAddresses.map(normalizeAddress));
+      for (const address of addresses) {
+        if (ownAddresses.has(normalizeAddress(address))) {
+          throw new UpstreamPolicyError("self_loop", hostname);
+        }
+      }
+    }
+  }
+
   const [address = hostname] = addresses;
   return {
     origin: url.origin,
     hostname,
-    port: url.port === "" ? (url.protocol === "https:" ? 443 : 80) : Number(url.port),
+    port,
     protocol: url.protocol,
     address: address ?? hostname,
     family: isIP(address ?? hostname) === 6 ? 6 : 4,

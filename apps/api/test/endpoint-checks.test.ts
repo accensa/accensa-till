@@ -57,7 +57,7 @@ function deps(overrides: Partial<EndpointCreationDeps> = {}): EndpointCreationDe
     gatewayPublicUrl: "https://gateway.test",
     payoutProvider: "mock",
     storage: { read: async () => ({ supported: true, registered: true }) },
-    resolve: async () => [PUBLIC],
+    resolve: async (hostname) => (hostname === "gateway.test" ? ["8.8.8.8"] : [PUBLIC]),
     ...overrides,
   };
 }

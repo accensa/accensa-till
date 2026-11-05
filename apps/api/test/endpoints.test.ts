@@ -133,7 +133,7 @@ function creationDeps(overrides: Partial<EndpointCreationDeps> = {}): EndpointCr
     gatewayPublicUrl: "https://gateway.test",
     payoutProvider: "mock",
     storage: { read: async () => ({ supported: true, registered: true }) },
-    resolve: async () => [PUBLIC],
+    resolve: async (hostname) => (hostname === "gateway.test" ? ["8.8.8.8"] : [PUBLIC]),
     slug: () => `d4-${randomUUID()}`,
     ...overrides,
   };
@@ -361,7 +361,7 @@ suite("the endpoint routes (D4, UI-2)", () => {
         return claims;
       },
       storage: { read: async () => ({ supported: true, registered: true }) },
-      resolve: async () => [PUBLIC],
+      resolve: async (hostname) => (hostname === "gateway.test" ? ["8.8.8.8"] : [PUBLIC]),
     });
   }
 
@@ -481,7 +481,7 @@ suite("the endpoint routes (D4, UI-2)", () => {
       endpoints: {
         session: async () => claims,
         storage: { read: async () => ({ supported: true, registered: true }) },
-        resolve: async () => [PUBLIC],
+        resolve: async (hostname) => (hostname === "gateway.test" ? ["8.8.8.8"] : [PUBLIC]),
       },
     });
 

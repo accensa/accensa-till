@@ -58,7 +58,7 @@ function policyFor(
   overrides: Partial<{
     allowInsecure: boolean;
     gatewayOrigin: string;
-    resolve: () => Promise<readonly string[]>;
+    resolve: (hostname: string) => Promise<readonly string[]>;
   }> = {},
 ) {
   const { resolve, ...rest } = overrides;
@@ -234,6 +234,57 @@ describe("upstream address policy (C5, GW-8)", () => {
       gatewayOrigin: "https://till.example",
     });
     expect(error.code).toBe("self_loop");
+  });
+
+  it("refuses an upstream that resolves to the gateway's address under another name (G4's gap)", async () => {
+    // The origin strings differ, so the old check passed this. The address the
+    // proxy would dial is the gateway's own, which is the self-loop.
+    const error = await refused("https://alias.seller.test/data", {
+      gatewayOrigin: "https://till.example",
+      resolve: async (hostname) => (hostname === "till.example" ? ["8.8.8.8"] : ["8.8.8.8"]),
+    });
+    expect(error.code).toBe("self_loop");
+  });
+
+  it("compares IPv6 and v4-mapped addresses by value, not by spelling", async () => {
+    const gateway = "2606:2800:0:0:0:0:0:1";
+    const ipv6 = await refused("https://alias.seller.test/data", {
+      gatewayOrigin: "https://till.example",
+      resolve: async (hostname) => (hostname === "till.example" ? [gateway] : ["2606:2800::1"]),
+    });
+    expect(ipv6.code).toBe("self_loop");
+
+    const mapped = await refused("https://alias.seller.test/data", {
+      gatewayOrigin: "https://till.example",
+      resolve: async (hostname) => (hostname === "till.example" ? ["8.8.8.8"] : ["::ffff:8.8.8.8"]),
+    });
+    expect(mapped.code).toBe("self_loop");
+  });
+
+  it("allows the gateway's address on another port, which is a different service", async () => {
+    const target = await resolveUpstreamTarget("https://alias.seller.test/data", {
+      allowInsecure: false,
+      gatewayOrigin: "https://till.example:8443",
+      resolve: async (hostname) => (hostname === "till.example" ? ["8.8.8.8"] : ["8.8.8.8"]),
+    });
+    expect(target.address).toBe("8.8.8.8");
+  });
+
+  it("keeps validating when the gateway's own name does not resolve", async () => {
+    // Split-horizon DNS, or a name only public resolvers know. The additional
+    // address check cannot run, so the origin-string comparison is still what is
+    // applied; an unresolvable gateway name must not refuse every upstream.
+    const target = await resolveUpstreamTarget("https://alias.seller.test/data", {
+      allowInsecure: false,
+      gatewayOrigin: "https://till.example",
+      resolve: async (hostname) => {
+        if (hostname === "till.example") {
+          throw new Error("SERVFAIL");
+        }
+        return [PUBLIC];
+      },
+    });
+    expect(target.address).toBe(PUBLIC);
   });
 
   it("reports a name that does not resolve rather than connecting nowhere", async () => {
