@@ -68,9 +68,11 @@ till/
 │   │   │   │   ├── strikes.ts    # strike count + appended seller clear (C9)
 │   │   │   │   ├── ledger.ts     # the only writer of ledger_entries
 │   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address (D4)
+│   │   │   │   ├── access-keys.ts # the chain read sign-in needs: is this key full access on that account (F1)
+│   │   │   │   ├── sellers.ts    # the only place a seller row is created, keyed by account name (F1)
 │   │   │   │   └── discrepancies.ts  # the only writer of discrepancies; dedupe, auto-resolve, manual close (E8)
 │   │   │   ├── routes/           # dashboard API
-│   │   │   │   ├── auth.ts
+│   │   │   │   ├── auth.ts       # nonce + verify, the only routes that answer without a session (F1)
 │   │   │   │   ├── endpoints.ts  # GET list / POST create with confirmation (D4)
 │   │   │   │   ├── payments.ts
 │   │   │   │   ├── swaps.ts
@@ -83,13 +85,13 @@ till/
 │   │   │   │   └── sweep-stale.ts    # boot sweep (C10): stale `verified` rows by row evidence + chain read
 │   │   │   └── lib/
 │   │   │       ├── logger.ts
-│   │   │       └── session.ts    # signed cookies via jose
+│   │   │       └── session.ts    # two HKDF-derived signed cookies via jose: session and spent challenge (F1)
 │   │   └── test/                 # integration tests against docker Postgres
 │   │
 │   └── web/
 │       ├── next.config.ts        # rewrites /api/* to the API
 │       ├── app/
-│       │   ├── (auth)/sign-in/
+│       │   ├── (auth)/sign-in/   # stub until F8: needs a browser wallet prompt, and that package is F8's open question
 │       │   ├── (app)/
 │       │   │   ├── page.tsx              # overview (P1 totals)
 │       │   │   ├── endpoints/
@@ -108,6 +110,9 @@ till/
 │       └── src/
 │           ├── ids.ts            # uuid v7 row ids, monotonic within a process
 │           ├── money.ts          # bigint helpers, decimals, formatting
+│           ├── auth/             # NEP-413: borsh payload, sha256, ed25519 verify, nonce (F1)
+│           │   ├── index.ts
+│           │   └── nep413.ts     # no framework, no @near-js import — node:crypto only, vectors measured against the library
 │           ├── schemas/          # Zod schemas shared by api and web
 │           ├── states.ts         # payment and swap state machines
 │           └── reconcile/
@@ -168,6 +173,7 @@ db                     ──►  lib
 |---|---|
 | Any change at all | Update `ROADMAP.md` in the same change: task status, evidence, changelog line, then `pnpm roadmap` |
 | A reconciliation rule | New file in `packages/core/src/reconcile/`, register in `index.ts`, fixture test in `__tests__/` |
+| A change to who may sign in | The message encoding and verification in `packages/core/src/auth/` (pure, `node:crypto` only), the cookie codec in `apps/api/src/lib/session.ts`, the chain read in `apps/api/src/services/access-keys.ts`, the refusal codes in `apps/api/src/routes/auth.ts` |
 | A discrepancy code | Enum in `packages/core/src/schemas/`, the rule, and UI copy in `apps/web/components/domain/DiscrepancyCard.tsx` |
 | A payout provider | New folder in `apps/api/src/payouts/`, implement `PayoutProvider`, register in `createProvider` |
 | A dashboard endpoint | Zod schema in `packages/core/src/schemas/`, route in `apps/api/src/routes/`, mounted in `app.ts`, call in `apps/web/lib/api-client.ts` |

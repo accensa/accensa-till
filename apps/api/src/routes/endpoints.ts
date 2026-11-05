@@ -8,7 +8,7 @@ import type { Db } from "../db/client.ts";
 import type { Env } from "../env.ts";
 import type { ResolveNames } from "../gateway/ssrf.ts";
 import type { Logger } from "../lib/logger.ts";
-import { SESSION_COOKIE, type SessionClaims, verifySessionCookie } from "../lib/session.ts";
+import { SESSION_COOKIE, type SessionClaims, createSessionCodec } from "../lib/session.ts";
 import {
   type EndpointCreationDeps,
   type TokenStorageReader,
@@ -36,7 +36,10 @@ export type EndpointRouteDeps = {
   readonly db: Db;
   readonly env: Env;
   readonly log: Logger;
-  /** F1 replaces this with the signed cookie check; tests inject a seller. */
+  /**
+   * The shipped default is F1's signed-cookie check. A test injects a seller
+   * instead of minting a cookie, which is the reason this is a seam at all.
+   */
   readonly session?: EndpointSessionReader;
   readonly storage?: TokenStorageReader;
   /** Test seam for the SSRF check's DNS read. */
@@ -47,20 +50,13 @@ const createRequestSchema = endpointCreateSchema.extend({
   confirmedAddress: z.string().min(1),
 });
 
-async function readSession(cookie: string | undefined): Promise<SessionClaims | null> {
-  if (cookie === undefined || cookie === "") {
-    return null;
-  }
-  try {
-    return await verifySessionCookie(cookie);
-  } catch {
-    return null;
-  }
-}
-
 export function createEndpointRoutes(deps: EndpointRouteDeps): Hono {
   const { db, env, log } = deps;
-  const read = deps.session ?? readSession;
+  const codec = createSessionCodec(env.SESSION_SECRET);
+  const read: EndpointSessionReader =
+    deps.session ??
+    (async (cookie) =>
+      cookie === undefined || cookie === "" ? null : await codec.verifySessionCookie(cookie));
   const creationDeps: EndpointCreationDeps = {
     minPriceBaseUnits: env.MIN_PRICE_BASE_UNITS,
     network: env.NEAR_NETWORK,

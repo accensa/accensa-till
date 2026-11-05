@@ -64,7 +64,7 @@ One backend process, one web app, one database.
 | Monorepo | pnpm workspaces | `apps/api`, `apps/web`, `packages/core` |
 | API | Hono with `@hono/node-server` | |
 | NEAR x402 | `@fastnear/x402` 2.5.0 (`./server`, `./facilitator`, `./node`) over `@x402/near` 2.29.0 | Verified from npm 2026-11-03: framework-agnostic, no express, ships a self-hostable facilitator and a reference relayer signer. See 13 |
-| NEAR RPC and signing | `@fastnear/api`, `@fastnear/wallet` | Wallet sign-in via signed message |
+| NEAR RPC reads | JSON-RPC over `fetch`, and `node:crypto` for ed25519 | Sign-in needs a public read (`view_access_key_list`) and a signature check, not a signer; hard rule 1 keeps every `@fastnear/*` import in `x402/near.ts`. The browser wallet prompt is F8, and the package it needs is that task's open question |
 | Payouts | NEAR Intents 1Click Swap REST API | Base URL `https://1click.chaindefuser.com`, paths under `/v0` (S5: the OpenAPI `servers.url`). Still **[VERIFY]**: the host answers `521` to this machine, so no call has been made from here |
 | Database | PostgreSQL 16 | `NULLS NOT DISTINCT` available (15+) |
 | ORM | Drizzle with the `postgres` driver | SQL migrations committed |
@@ -307,9 +307,18 @@ Full-access key required by the underlying package. Mitigations:
 
 ### 8.2 Seller authentication
 
-- Server issues a nonce in a short-lived signed cookie. Seller signs a message containing it with their NEAR wallet.
-- Server verifies the signature against the account's access keys and sets a signed session cookie (HTTP-only, SameSite Lax).
-- Single origin via Next.js rewrites; no cross-site cookie configuration.
+Shipped as F1, in `apps/api/src/routes/auth.ts` over the NEP-413 engine in `packages/core/src/auth/nep413.ts`:
+
+- `POST /auth/nonce` mints 32 random bytes, answers `{ message, recipient, nonce, callbackUrl }` — `recipient` being the origin of `GATEWAY_PUBLIC_URL`, so a signature is bound to this deployment — and keeps a signed copy of the same four fields in `till_sign_in` for five minutes.
+- The wallet signs `sha256(borsh(u32(2**31+413) ++ message ++ nonce ++ recipient ++ callbackUrl))` with an **ed25519 full-access key** and sends the signature base64, which is what the spec's output interface says and the one form Till accepts.
+- `POST /auth/verify` then compares the body with that cookie — message, recipient, nonce (constant-time) and callback — verifies the signature, and only after both reads the chain's `view_access_key_list` for the claimed account and requires the signing key to appear there as `FullAccess`. That order is the rate limit: nothing before the chain read costs more than a hash and a signature check.
+- Success creates or finds the seller row by account name and sets `till_session` for twelve hours; the challenge cookie is deleted on the way out.
+
+Both cookies are `HttpOnly`, `SameSite=Strict`, `Path=/api`, and `Secure` whenever `NODE_ENV=production`. Strict rather than the Lax this section used to say: `/api` is only ever reached by the dashboard's own same-origin `fetch`, so Lax bought nothing here, and `Path=/api` also keeps the session out of the gateway's `/r/:slug` surface entirely (G6 F2's class of problem, removed rather than filtered). They are signed by two keys HKDF-derived from `SESSION_SECRET` per purpose, so a session token is not a valid sign-in challenge — and a `purpose` claim and the claim shapes are two further independent layers over the same confusion.
+
+Refusals are named, because "who do you claim to be" failing has four different causes a seller can act on: `invalid_json` and `invalid_request` (400), `sign_in_challenge`, `key_type_unsupported`, `signature_invalid`, `account_not_found`, `key_not_found` (401), `access_keys_unavailable` (503 — an RPC that timed out is never reported as an ownership failure). A refusal logs the code and the account only: never the signature, the public key or a cookie.
+
+Two limits are stated rather than engineered away. There is no session table, so a logout is a cookie delete and a captured challenge cookie stays replayable for the rest of its five minutes; and `key_not_found` deliberately does not distinguish "that key is not on the account" from "it is there as a function-call key", which is not information to hand out. The browser half — a wallet prompt that produces the signature — is F8; measuring this against real testnet access keys is A10's.
 
 ### 8.3 Replay protection
 
@@ -352,12 +361,12 @@ What `GET /r/:slug` answers, since the status is the payer's whole interface (4.
 
 Stripping is by name list, in `gateway/proxy.ts`: hop-by-hop headers (RFC 9110 7.6.1), anything starting `proxy-`, and payment material — `payment-signature`, `x-402*`, `x-payment*` — never travel to the seller. A seller's answer loses those too, plus `set-cookie`, `www-authenticate` and a upstream `content-length`, because the buyer's browser is on the gateway origin and a paywalled seller must not be able to write a cookie into the host that carries the dashboard session (G6 F2). `authorization` is *not* in the list: a buyer sending a bearer token to a paywalled resource is a seller's concern, not a payment path, and if that ever reads wrong the change belongs here rather than in the route.
 
-### 9.2 Dashboard API (session required)
+### 9.2 Dashboard API
 
 | Method and path | Purpose |
 |---|---|
-| `POST /auth/nonce`, `POST /auth/verify` | Wallet sign-in |
-| `GET /endpoints`, `POST /endpoints`, `PATCH /endpoints/:id` | Manage endpoints; price changes apply to new payments only |
+| `POST /auth/nonce`, `POST /auth/verify` | Wallet sign-in (F1, 8.2). The only routes under `/api` that answer without a session — they are what issues one. Refusals are named: `invalid_json`, `invalid_request` (400); `sign_in_challenge`, `key_type_unsupported`, `signature_invalid`, `account_not_found`, `key_not_found` (401); `access_keys_unavailable` (503) |
+| `GET /endpoints`, `POST /endpoints`, `PATCH /endpoints/:id` | Manage endpoints (session required); price changes apply to new payments only |
 | `GET /payments` | Paginated, joined with swap state |
 | `GET /swaps/:id` | Detail including raw provider payload |
 | `GET /discrepancies`, `POST /discrepancies/:id/resolve` | List and manual resolution |

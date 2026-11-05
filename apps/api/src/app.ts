@@ -4,6 +4,7 @@ import type { Db } from "./db/client.ts";
 import type { Env } from "./env.ts";
 import { type GatewayRouteDeps, createGatewayRoute } from "./gateway/route.ts";
 import { type Logger, newRequestId } from "./lib/logger.ts";
+import { type AuthRouteDeps, createAuthRoutes } from "./routes/auth.ts";
 import { type EndpointRouteDeps, createEndpointRoutes } from "./routes/endpoints.ts";
 import type { X402Near } from "./x402/types.ts";
 
@@ -44,6 +45,12 @@ export type AppDeps = {
    * already exposes; production leaves it unset.
    */
   readonly endpoints?: Partial<Pick<EndpointRouteDeps, "session" | "storage" | "resolve">>;
+  /**
+   * F1's route reads the chain to turn a signature into an identity, which is the
+   * one thing a test cannot do and the one thing A10's accounts would let a live
+   * run do. Everything else the auth route needs is already in the deps above.
+   */
+  readonly auth?: Partial<Pick<AuthRouteDeps, "accessKeys">>;
 };
 
 export type Variables = { requestId: string };
@@ -75,13 +82,17 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    * Mounted by the tasks that own them, in this order. The dashboard routes mount
    * under `/api`, because that is the only path apps/web rewrites onto this
    * process; the gateway stays outside `/api` and outside the session middleware.
-   *   routes/auth.ts        A5 / UI-1  wallet signature session
-   *   routes/endpoints.ts   D4 / PO-1  creation checks
+   *   routes/auth.ts        A5 / UI-1  wallet signature session  (mounted, F1)
+   *   routes/endpoints.ts   D4 / PO-1  creation checks           (mounted)
    *   routes/payments.ts    C4 / UI-3
    *   routes/swaps.ts       D6 / UI-3
    *   routes/discrepancies.ts E2 / UI-4
    *   routes/export.ts      LR-7 (P1)
    */
+
+  // UI-1, F1. First under `/api` and the only route there that does not require a
+  // session: it is the thing that issues one.
+  app.route("/api", createAuthRoutes({ db, env, log, ...deps.auth }));
 
   // D4, PO-1/PO-2. Under `/api` because it is a dashboard route and the browser
   // reaches this process only through the rewrite (A5); the gateway stays outside.
