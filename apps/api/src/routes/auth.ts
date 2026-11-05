@@ -1,4 +1,6 @@
 import {
+  SESSION_COOKIE,
+  SIGN_IN_COOKIE,
   decodeSignInNonce,
   newSignInNonce,
   noncesEqual,
@@ -15,9 +17,7 @@ import type { Db } from "../db/client.ts";
 import type { Env } from "../env.ts";
 import type { Logger } from "../lib/logger.ts";
 import {
-  SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
-  SIGN_IN_COOKIE,
   SIGN_IN_MAX_AGE_SECONDS,
   cookieOptions,
   createSessionCodec,

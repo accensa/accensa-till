@@ -15,6 +15,14 @@
     "allowJs": true,
     "esModuleInterop": true
   },
-  "include": ["app", "components", "lib", "next.config.ts", ".next/types/**/*.ts"],
+  "include": [
+    "app",
+    "components",
+    "lib",
+    "test",
+    "next.config.ts",
+    "vitest.config.ts",
+    ".next/types/**/*.ts"
+  ],
   "exclude": ["node_modules", ".next"]
 }

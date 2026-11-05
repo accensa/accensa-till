@@ -18,6 +18,20 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           <span className="text-sm opacity-60">
             relayer balance and last poll arrive with D6 (UI-5)
           </span>
+          <nav className="mt-2 flex gap-4 text-sm">
+            <a className="underline" href="/endpoints">
+              Endpoints
+            </a>
+            <a className="underline" href="/payments">
+              Payments
+            </a>
+            <a className="underline" href="/reconciliation">
+              Reconciliation
+            </a>
+            <a className="underline" href="/sign-in">
+              Sign in
+            </a>
+          </nav>
         </header>
         <main className="p-4">{children}</main>
       </body>

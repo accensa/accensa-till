@@ -44,6 +44,30 @@ violations_in() {
 hits=$(violations_in 'from "(@till/api|\.\./\.\./api/)' 'never-matches' apps/web)
 [ -z "$hits" ] || report "apps/web must not import from apps/api (single origin over HTTP)" "$hits"
 
+# The barrel is not browser-safe: packages/core/src/index.ts re-exports ids.ts and
+# auth/nep413.ts, both of which import node:crypto, and webpack cannot put a node:
+# specifier in a client bundle. `next build` failed on exactly that (`@till/core` ->
+# ids.ts -> node:crypto) the first time a client component read a schema. The
+# dashboard takes the subtrees that are pure instead: ./schemas, ./money, ./states.
+hits=$(violations_in 'from "@till/core"' 'never-matches' apps/web)
+[ -z "$hits" ] || report "apps/web must import the browser-safe subtrees (@till/core/schemas, @till/core/money), not the barrel (it reaches node:crypto)" "$hits"
+
+# The rule above is a string match and can only see the specifier a file writes. The
+# invariant is about the bundle: everything apps/web imports has to be buildable for a
+# browser. A core subtree that re-exports `ids.ts` breaks that without naming
+# `@till/core` anywhere — observed 2026-11-05 with `pnpm boundaries` printing `ok`
+# while `next build` failed on `UnhandledSchemeError: Reading from "node:crypto"`. So
+# the check is the bundler itself. Cost: ~16s, and `env -u` because pnpm sets
+# npm_config_node_link_workspace_packages, which makes webpack resolve to a path that
+# starts `../`.
+if [ -x apps/web/node_modules/.bin/next ]; then
+  web_log=$(mktemp)
+  if ! (cd apps/web && env -u npm_config_node_link_workspace_packages ./node_modules/.bin/next build) >"$web_log" 2>&1; then
+    report "apps/web does not build, so what it imports cannot become a browser bundle" "$(grep -E 'UnhandledSchemeError|Module not found|Module build failed|^node:' "$web_log" | sort -u | head -8)"
+  fi
+  rm -f "$web_log"
+fi
+
 hits=$(violations_in 'from "(drizzle-orm|postgres|hono|next|react|@till/api)' 'never-matches' packages/core)
 [ -z "$hits" ] || report "packages/core must stay pure: no database, HTTP or framework imports" "$hits"
 

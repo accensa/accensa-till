@@ -1,4 +1,5 @@
-import { baseUnitAmountSchema, formatAmount, toBaseUnits } from "@till/core";
+import { formatAmount } from "@till/core/money";
+import { baseUnitAmountSchema, toBaseUnits } from "@till/core/schemas";
 
 /**
  * Base units arrive over the wire as decimal strings (schemas/common.ts) and are

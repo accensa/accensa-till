@@ -7,7 +7,15 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { type EndpointCreateInput, endpointCreateSchema } from "@till/core";
+import {
+  type CreationCheck,
+  type EndpointCreateInput,
+  creationCheckCodeSchema,
+  dashboardErrorSchema,
+  endpointCreateResponseSchema,
+  endpointCreateSchema,
+  endpointListResponseSchema,
+} from "@till/core";
 
 import { createApp } from "../src/app.ts";
 import * as schema from "../src/db/schema.ts";
@@ -16,7 +24,6 @@ import type { Logger } from "../src/lib/logger.ts";
 import type { SessionClaims } from "../src/lib/session.ts";
 import { createEndpointRoutes } from "../src/routes/endpoints.ts";
 import {
-  type CreationCheck,
   type EndpointCreationDeps,
   type SellerIdentity,
   TokenStorageError,
@@ -467,6 +474,84 @@ suite("the endpoint routes (D4, UI-2)", () => {
     const list = await app.request("/endpoints", { headers: { cookie: "till_session=anything" } });
     const listed = (await list.json()) as { endpoints: { id: string }[] };
     expect(listed.endpoints.some((endpoint) => endpoint.id === payload.endpoint.id)).toBe(true);
+  });
+
+  it("answers in the shapes @till/core declares, for every check it can emit", async () => {
+    // UI-2 is the second reader of these bodies, and it reads them with the core
+    // schemas rather than with `as`. A code the enum does not know, a warning list
+    // that grew past its cap, or a refusal shape the dashboard cannot name is a
+    // parse failure here — in the app that owns the response — rather than a
+    // blank screen in the other one.
+    const app = routeApp();
+    const seen = new Set<string>();
+    const creations = [
+      body(),
+      body({ payoutMode: "intents" }),
+      body({
+        priceAmount: "1",
+        destinationAddress: "Not A Near Account",
+        refundAddress: "also not an account",
+      }),
+    ];
+
+    for (const payload of creations) {
+      const response = await app.request("/endpoints", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: "till_session=anything" },
+        body: payload,
+      });
+      expect(response.status).toBe(201);
+      const parsed = endpointCreateResponseSchema.parse(await response.json());
+      for (const check of parsed.checks) {
+        seen.add(check.code);
+        expect(creationCheckCodeSchema.options).toContain(check.code);
+      }
+      if (!parsed.endpoint.active) {
+        expect(parsed.endpoint.creationWarnings.length).toBeGreaterThan(0);
+      }
+    }
+    for (const code of [
+      "network",
+      "upstream_url",
+      "price_floor",
+      "destination_chain",
+      "destination_address",
+      "refund_address",
+      "direct_destination",
+      "deposit_address",
+      "storage_registration",
+    ]) {
+      expect([code, seen.has(code)]).toEqual([code, true]);
+    }
+
+    const list = await app.request("/endpoints", { headers: { cookie: "till_session=anything" } });
+    const listed = endpointListResponseSchema.parse(await list.json());
+    expect(listed.endpoints.length).toBeGreaterThanOrEqual(creations.length);
+
+    const refused = await app.request("/endpoints", {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie: "till_session=anything" },
+      body: JSON.stringify({
+        ...createInput(SELLER_R, { destinationAddress: `echo-mismatch-${run}.testnet` }),
+        confirmedAddress: SELLER_R.nearAccountId,
+      }),
+    });
+    expect(refused.status).toBe(422);
+    expect(dashboardErrorSchema.parse(await refused.json()).code).toBe("destination_not_confirmed");
+
+    // The 401 is read from an app with no session seam injected, so this is also
+    // the one place that proves the route really consults F1's cookie reader when
+    // nobody hands it a seller: `routeApp()` above always answers with a session.
+    const shipped = createEndpointRoutes({
+      db: need().db,
+      env,
+      log: quiet,
+      storage: { read: async () => ({ supported: true, registered: true }) },
+      resolve: async () => [PUBLIC],
+    });
+    const unauthenticated = await shipped.request("/endpoints");
+    expect(unauthenticated.status).toBe(401);
+    expect(dashboardErrorSchema.parse(await unauthenticated.json()).code).toBe("unauthenticated");
   });
 
   it("is mounted at /api/endpoints by createApp", async () => {

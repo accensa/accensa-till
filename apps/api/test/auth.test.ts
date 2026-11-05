@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   type Nep413Payload,
+  SESSION_COOKIE,
+  SIGN_IN_COOKIE,
   decodeSignInNonce,
   hashNep413Payload,
   newSignInNonce,
@@ -20,12 +22,7 @@ import { createApp } from "../src/app.ts";
 import * as schema from "../src/db/schema.ts";
 import { type Env, loadEnv } from "../src/env.ts";
 import type { Logger } from "../src/lib/logger.ts";
-import {
-  SESSION_COOKIE,
-  SIGN_IN_COOKIE,
-  SIGN_IN_MAX_AGE_SECONDS,
-  createSessionCodec,
-} from "../src/lib/session.ts";
+import { SIGN_IN_MAX_AGE_SECONDS, createSessionCodec } from "../src/lib/session.ts";
 import { SIGN_IN_MESSAGE, createAuthRoutes } from "../src/routes/auth.ts";
 import type { AccessKeyList, AccessKeyReader } from "../src/services/access-keys.ts";
 import { createX402Near } from "../src/x402/near.ts";

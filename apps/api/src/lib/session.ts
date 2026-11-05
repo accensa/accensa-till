@@ -19,14 +19,12 @@ import { SignJWT, jwtVerify } from "jose";
  * look at the `purpose` claim — which is the second, cheaper check kept on top.
  */
 
-export const SESSION_COOKIE = "till_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 12;
 
 /**
  * Five minutes: long enough to approve a wallet prompt, short enough that an
  * unused challenge is not a durable credential.
  */
-export const SIGN_IN_COOKIE = "till_sign_in";
 export const SIGN_IN_MAX_AGE_SECONDS = 300;
 
 const KEY_LENGTH_BYTES = 32;

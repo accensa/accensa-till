@@ -3,6 +3,8 @@ import { randomBytes } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 
 import {
+  type CreationCheck,
+  type CreationCheckCode,
   type EndpointCreateInput,
   type EndpointDto,
   endpointDtoSchema,
@@ -58,25 +60,6 @@ export class TokenStorageError extends Error {
     this.code = code;
   }
 }
-
-export type CreationCheckCode =
-  | "network"
-  | "upstream_url"
-  | "price_floor"
-  | "destination_chain"
-  | "destination_address"
-  | "refund_address"
-  | "direct_destination"
-  | "deposit_address"
-  | "storage_registration"
-  | "storage_unverifiable";
-
-export type CreationCheck = {
-  readonly code: CreationCheckCode;
-  readonly ok: boolean;
-  /** Seller-facing: says what failed and what to do about it. */
-  readonly message: string;
-};
 
 export type EndpointCreationDeps = {
   readonly minPriceBaseUnits: bigint;

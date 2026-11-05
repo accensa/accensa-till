@@ -88,21 +88,25 @@ till/
 │   │   │       └── session.ts    # two HKDF-derived signed cookies via jose: session and spent challenge (F1)
 │   │   └── test/                 # integration tests against docker Postgres
 │   │
-│   └── web/
-│       ├── next.config.ts        # rewrites /api/* to the API
+│   └── web/                       # Next 15 App Router, single origin (A5)
+│       ├── next.config.ts        # rewrites /api/* to the API, baked at build time from API_ORIGIN
+│       ├── vitest.config.ts      # JSX through esbuild; the suite runs in Node, no browser
+│       ├── test/                 # the form rules, the client against a fetch stub, rendered markup
 │       ├── app/
 │       │   ├── (auth)/sign-in/   # stub until F8: needs a browser wallet prompt, and that package is F8's open question
 │       │   ├── (app)/
 │       │   │   ├── page.tsx              # overview (P1 totals)
-│       │   │   ├── endpoints/
+│       │   │   ├── endpoints/            # page.tsx is UI-2: lists and creates, server component
 │       │   │   ├── payments/
 │       │   │   └── reconciliation/
-│       │   └── layout.tsx                # header: relayer balance, last poll
+│       │   └── layout.tsx                # nav; F5's header status (balance, last poll) is still to come
 │       ├── components/
 │       │   ├── ui/                       # shadcn components
-│       │   └── domain/                   # PaymentRow, DiscrepancyCard, SwapTimeline
+│       │   └── domain/                   # EndpointCard, CreateEndpointForm, CreationCheckResults,
+│       │                                 #   SessionNotice, DiscrepancyCard, PaymentRow, SwapTimeline
 │       └── lib/
-│           ├── api-client.ts             # typed fetch using core schemas
+│           ├── api-client.ts             # every fetch, each response parsed or answered `unreachable`
+│           ├── endpoint-form.ts          # the form's rules as plain functions, no React
 │           └── format.ts                 # base units to display amounts
 │
 ├── packages/
@@ -140,6 +144,30 @@ till/
 │   └── spikes/                   # throwaway scripts for S1 to S7, kept as evidence
 ```
 
+## apps/web
+
+Runs beside `apps/api` as its own process and talks to it over HTTP on one origin.
+
+```
+app/(app)/endpoints/page.tsx     # the only page that reads a session today (UI-2)
+components/domain/               # what a seller sees; each renders a named type
+  EndpointCard.tsx               # one endpoint: live, or not live with D4's reasons
+  CreateEndpointForm.tsx         # edit → confirm → result ("use client")
+  CreationCheckResults.tsx       # failed checks first, then the passed ones
+  SessionNotice.tsx              # the three screens that are not a list
+lib/api-client.ts                # every fetch in the app, and the only place that parses
+lib/endpoint-form.ts             # the rules, as plain functions (buildCreateInput, orderChecks)
+lib/format.ts                    # base units → decimal, for display only
+test/                            # the rules, the client against a fetch stub, the rendered markup
+next.config.ts                   # /api/* → API_ORIGIN, which makes the cookie first-party
+```
+
+- **A body that will not parse is `unreachable`, never an empty list** (F2). `api.endpoints()` and `api.createEndpoint()` return a small named union — `ok`/`created`, `signed_out`/`rejected`, `unreachable` — and each arm is checked against the schemas in `packages/core/src/schemas/endpoint.ts` before it is returned. An unverified response is not a verified empty one: on the client this replaced, contract drift rendered "No endpoints yet" and invited the seller to create a second endpoint that already exists. `test/api-client.test.ts` pins the negative case.
+- **The form's rules are functions, not JSX.** `lib/endpoint-form.ts` decides what is valid, what the confirmation table shows and what a refusal's sentence is; `CreateEndpointForm.tsx` only calls it. That is what makes UI-2's acceptance testable in Node, which is where it runs today.
+- **`apps/web` imports `@till/core/schemas` and `@till/core/money`, never `@till/core`.** The barrel re-exports `ids.ts` and `auth/nep413.ts`, both of which import `node:crypto`, and webpack refuses a `node:` specifier in a client bundle. The dependency rule below says what enforces it.
+- **`API_ORIGIN` is read twice with different lifetimes**: `next build` bakes the `/api/*` rewrite into `.next/routes-manifest.json`, while `lib/api-client.ts` reads the variable per request for the server component's fetch. Set it before the build when the API is not on `PORT`'s default, or the rewrite answers 500 while the page itself loads.
+- **Tests render with `react-dom/server`, not a browser.** `vitest.config.ts` turns JSX through esbuild (the tsconfig keeps `jsx: "preserve"` for Next) and the suite asserts the text a seller would read; `test/react-dom-server.d.ts` declares the one entry point they call, because `@types/react-dom` would be a new dependency (C19). No click simulation: a click only sets state, and the state a click would set is passed to these components as a prop.
+
 ## Dependency rules
 
 Violating these is a bug, not a style issue. `scripts/check-boundaries.sh` enforces them in CI.
@@ -165,6 +193,7 @@ db                     ──►  lib
 - Only `services/ledger.ts` inserts into `ledger_entries`.
 - `payouts` and `x402` never import from `db` or `services`.
 - `apps/web` never imports from `apps/api`.
+- `apps/web` never imports `@till/core` itself, only its browser-safe subtrees `@till/core/schemas`, `@till/core/money`, `@till/core/states`. The barrel reaches `node:crypto` and a client bundle cannot contain it, so `scripts/check-boundaries.sh` runs `next build` and lets the bundler judge the whole tree instead of grepping for one specifier: a core subtree that re-exported `ids.ts` passed every string rule and failed the build (observed 2026-11-05). Cost is about 16 seconds on `pnpm boundaries`.
 - Every array in `packages/core/src/schemas/` is built with `boundedArray` (`common.ts`), never a bare `z.array(` (C15): zod v3 parses all elements before it checks the array, so an uncapped array turns a large payload into one issue object per element.
 
 ## Where does new code go
@@ -180,9 +209,12 @@ db                     ──►  lib
 | A table or column | `apps/api/src/db/schema.ts`, run `pnpm db:generate`, commit the migration |
 | A background loop | File in `apps/api/src/jobs/`, start it from `server.ts` |
 | A guard on paid requests | `apps/api/src/gateway/guards.ts` with a test in `apps/api/test/` |
-| An env var | `env.ts` schema and `.env.example` in the same change |
+| An env var | `env.ts` schema and `.env.example` in the same change — except a variable only `apps/web` reads (`API_ORIGIN`), which has no `env.ts` and is documented in `.env.example` and the apps/web section above |
 | A UI primitive | `apps/web/components/ui/` |
 | A domain UI component | `apps/web/components/domain/` |
+| A rule the dashboard enforces before sending | A pure function in `apps/web/lib/`, beside `endpoint-form.ts`, with its own test — a component cannot be asserted on without a browser |
+| A screen a seller reaches with no session, or with one the API refuses | `apps/web/components/domain/SessionNotice.tsx`; the route's server component chooses which of the three kinds to show |
+| A field of the dashboard contract | `packages/core/src/schemas/`, and then make `apps/api/test/endpoints.test.ts` parse it — a schema the API's own suite never reads is documentation, not a guard |
 
 ## Naming and conventions
 

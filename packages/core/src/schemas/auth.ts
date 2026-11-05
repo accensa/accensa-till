@@ -14,11 +14,22 @@ import { nearAccountIdSchema } from "./common.ts";
  * browser is allowed to hold (UI-1's acceptance criterion is that no *key* does).
  */
 
-/** 43 characters is 32 bytes in base64url; the optional padding keeps standard base64 readable too. */
-const nonceSchema = z
-  .string()
-  .regex(/^[0-9A-Za-z+/_-]{43}={0,2}$/)
-  .describe("base64 of the 32-byte nonce the server issued");
+/**
+ * The two cookie names are part of the contract between the two apps, not of the
+ * one that sets them: the API issues them (F1) and the dashboard has to know
+ * which one to forward on a server-rendered read (UI-2), so a name that differs
+ * between the two is a dashboard that is signed out forever.
+ */
+export const SESSION_COOKIE = "till_session";
+
+/** The sign-in challenge: holds everything the wallet was asked to sign. */
+export const SIGN_IN_COOKIE = "till_sign_in";
+
+/** 43 characters is 32 bytes in base64url; the optional padding keeps standard base64 readable too. */ const nonceSchema =
+  z
+    .string()
+    .regex(/^[0-9A-Za-z+/_-]{43}={0,2}$/)
+    .describe("base64 of the 32-byte nonce the server issued");
 
 /**
  * `<key-type>:<base58>`; the byte length is checked by the parser, not here. Both

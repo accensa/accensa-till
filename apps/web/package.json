@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'no web tests yet (A5)'"
+    "test": "vitest run"
   },
   "dependencies": {
     "@till/core": "workspace:*",

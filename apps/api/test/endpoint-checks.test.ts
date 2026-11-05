@@ -3,10 +3,9 @@ import type { AddressInfo } from "node:net";
 
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
-import { type EndpointCreateInput, endpointCreateSchema } from "@till/core";
+import { type CreationCheck, type EndpointCreateInput, endpointCreateSchema } from "@till/core";
 
 import {
-  type CreationCheck,
   type EndpointCreationDeps,
   type TokenStorage,
   TokenStorageError,

@@ -1,14 +1,13 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
-import { z } from "zod";
 
-import { endpointCreateSchema } from "@till/core";
+import { SESSION_COOKIE, endpointCreateRequestSchema } from "@till/core";
 
 import type { Db } from "../db/client.ts";
 import type { Env } from "../env.ts";
 import type { ResolveNames } from "../gateway/ssrf.ts";
 import type { Logger } from "../lib/logger.ts";
-import { SESSION_COOKIE, type SessionClaims, createSessionCodec } from "../lib/session.ts";
+import { type SessionClaims, createSessionCodec } from "../lib/session.ts";
 import {
   type EndpointCreationDeps,
   type TokenStorageReader,
@@ -45,10 +44,6 @@ export type EndpointRouteDeps = {
   /** Test seam for the SSRF check's DNS read. */
   readonly resolve?: ResolveNames;
 };
-
-const createRequestSchema = endpointCreateSchema.extend({
-  confirmedAddress: z.string().min(1),
-});
 
 export function createEndpointRoutes(deps: EndpointRouteDeps): Hono {
   const { db, env, log } = deps;
@@ -90,7 +85,7 @@ export function createEndpointRoutes(deps: EndpointRouteDeps): Hono {
     } catch {
       return c.json({ code: "invalid_json", message: "The request body is not JSON." }, 400);
     }
-    const parsed = createRequestSchema.safeParse(payload);
+    const parsed = endpointCreateRequestSchema.safeParse(payload);
     if (!parsed.success) {
       return c.json(
         {
