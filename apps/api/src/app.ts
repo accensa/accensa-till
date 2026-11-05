@@ -5,6 +5,7 @@ import type { Env } from "./env.ts";
 import { type GatewayRouteDeps, createGatewayRoute } from "./gateway/route.ts";
 import { type Logger, newRequestId } from "./lib/logger.ts";
 import { type AuthRouteDeps, createAuthRoutes } from "./routes/auth.ts";
+import { type DiscrepancyRouteDeps, createDiscrepancyRoutes } from "./routes/discrepancies.ts";
 import { type EndpointRouteDeps, createEndpointRoutes } from "./routes/endpoints.ts";
 import { type PaymentRouteDeps, createPaymentRoutes } from "./routes/payments.ts";
 import type { X402Near } from "./x402/types.ts";
@@ -57,6 +58,7 @@ export type AppDeps = {
    * the session alone.
    */
   readonly payments?: Partial<Pick<PaymentRouteDeps, "session">>;
+  readonly discrepancies?: Partial<Pick<DiscrepancyRouteDeps, "session">>;
 };
 
 export type Variables = { requestId: string };
@@ -88,12 +90,12 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    * Mounted by the tasks that own them, in this order. The dashboard routes mount
    * under `/api`, because that is the only path apps/web rewrites onto this
    * process; the gateway stays outside `/api` and outside the session middleware.
-   *   routes/auth.ts        A5 / UI-1  wallet signature session  (mounted, F1)
-   *   routes/endpoints.ts   D4 / PO-1  creation checks           (mounted)
-   *   routes/payments.ts    UI-3                      (mounted, F3)
-   *   routes/swaps.ts       D6 / UI-3
-   *   routes/discrepancies.ts E2 / UI-4
-   *   routes/export.ts      LR-7 (P1)
+   *   routes/auth.ts          A5 / UI-1   wallet signature session  (mounted, F1)
+   *   routes/endpoints.ts     D4 / PO-1   creation checks           (mounted, F2)
+   *   routes/payments.ts      UI-3        the seller's ledger       (mounted, F3)
+   *   routes/discrepancies.ts E2 / UI-4   worklist, resolve, blocks (mounted, F4)
+   *   routes/swaps.ts         D6 / UI-3   payout leg                (open)
+   *   routes/export.ts        LR-7        CSV export (P1)           (open)
    */
 
   // UI-1, F1. First under `/api` and the only route there that does not require a
@@ -107,6 +109,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
   // UI-3, F3. The seller's payments, read through the same session as their
   // endpoints: one identity for both halves of the dashboard.
   app.route("/api", createPaymentRoutes({ db, env, log, ...deps.payments }));
+  app.route("/api", createDiscrepancyRoutes({ db, env, log, ...deps.discrepancies }));
 
   // C4, GW-1/GW-2. Mounted last and outside `/api` on purpose: a payer is not a
   // session, and `app.route` keeps the request middleware above it (the id the

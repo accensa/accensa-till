@@ -92,6 +92,25 @@ export type Finding = {
 
 export type ReconcileRule = (snapshot: ReconcileSnapshot) => readonly Finding[];
 
+/**
+ * Where a severity sits in the worklist. The order is `SEVERITIES` itself, written
+ * most-urgent-first, and this is the only reading of it: the dashboard's sort (F4)
+ * builds its SQL from here rather than keeping a rank table of its own, so a screen
+ * cannot list `high` above `critical` because somebody retyped the list.
+ *
+ * Throws on a word that is not a severity. The parameter is the enum, so the only
+ * way to reach it is a value that came from outside TypeScript — a stored row, a
+ * provider string — which is exactly when a silent `undefined` rank would reorder
+ * the page.
+ */
+export function severityRank(severity: Severity): number {
+  const rank = SEVERITIES.indexOf(severity);
+  if (rank === -1) {
+    throw new RangeError(`unknown severity: ${String(severity)}`);
+  }
+  return rank;
+}
+
 export function dedupeKeyFor(
   code: DiscrepancyCode,
   paymentId: string | null,

@@ -1,5 +1,11 @@
-import { type Finding, dedupeKeyFor } from "@till/core";
-import { and, eq, isNull, notInArray, sql } from "drizzle-orm";
+import {
+  type DiscrepancyDto,
+  type Finding,
+  SEVERITIES,
+  dedupeKeyFor,
+  discrepancyDtoSchema,
+} from "@till/core";
+import { and, asc, eq, isNull, notInArray, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client.ts";
 import { discrepancies } from "../db/schema.ts";
@@ -25,6 +31,9 @@ import { discrepancies } from "../db/schema.ts";
  * problem — it serialises them with `SKIP LOCKED` — and this function assumes
  * one run at a time per seller.
  */
+
+/** Bounded at the read as well as in the contract (C15): the page renders what it is given. */
+export const DISCREPANCY_LIST_LIMIT = 256;
 
 export type PersistFindingsResult = {
   readonly opened: number;
@@ -81,12 +90,21 @@ export async function persistFindings(
   });
 }
 
-/** Manual resolution from the dashboard (UI-4). Answers false when no open row matched. */
+/**
+ * Manual resolution from the dashboard (UI-4).
+ *
+ * It answers the closed row rather than a boolean, because the screen redraws that
+ * card with its `resolvedAt` and `resolution` and a caller that then re-reads the
+ * list is asking the database a second question to find out what the first one did.
+ * `null` is still the whole of the refusal: one answer for "not yours", "already
+ * shut" and "never was", because which of the three it was says who else has an open
+ * item on this cause.
+ */
 export async function resolveManually(
   db: Db,
   sellerId: string,
   discrepancyId: string,
-): Promise<boolean> {
+): Promise<DiscrepancyDto | null> {
   const resolved = await db
     .update(discrepancies)
     .set({ resolvedAt: sql`now()`, resolution: "manual" })
@@ -97,8 +115,65 @@ export async function resolveManually(
         isNull(discrepancies.resolvedAt),
       ),
     )
-    .returning({ id: discrepancies.id });
-  return resolved.length === 1;
+    .returning();
+  const [row] = resolved;
+  if (row === undefined) {
+    return null;
+  }
+  return toDiscrepancyDto(row);
+}
+
+/**
+ * The open worklist, severity first and then oldest first (UI-4).
+ *
+ * The order is `SEVERITIES` translated into SQL, not a rank table the query keeps
+ * beside the enum: a page that sorted `high` above `critical` because somebody typed
+ * the list twice would look correct and read wrong. `else` is the length of the
+ * array, so a severity nobody defined sorts last and is then refused by the contract
+ * rather than silently ranked.
+ *
+ * Only open rows, because this is a worklist and not a history: a cause that
+ * resolved and came back is a *new* row (LR-5), and the closed ones are the audit
+ * trail, which UI-7 (F7) owns.
+ */
+export async function listOpenDiscrepanciesForSeller(
+  db: Db,
+  sellerId: string,
+  limit = DISCREPANCY_LIST_LIMIT,
+): Promise<DiscrepancyDto[]> {
+  const rows = await db
+    .select()
+    .from(discrepancies)
+    .where(and(eq(discrepancies.sellerId, sellerId), isNull(discrepancies.resolvedAt)))
+    .orderBy(severityOrder, asc(discrepancies.openedAt))
+    .limit(Math.min(limit, DISCREPANCY_LIST_LIMIT));
+
+  return rows.map((row) => toDiscrepancyDto(row));
+}
+
+const severityOrder = sql`case ${sql.join(
+  SEVERITIES.map(
+    (severity, index) => sql`when ${discrepancies.severity} = ${severity} then ${index}`,
+  ),
+  sql.raw(" "),
+)} else ${String(SEVERITIES.length)} end`;
+
+/** Every row crosses the dashboard's contract on its way out, as F3's do. */
+function toDiscrepancyDto(row: typeof discrepancies.$inferSelect): DiscrepancyDto {
+  return discrepancyDtoSchema.parse({
+    id: row.id,
+    sellerId: row.sellerId,
+    code: row.code,
+    severity: row.severity,
+    paymentId: row.paymentId,
+    swapId: row.swapId,
+    dedupeKey: row.dedupeKey,
+    explanation: row.explanation,
+    suggestedAction: row.suggestedAction,
+    openedAt: row.openedAt?.toISOString() ?? null,
+    resolvedAt: row.resolvedAt?.toISOString() ?? null,
+    resolution: row.resolution,
+  });
 }
 
 function keyOf(finding: Finding): string {

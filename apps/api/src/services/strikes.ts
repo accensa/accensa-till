@@ -1,3 +1,4 @@
+import { type PayerBlockDto, payerBlockDtoSchema } from "@till/core";
 import { eq, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client.ts";
@@ -81,4 +82,64 @@ export async function clearPayerBlock(db: Db, input: ClearInput): Promise<void> 
     clearedBy: input.clearedBy,
     note: input.note ?? null,
   });
+}
+
+/**
+ * Every payer this seller is currently holding (UI-4).
+ *
+ * This is `strikesForPayer`'s predicate, grouped: the same window, the same
+ * threshold and the same per-payer watermark subquery, with only the literal payer
+ * replaced by the row's own. Two functions that each decided when a strike counts
+ * would be two rules, and the dashboard would show a payer as blocked while the
+ * gateway was serving them — so the constants are imported, never restated, and
+ * `discrepancies-route.test.ts` asserts the list and the rule agree payer by payer.
+ *
+ * Only payers at or above the threshold come back. One with a single strike is not a
+ * thing the seller can act on, and a list of payers who are *not* blocked would read
+ * as a list of problems.
+ */
+export async function listBlockedPayersForSeller(
+  db: Db,
+  sellerId: string,
+): Promise<PayerBlockDto[]> {
+  const rows = await db
+    .select({
+      payerAccountId: payments.payerAccountId,
+      strikes: sql<number>`count(*)::int`,
+      /**
+       * Formatted by Postgres rather than handed over as a `Date`, because a plain
+       * column comes back parsed while an aggregate comes back as text — `max` of a
+       * `timestamptz` arrives as "2026-11-05 14:31:53.301428+00", which is not the
+       * contract's ISO shape and not something to `new Date()` into submission.
+       * Asking for the format is one line and cannot drift with the driver.
+       */
+      lastStrikeAt: sql<string | null>`to_char(max(${payments.verifiedAt}) at time zone 'UTC',
+        'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`,
+    })
+    .from(payments)
+    .innerJoin(endpoints, eq(endpoints.id, payments.endpointId))
+    .where(sql`
+      ${endpoints.sellerId} = ${sellerId}
+      and ${payments.state} = 'served_unsettled'
+      and ${payments.verifiedAt} is not null
+      and ${payments.verifiedAt} > now() - make_interval(hours => ${STRIKE_WINDOW_HOURS}::int)
+      and ${payments.verifiedAt} > coalesce(
+        (select max(${payerClears.createdAt}) from ${payerClears}
+          where ${payerClears.payerAccountId} = ${payments.payerAccountId}
+            and ${payerClears.sellerId} = ${sellerId}),
+        '-infinity'::timestamptz
+      )
+    `)
+    .groupBy(payments.payerAccountId)
+    .having(sql`count(*) >= ${STRIKE_THRESHOLD}`)
+    .orderBy(sql`max(${payments.verifiedAt}) desc`);
+
+  return rows.map((row) =>
+    payerBlockDtoSchema.parse({
+      payerAccountId: row.payerAccountId,
+      strikes: row.strikes,
+      blocked: row.strikes >= STRIKE_THRESHOLD,
+      lastStrikeAt: row.lastStrikeAt,
+    }),
+  );
 }

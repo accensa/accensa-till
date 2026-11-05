@@ -1,12 +1,42 @@
-import { endpointCreateRequestSchema, paymentDtoSchema } from "@till/core/schemas";
+import {
+  discrepancyDtoSchema,
+  endpointCreateRequestSchema,
+  payerBlockDtoSchema,
+  paymentDtoSchema,
+} from "@till/core/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api-client.ts";
 
 /**
- * The dashboard's two reads against `/api/endpoints` (UI-2), run with `fetch`
- * replaced by the answers the API actually gives. The point of every test here is
- * which of the three outcomes an answer becomes: a list, a sign-in prompt, or "Till
+ * F4's four reads (UI-4): the worklist, a close, the held payers, a clear.
+ */
+const DISCREPANCY = discrepancyDtoSchema.parse({
+  id: "01a1abe0-1111-7000-8000-000000000001",
+  sellerId: "01a1abe0-2222-7000-8000-000000000002",
+  code: "SERVED_NOT_SETTLED",
+  severity: "critical",
+  paymentId: "01a1abe0-3333-7000-8000-000000000003",
+  swapId: null,
+  dedupeKey: "SERVED_NOT_SETTLED:01a1abe0-3333-7000-8000-000000000003:none",
+  explanation: "A payer was served and the money never settled.",
+  suggestedAction: "Check the payment and refund or re-serve.",
+  openedAt: "2026-11-05T10:00:00.000Z",
+  resolvedAt: null,
+  resolution: null,
+});
+
+const HELD = payerBlockDtoSchema.parse({
+  payerAccountId: "payer.testnet",
+  strikes: 2,
+  blocked: true,
+  lastStrikeAt: "2026-11-05T14:31:29.315Z",
+});
+
+/**
+ * The dashboard's reads and actions against the API (UI-2, UI-3, UI-4), run with
+ * `fetch` replaced by the answers the API actually gives. The point of every test here
+ * is which of the three outcomes an answer becomes: a list, a sign-in prompt, or "Till
  * is not answering". A body that fails `@till/core`'s schema is the third, never the
  * first — an empty list is a claim about the seller, and a parse failure is not.
  */
@@ -318,5 +348,240 @@ describe("listing the seller's payments", () => {
     expect(refused.kind).toBe("unreachable");
     expect(refused.kind === "unreachable" ? refused.detail : "").toContain("ECONNREFUSED");
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("listing the seller's open discrepancies", () => {
+  it("forwards the session and keeps every open item it was given", async () => {
+    const calls = stubAnswer(json({ discrepancies: [DISCREPANCY] }));
+    const listed = await api.discrepancies("till_session=token-value");
+
+    expect(listed.kind).toBe("ok");
+    if (listed.kind !== "ok") {
+      throw new Error("unreachable");
+    }
+    expect(listed.discrepancies.map((item) => item.id)).toEqual([DISCREPANCY.id]);
+    expect(first(calls).url).toBe("http://localhost:3000/api/discrepancies");
+    expect(headerOf(first(calls), "cookie")).toBe("till_session=token-value");
+    expect(first(calls).init.credentials).toBe("same-origin");
+    expect(first(calls).init.cache).toBe("no-store");
+  });
+
+  it("says signed_out for the 401, which is the only answer that means it", async () => {
+    stubAnswer(
+      json({ code: "unauthenticated", message: "Sign in to see what needs reconciling." }),
+      401,
+    );
+    expect(await api.discrepancies("till_session=expired")).toEqual({ kind: "signed_out" });
+  });
+
+  it("answers the 500 with the API's own sentence, because an unreadable row is the fact", async () => {
+    const calls = stubAnswer(
+      json({
+        code: "discrepancy_unreadable",
+        message: "A discrepancy on record is not one Till can read, so none are shown.",
+      }),
+      500,
+    );
+    const refused = await api.discrepancies("till_session=token-value");
+    expect(refused.kind).toBe("unreachable");
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain("not one Till can read");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("refuses to turn a worklist it cannot read into an empty one", async () => {
+    stubAnswer(json({ discrepancies: [{ ...DISCREPANCY, severity: "catastrophic" }] }));
+    const listed = await api.discrepancies("till_session=token-value");
+    expect(listed.kind).toBe("unreachable");
+    if (listed.kind === "ok") {
+      throw new Error("a severity the shared schema refuses must never render as a worklist");
+    }
+    expect("discrepancies" in listed).toBe(false);
+
+    stubAnswer(json({}));
+    expect((await api.discrepancies("till_session=token-value")).kind).toBe("unreachable");
+  });
+
+  it("reports a dead socket as unreachable, not as a seller with nothing to do", async () => {
+    const calls = stubFailure("fetch failed: ECONNREFUSED");
+    const refused = await api.discrepancies("till_session=token-value");
+    expect(refused.kind).toBe("unreachable");
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain("ECONNREFUSED");
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe("resolving one discrepancy by hand", () => {
+  it("posts to the item's own path and hands back the closed row", async () => {
+    const calls = stubAnswer(
+      json({
+        discrepancy: {
+          ...DISCREPANCY,
+          resolvedAt: "2026-11-05T12:00:00.000Z",
+          resolution: "manual",
+        },
+      }),
+    );
+    const closed = await api.resolveDiscrepancy(DISCREPANCY.id, "till_session=token-value");
+
+    expect(closed.kind).toBe("resolved");
+    if (closed.kind !== "resolved") {
+      throw new Error("unreachable");
+    }
+    expect(closed.discrepancy.resolution).toBe("manual");
+    expect(first(calls).url).toBe(
+      `http://localhost:3000/api/discrepancies/${DISCREPANCY.id}/resolve`,
+    );
+    expect(first(calls).init.method).toBe("POST");
+    expect(headerOf(first(calls), "cookie")).toBe("till_session=token-value");
+  });
+
+  it("keeps the refusal the API wrote, including the one that says the session ended", async () => {
+    stubAnswer(
+      json({
+        code: "discrepancy_not_found",
+        message: "That is not one of your open discrepancies.",
+      }),
+      404,
+    );
+    const missing = await api.resolveDiscrepancy(DISCREPANCY.id);
+    expect(missing.kind).toBe("rejected");
+    if (missing.kind !== "rejected") {
+      throw new Error("unreachable");
+    }
+    expect(missing.error.code).toBe("discrepancy_not_found");
+
+    stubAnswer(json({ code: "unauthenticated", message: "Sign in to resolve an item." }), 401);
+    const signedOut = await api.resolveDiscrepancy(DISCREPANCY.id);
+    expect(signedOut.kind === "rejected" ? signedOut.error.code : null).toBe("unauthenticated");
+
+    stubAnswer(
+      json({ code: "invalid_request", message: "The item to resolve is named by its id." }),
+      422,
+    );
+    expect((await api.resolveDiscrepancy("not-a-uuid")).kind).toBe("rejected");
+  });
+
+  it("will not call a close a success it cannot read", async () => {
+    stubAnswer(json({ discrepancy: { ...DISCREPANCY, code: "BRAND_NEW_CODE" } }));
+    const closed = await api.resolveDiscrepancy(DISCREPANCY.id);
+    expect(closed.kind).toBe("unreachable");
+
+    stubAnswer("<html>500</html>", 500, "text/html");
+    const failed = await api.resolveDiscrepancy(DISCREPANCY.id);
+    expect(failed.kind).toBe("unreachable");
+    expect(failed.kind === "unreachable" ? failed.detail : "").toContain("no readable reason");
+
+    stubFailure("socket closed");
+    expect((await api.resolveDiscrepancy(DISCREPANCY.id)).kind).toBe("unreachable");
+  });
+});
+
+describe("listing the payers this seller is holding", () => {
+  it("forwards the session and keeps every held payer", async () => {
+    const calls = stubAnswer(json({ payerBlocks: [HELD] }));
+    const listed = await api.payerBlocks("till_session=token-value");
+
+    expect(listed.kind).toBe("ok");
+    if (listed.kind !== "ok") {
+      throw new Error("unreachable");
+    }
+    expect(listed.payerBlocks.map((block) => block.payerAccountId)).toEqual(["payer.testnet"]);
+    expect(first(calls).url).toBe("http://localhost:3000/api/payer-blocks");
+    expect(headerOf(first(calls), "cookie")).toBe("till_session=token-value");
+    expect(first(calls).init.cache).toBe("no-store");
+  });
+
+  it("says signed_out for the 401 and unreachable for the 500, in the API's words", async () => {
+    stubAnswer(json({ code: "unauthenticated", message: "Sign in to see blocked payers." }), 401);
+    expect(await api.payerBlocks("till_session=expired")).toEqual({ kind: "signed_out" });
+
+    stubAnswer(
+      json({
+        code: "payer_block_unreadable",
+        message: "A blocked payer on record is not one Till can read, so none are shown.",
+      }),
+      500,
+    );
+    const refused = await api.payerBlocks("till_session=token-value");
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain("not one Till can read");
+  });
+
+  it("refuses to turn a list it cannot read into a seller with nothing held", async () => {
+    stubAnswer(json({ payerBlocks: [{ ...HELD, payerAccountId: "Payer.testnet" }] }));
+    const listed = await api.payerBlocks("till_session=token-value");
+    expect(listed.kind).toBe("unreachable");
+    if (listed.kind === "ok") {
+      throw new Error("an account name the shared schema refuses must never render as a hold");
+    }
+    expect("payerBlocks" in listed).toBe(false);
+  });
+
+  it("reports a dead socket as unreachable", async () => {
+    stubFailure("fetch failed: ECONNREFUSED");
+    expect((await api.payerBlocks("till_session=token-value")).kind).toBe("unreachable");
+  });
+});
+
+describe("clearing a payer block", () => {
+  it("posts the note it was given to the payer's own path", async () => {
+    const calls = stubAnswer(json({ payerBlocks: [] }));
+    const cleared = await api.clearPayerBlock(
+      "payer.testnet",
+      "Refunded by hand.",
+      "till_session=token-value",
+    );
+
+    expect(cleared.kind).toBe("cleared");
+    if (cleared.kind !== "cleared") {
+      throw new Error("unreachable");
+    }
+    expect(cleared.payerBlocks).toEqual([]);
+    expect(first(calls).url).toBe("http://localhost:3000/api/payer-blocks/payer.testnet/clear");
+    expect(first(calls).init.method).toBe("POST");
+    expect(sentBody(first(calls))).toEqual({ note: "Refunded by hand." });
+    expect(headerOf(first(calls), "cookie")).toBe("till_session=token-value");
+  });
+
+  it("sends no note field when the seller did not write one", async () => {
+    const calls = stubAnswer(json({ payerBlocks: [HELD] }));
+    const cleared = await api.clearPayerBlock("payer.testnet");
+    expect(cleared.kind).toBe("cleared");
+    expect(sentBody(first(calls))).toEqual({});
+  });
+
+  it("answers with the list as it now stands, which is the read the page redraws", async () => {
+    stubAnswer(json({ payerBlocks: [HELD] }));
+    const cleared = await api.clearPayerBlock("other.testnet");
+    expect(
+      cleared.kind === "cleared" ? cleared.payerBlocks.map((block) => block.payerAccountId) : null,
+    ).toEqual(["payer.testnet"]);
+  });
+
+  it("keeps a refusal instead of redrawing the table from a guess", async () => {
+    stubAnswer(
+      json({
+        code: "invalid_request",
+        message: "A clear takes a note of 200 characters or fewer.",
+      }),
+      422,
+    );
+    const refused = await api.clearPayerBlock("payer.testnet", "x".repeat(201));
+    expect(refused.kind === "rejected" ? refused.error.code : null).toBe("invalid_request");
+
+    stubAnswer(json({ code: "unauthenticated", message: "Sign in to clear a block." }), 401);
+    expect((await api.clearPayerBlock("payer.testnet")).kind).toBe("rejected");
+  });
+
+  it("will not redraw a clear it cannot read", async () => {
+    stubAnswer(json({ payerBlocks: [{ ...HELD, strikes: -1 }] }));
+    expect((await api.clearPayerBlock("payer.testnet")).kind).toBe("unreachable");
+
+    stubAnswer("<html>500</html>", 500, "text/html");
+    const failed = await api.clearPayerBlock("payer.testnet");
+    expect(failed.kind === "unreachable" ? failed.detail : "").toContain("no readable reason");
+
+    stubFailure("socket closed");
+    expect((await api.clearPayerBlock("payer.testnet")).kind).toBe("unreachable");
   });
 });

@@ -5,12 +5,16 @@ import {
   type EndpointCreateResponse,
   type EndpointDto,
   type HealthDto,
+  type PayerBlockDto,
   type PaymentDto,
   dashboardErrorSchema,
-  discrepancyDtoSchema,
+  discrepancyListResponseSchema,
+  discrepancyResolveResponseSchema,
   endpointCreateResponseSchema,
   endpointListResponseSchema,
   healthDtoSchema,
+  payerBlockClearResponseSchema,
+  payerBlockListResponseSchema,
   paymentListResponseSchema,
 } from "@till/core/schemas";
 import type { z } from "zod";
@@ -86,6 +90,41 @@ export type EndpointCreateResult =
 export type PaymentListResult =
   | { readonly kind: "ok"; readonly payments: readonly PaymentDto[] }
   | { readonly kind: "signed_out" }
+  | Unreachable;
+
+/**
+ * The open worklist (UI-4, F4). `unreachable` rather than an empty list when the read
+ * fails or a row is unreadable: a seller who reads a missing item as a resolved one
+ * stops looking, which is why the route answers `500 discrepancy_unreadable` at all.
+ */
+export type DiscrepancyListResult =
+  | { readonly kind: "ok"; readonly discrepancies: readonly DiscrepancyDto[] }
+  | { readonly kind: "signed_out" }
+  | Unreachable;
+
+/**
+ * The payers this seller is holding, with the same three answers and the same reason
+ * for them.
+ */
+export type PayerBlockListResult =
+  | { readonly kind: "ok"; readonly payerBlocks: readonly PayerBlockDto[] }
+  | { readonly kind: "signed_out" }
+  | Unreachable;
+
+/**
+ * A close, an answer that names the row it closed. `rejected` carries the API's code
+ * and sentence — including the one that says the session ended, because an action has
+ * to report that to the hand that pressed the button rather than redirect it.
+ */
+export type DiscrepancyResolveResult =
+  | { readonly kind: "resolved"; readonly discrepancy: DiscrepancyDto }
+  | { readonly kind: "rejected"; readonly error: DashboardError }
+  | Unreachable;
+
+/** A clear, answered by the list as it now stands — the same read the table shows. */
+export type PayerBlockClearResult =
+  | { readonly kind: "cleared"; readonly payerBlocks: readonly PayerBlockDto[] }
+  | { readonly kind: "rejected"; readonly error: DashboardError }
   | Unreachable;
 
 async function readJson(response: Response): Promise<unknown> {
@@ -206,6 +245,168 @@ export const api = {
       ? { kind: "ok", payments: parsed.data.payments }
       : { kind: "unreachable", detail: "/api/payments answered a body Till's own schema refuses" };
   },
-  discrepancies: (): Promise<readonly DiscrepancyDto[]> =>
-    get("/api/discrepancies", discrepancyDtoSchema.array()),
+  /**
+   * The seller's open discrepancies (UI-4, F4), in the order the API answered them:
+   * severity first, then age, both read from core's `SEVERITIES`. The page renders
+   * that order rather than computing one, so a screen cannot put `low` above
+   * `critical` because somebody retyped a rank table.
+   */
+  discrepancies: async (cookie?: string): Promise<DiscrepancyListResult> => {
+    let response: Response;
+    try {
+      response = await fetch(requestUrl("/api/discrepancies"), fetchOptions(cookie));
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (response.status === 401) {
+      return { kind: "signed_out" };
+    }
+    if (!response.ok) {
+      const refusal = dashboardErrorSchema.safeParse(await readJson(response));
+      return {
+        kind: "unreachable",
+        detail: refusal.success
+          ? refusal.data.message
+          : `/api/discrepancies returned ${response.status} with no readable reason`,
+      };
+    }
+    const parsed = discrepancyListResponseSchema.safeParse(await readJson(response));
+    return parsed.success
+      ? { kind: "ok", discrepancies: parsed.data.discrepancies }
+      : {
+          kind: "unreachable",
+          detail: "/api/discrepancies answered a body Till's own schema refuses",
+        };
+  },
+
+  /**
+   * Close one item by hand (LR-5). The item is named by its id and the seller by the
+   * cookie, and the API answers with the row as it now stands: `resolvedAt` and
+   * `resolution` are what tell the seller the cause can come back.
+   */
+  resolveDiscrepancy: async (
+    discrepancyId: string,
+    cookie?: string,
+  ): Promise<DiscrepancyResolveResult> => {
+    const path = `/api/discrepancies/${encodeURIComponent(discrepancyId)}/resolve`;
+    let response: Response;
+    try {
+      response = await fetch(requestUrl(path), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          accept: "application/json",
+          ...(cookie === undefined ? {} : { cookie }),
+        },
+      });
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const payload = await readJson(response);
+    if (response.ok) {
+      const closed = discrepancyResolveResponseSchema.safeParse(payload);
+      return closed.success
+        ? { kind: "resolved", discrepancy: closed.data.discrepancy }
+        : { kind: "unreachable", detail: `${path} answered a close Till's own schema refuses` };
+    }
+    const refused = dashboardErrorSchema.safeParse(payload);
+    return refused.success
+      ? { kind: "rejected", error: refused.data }
+      : {
+          kind: "unreachable",
+          detail: `${path} returned ${response.status} with no readable reason`,
+        };
+  },
+
+  /**
+   * The payers this seller is holding. The predicate is C9's — the same window, the
+   * same threshold and the same clear watermark the gateway blocks on — so the table
+   * cannot show a payer the gateway would still serve, or hide one it would refuse.
+   */
+  payerBlocks: async (cookie?: string): Promise<PayerBlockListResult> => {
+    let response: Response;
+    try {
+      response = await fetch(requestUrl("/api/payer-blocks"), fetchOptions(cookie));
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (response.status === 401) {
+      return { kind: "signed_out" };
+    }
+    if (!response.ok) {
+      const refusal = dashboardErrorSchema.safeParse(await readJson(response));
+      return {
+        kind: "unreachable",
+        detail: refusal.success
+          ? refusal.data.message
+          : `/api/payer-blocks returned ${response.status} with no readable reason`,
+      };
+    }
+    const parsed = payerBlockListResponseSchema.safeParse(await readJson(response));
+    return parsed.success
+      ? { kind: "ok", payerBlocks: parsed.data.payerBlocks }
+      : {
+          kind: "unreachable",
+          detail: "/api/payer-blocks answered a body Till's own schema refuses",
+        };
+  },
+
+  /**
+   * Lift one payer's hold. The answer is the whole list rather than the cleared
+   * payer's row, because after a watermark "how many strikes count" is a query and a
+   * claimed `lastStrikeAt` here would be a guess about whatever the payer did meanwhile
+   * — so the table is redrawn from the read it just got.
+   */
+  clearPayerBlock: async (
+    payerAccountId: string,
+    note?: string,
+    cookie?: string,
+  ): Promise<PayerBlockClearResult> => {
+    const path = `/api/payer-blocks/${encodeURIComponent(payerAccountId)}/clear`;
+    let response: Response;
+    try {
+      response = await fetch(requestUrl(path), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          ...(cookie === undefined ? {} : { cookie }),
+        },
+        // No `clearedBy`: who lifted this is the session's fact, and a field here
+        // would be a field a request could forge.
+        body: JSON.stringify(note === undefined ? {} : { note }),
+      });
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const payload = await readJson(response);
+    if (response.ok) {
+      const cleared = payerBlockClearResponseSchema.safeParse(payload);
+      return cleared.success
+        ? { kind: "cleared", payerBlocks: cleared.data.payerBlocks }
+        : { kind: "unreachable", detail: `${path} answered a clear Till's own schema refuses` };
+    }
+    const refused = dashboardErrorSchema.safeParse(payload);
+    return refused.success
+      ? { kind: "rejected", error: refused.data }
+      : {
+          kind: "unreachable",
+          detail: `${path} returned ${response.status} with no readable reason`,
+        };
+  },
 };

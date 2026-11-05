@@ -270,8 +270,10 @@ describe.skipIf(handle === null)("E8 discrepancies", () => {
     await persistFindings(db, sellerId, [finding({ code: "PAYOUT_FAILED" })]);
     const [open] = await openRows(sellerId);
 
-    expect(await resolveManually(db, sellerId, open?.id ?? "")).toBe(true);
-    expect(await resolveManually(db, sellerId, open?.id ?? "")).toBe(false);
+    const closed = await resolveManually(db, sellerId, open?.id ?? "");
+    expect(closed?.resolution).toBe("manual");
+    expect(closed?.resolvedAt).not.toBeNull();
+    expect(await resolveManually(db, sellerId, open?.id ?? "")).toBeNull();
 
     const row = await rowById(open?.id ?? "");
     expect(row.resolution).toBe("manual");
@@ -284,7 +286,7 @@ describe.skipIf(handle === null)("E8 discrepancies", () => {
     await persistFindings(db, otherSellerId, [finding({ code: "PAYOUT_FAILED" })]);
     const [open] = await openRows(otherSellerId);
 
-    expect(await resolveManually(db, sellerId, open?.id ?? "")).toBe(false);
+    expect(await resolveManually(db, sellerId, open?.id ?? "")).toBeNull();
     expect((await openRows(otherSellerId)).map((row) => row.code)).toEqual(["PAYOUT_FAILED"]);
   });
 

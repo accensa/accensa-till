@@ -122,6 +122,14 @@ export const dashboardErrorSchema = z.object({
     // UI-3: a stored payment the contract refuses. Named here so the dashboard can
     // show the sentence rather than the shorter list it got.
     "payment_unreadable",
+    // UI-4, same rule one table later: the reconciliation reads answer with a code
+    // rather than a shorter worklist. `discrepancy_not_found` is the resolve
+    // refusal for a row that is not this seller's *or* is already closed, and both
+    // mean one answer here, because telling them apart says which rows another
+    // seller has.
+    "discrepancy_unreadable",
+    "discrepancy_not_found",
+    "payer_block_unreadable",
   ]),
   message: z.string(),
   /** Per-field refusals, for the form to put next to the input they came from. */

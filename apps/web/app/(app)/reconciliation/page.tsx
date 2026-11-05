@@ -1,13 +1,43 @@
+import { SESSION_COOKIE } from "@till/core/schemas";
+import { cookies } from "next/headers";
+
+import { ReconcileActions } from "../../../components/domain/ReconcileActions.tsx";
+import { SessionNotice } from "../../../components/domain/SessionNotice.tsx";
+import { api } from "../../../lib/api-client.ts";
+
 /**
- * Reconciliation (UI-4): open discrepancies first, ordered by severity then age,
- * each with the plain-language explanation and suggested action that came out of
- * the rule (LR-4). This is the screen the demo ends on.
+ * Reconciliation (UI-4, F4).
+ *
+ * Both lists are read here rather than in the browser for one reason: the session
+ * cookie is `HttpOnly`, so a server render is the only thing that can hand it back to
+ * the API that signed it. The scope is the API's — every query goes through the
+ * seller's own rows — so nothing on this page can name another seller's money or
+ * another seller's blocked payer.
+ *
+ * `nowMs` is read once, for the ages. The worklist's order is not read here at all:
+ * the API answers it severity-first from core's `SEVERITIES`, and a second sort would
+ * be a second truth about what is most urgent.
  */
-export default function ReconciliationPage() {
+export default async function ReconciliationPage() {
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+
+  if (token === undefined) {
+    return (
+      <section>
+        <h1>Reconciliation</h1>
+        <SessionNotice kind="no-session" />
+      </section>
+    );
+  }
+
+  const cookie = `${SESSION_COOKIE}=${token}`;
+  const [listed, blocked] = await Promise.all([api.discrepancies(cookie), api.payerBlocks(cookie)]);
+
   return (
     <section>
       <h1>Reconciliation</h1>
-      <p>Not implemented (UI-4, E2).</p>
+      <ReconcileActions blocked={blocked} listed={listed} nowMs={Date.now()} />
     </section>
   );
 }
