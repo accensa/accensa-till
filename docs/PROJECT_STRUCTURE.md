@@ -211,7 +211,8 @@ db                     ──►  lib
 - `packages/core` imports no database, HTTP or framework code.
 - Only `payouts/oneclick/client.ts` calls the 1Click API.
 - Only `x402/near.ts` imports `@fastnear/*` x402 packages.
-- Only `services/ledger.ts` inserts into `ledger_entries`.
+- Only `services/ledger.ts` inserts into `ledger_entries`. `scripts/check-boundaries.sh` greps for the write outside that file, and the grep was watched doing its job: a planted second writer made the gate print the rule with the offending file and line and exit 1 (E1). The service's four writers take `Omit<LedgerWrite, "kind">`, so the kind is the function's and not the caller's — a `recordPayoutOut(db, { kind: "refund_in" })` does not compile, which is the mistake an append-only ledger exists to make impossible.
+- A test suite that writes ledger rows cannot delete them, in `test/` or anywhere else: A7's trigger refuses `DELETE` on `ledger_entries`, then the foreign key refuses the payment a ledger row points at, then the endpoint behind that. So a DB-backed suite mints its own ids per run and asserts counts filtered by them, and leaves its rows in the database (`append-only.test.ts` and `ledger.test.ts` both end with `sql.end()` and nothing else). That is not a leak to fix but the table's rule applied to the test, and it is the reason no test here counts a whole table.
 - Only `services/payout-routes.ts` inserts into `payout_routes`, and nothing in `apps/api/src` updates, deletes or raw-writes it (D5). Two guards, deliberately redundant: `scripts/check-boundaries.sh` greps the source so a rewrite fails the commit, and migration `0007_payout_routes_immutable.sql` raises at the database so a row cannot be edited after the fact. The grep cannot see a rewrite that already happened and the trigger cannot stop the code from being written, so neither alone is the rule.
 - `payouts` and `x402` never import from `db` or `services`.
 - `apps/web` never imports from `apps/api`.

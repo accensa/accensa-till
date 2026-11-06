@@ -184,7 +184,6 @@ suite("ledger append-only trigger (A7, LR-1)", () => {
       db,
       {
         sellerId: ids.sellerId,
-        kind: "payment_in",
         amount: -2_500_000n,
         asset: "usdc.testnet",
         paymentId: ids.paymentId,

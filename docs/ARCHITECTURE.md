@@ -280,7 +280,7 @@ response_cache   -- P1, see 4.4
 - A trigger raises on any `UPDATE` or `DELETE` of `ledger_entries`. Corrections are `adjustment` rows.
 - Entries are per asset. There is no cross-asset balance. "In transit" for a seller is settled payments minus swaps in a terminal state, computed by query.
 - A settled payment writes one `payment_in`. A swap reaching `succeeded` writes one `payout_out`. Reaching `refunded` writes one `refund_in`.
-- Only `services/ledger.ts` inserts into the table.
+- Only `services/ledger.ts` inserts into the table, and each of its writers decides its own kind: they take the entry without a `kind` field, so a call cannot ask for a payout and get a refund (E1). Enforcement of the single door is the `pnpm boundaries` grep, which was watched rejecting a planted second writer. The same trigger that makes the ledger auditable also binds the tests: a suite that books rows cannot delete them, so a database-backed ledger test mints its own ids and counts only those.
 
 ## 7. Reconciliation engine
 
