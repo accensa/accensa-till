@@ -46,6 +46,17 @@ const validEndpointCreate = {
   refundAddress: "refund.testnet",
 } as const;
 
+const validEndpointRoute = {
+  id: "00000000-0000-4000-8000-000000000003",
+  destinationChain: "near",
+  destinationAsset: "usdc",
+  destinationAddress: "payout.testnet",
+  refundAddress: "refund.testnet",
+  provider: "mock",
+  depositAddress: "mock-deposit-1",
+  modeDetail: "standing",
+} as const;
+
 const validEndpointDto = {
   id: "00000000-0000-4000-8000-000000000001",
   slug: "prices-7f3a",
@@ -58,6 +69,7 @@ const validEndpointDto = {
   active: true,
   description: null,
   creationWarnings: [],
+  route: validEndpointRoute,
 } as const;
 
 const validPaymentDto = {
@@ -402,6 +414,77 @@ describe("endpointUpdateSchema (D9, PO-7)", () => {
       checks: [{ code: "some_new_check", ok: false, message: "nope" }],
     });
     expect(drifted.success).toBe(false);
+  });
+});
+
+/**
+ * F2's edit step (PO-7's UI half): the dashboard cannot ask a seller to confirm a
+ * payout address it was never given. D5 put the destination on the route row and
+ * D9 refused a PATCH whose `confirmedAddress` does not echo the shown address, so
+ * the DTO has to carry that row — required, not optional, because a read that
+ * forgot the join must be a parse error here rather than an editor that renders
+ * empty destination fields the seller then "confirms".
+ */
+describe("endpointDtoSchema carries its own route (F2, PO-7)", () => {
+  it("keeps the destination readable off the endpoint the list already gives you", () => {
+    const parsed = endpointDtoSchema.safeParse(validEndpointDto);
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    // Read back, not just accepted: the editor's echo compares a typed string to
+    // this one, so a field the parse dropped would silently refuse every change.
+    expect(parsed.data.route?.destinationAddress).toBe("payout.testnet");
+    expect(parsed.data.route?.depositAddress).toBe("mock-deposit-1");
+  });
+
+  it("refuses an endpoint DTO with no route key at all", () => {
+    // Spelled out rather than a fixture with the key removed: the claim is that a
+    // *missing* key is refused, and `route: undefined` is a different body.
+    const parsed = endpointDtoSchema.safeParse({
+      id: "00000000-0000-4000-8000-000000000001",
+      slug: "prices-7f3a",
+      gatewayUrl: "https://till.example/r/prices-7f3a",
+      upstreamUrl: "https://data.seller.test/prices",
+      priceAmount: "10000",
+      assetContract: "usdc.testnet",
+      network: "near:testnet",
+      payoutMode: "direct",
+      active: true,
+      description: null,
+      creationWarnings: [],
+    });
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues[0]?.path).toEqual(["route"]);
+      expect(parsed.error.issues[0]?.code).toBe("invalid_type");
+    }
+  });
+
+  it("allows route: null, which is a state the create checks can leave a row in", () => {
+    // D4/D5 leave an endpoint whose destination failed with no route at all; the
+    // editor has to be able to say "this one has no payout address yet" rather
+    // than fail to render the seller's own list.
+    expect(endpointDtoSchema.safeParse({ ...validEndpointDto, route: null }).success).toBe(true);
+  });
+
+  it("names which destination field it refused rather than the whole route", () => {
+    for (const field of ["destinationChain", "destinationAddress", "refundAddress"]) {
+      const parsed = endpointDtoSchema.safeParse({
+        ...validEndpointDto,
+        route: { ...validEndpointRoute, [field]: "" },
+      });
+      expect([field, parsed.success]).toEqual([field, false]);
+      if (!parsed.success) expect(parsed.error.issues[0]?.path).toEqual(["route", field]);
+    }
+  });
+
+  it("keeps a direct route's null deposit address, because that is what direct means", () => {
+    // PO-6: a direct route has no address to advertise. Refusing the null here
+    // would make the seller's own account a shape the dashboard cannot show.
+    const parsed = endpointDtoSchema.safeParse({
+      ...validEndpointDto,
+      route: { ...validEndpointRoute, depositAddress: null, modeDetail: "direct" },
+    });
+    expect(parsed.success).toBe(true);
   });
 });
 

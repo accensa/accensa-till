@@ -1,13 +1,24 @@
-import type { CreationCheck, EndpointCreateInput, EndpointDto } from "@till/core/schemas";
-import { endpointCreateSchema, endpointDtoSchema } from "@till/core/schemas";
+import type {
+  CreationCheck,
+  EndpointCreateInput,
+  EndpointDto,
+  EndpointUpdateResponse,
+} from "@till/core/schemas";
+import {
+  endpointCreateSchema,
+  endpointDtoSchema,
+  endpointUpdateResponseSchema,
+} from "@till/core/schemas";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { CreateEndpointFormView } from "../components/domain/CreateEndpointForm.tsx";
 import { CreationCheckResults } from "../components/domain/CreationCheckResults.tsx";
 import { EndpointCard, EndpointList } from "../components/domain/EndpointCard.tsx";
+import { EndpointEditorView } from "../components/domain/EndpointEditor.tsx";
 import { SessionNotice } from "../components/domain/SessionNotice.tsx";
-import type { EndpointCreateResult } from "../lib/api-client.ts";
+import type { EndpointCreateResult, EndpointUpdateResult } from "../lib/api-client.ts";
+import { EDIT_FIELD_ORDER, type EditFormValues, editInitial } from "../lib/endpoint-edit.ts";
 import {
   FIELD_EXAMPLES,
   FIELD_LABELS,
@@ -41,6 +52,16 @@ const LIVE: EndpointDto = endpointDtoSchema.parse({
   payoutMode: "direct",
   active: true,
   description: "Live grain prices",
+  route: {
+    id: "9e1f2a3b-4c5d-4e6f-8a7b-0c1d2e3f4a5b",
+    destinationChain: "near",
+    destinationAsset: "usdc",
+    destinationAddress: "seller.testnet",
+    refundAddress: "seller.testnet",
+    provider: "mock",
+    depositAddress: null,
+    modeDetail: "direct",
+  },
   creationWarnings: [],
 });
 
@@ -51,6 +72,7 @@ const INACTIVE: EndpointDto = endpointDtoSchema.parse({
   gatewayUrl: "https://gateway.test/r/klmnopqrst",
   active: false,
   description: null,
+  route: null,
   creationWarnings: [
     "seller.testnet is not registered for usdc.testnet storage; register it first or payments would be refused.",
     "The price 0.00001 is below Till's 0.01 minimum.",
@@ -110,6 +132,25 @@ describe("the endpoint list (UI-2)", () => {
     expect(text(markup)).toContain("1.25 usdc.testnet");
     expect(markup).toContain(LIVE.description ?? "");
     expect(markup).not.toContain("Why this one is not live");
+  });
+
+  it("names the payout address the seller would be asked to confirm, and says when there is none", () => {
+    // D5 moved the destination onto the route row, and D9 checks a `PATCH` echo
+    // against what was shown. A card that rendered an empty address would be handing
+    // the seller a blank to confirm, so the route-less case has to say it out loud.
+    const live = text(renderToStaticMarkup(<EndpointCard endpoint={LIVE} />));
+    expect(live).toContain("Payout destination");
+    expect(live).toContain("seller.testnet");
+    expect(live).not.toContain("no route set");
+
+    const routeless = text(renderToStaticMarkup(<EndpointCard endpoint={INACTIVE} />));
+    expect(routeless).toContain("no route set");
+  });
+
+  it("opens the editor for the row it shows, so a change is made on the endpoint it names", () => {
+    const markup = renderToStaticMarkup(<EndpointCard endpoint={LIVE} />);
+    expect(markup).toContain("Change these terms");
+    expect(markup).toContain(`aria-label="Change ${LIVE.slug}"`);
   });
 
   it("shows why an inactive endpoint is inactive, from the row rather than the request", () => {
@@ -396,5 +437,295 @@ describe("the create form, step by step (UI-2, PO-2)", () => {
     expect((Object.keys(FIELD_EXAMPLES) as FormField[]).length).toBe(
       Object.keys(FIELD_LABELS).length,
     );
+  });
+});
+
+/**
+ * The edit step (F2's remaining caller for D9's `PATCH`, PO-7's UI half). Same rule
+ * as the create form above: what is proven here is what the markup *says* about the
+ * data it was handed — that a form prefilled from a row shows the row's own terms,
+ * that the confirmation shows a difference rather than a form, and that a refusal
+ * prints the terms still in force instead of the ones that were not written.
+ */
+
+const EDITOR_HANDLERS = {
+  onEdit: () => undefined,
+  onReview: () => undefined,
+  onConfirm: () => undefined,
+  onBack: () => undefined,
+  onDismiss: () => undefined,
+  onLiveness: () => undefined,
+} as const;
+
+/** The same endpoint after a price-and-destination change Till accepted. */
+const RAISED: EndpointDto = endpointDtoSchema.parse({
+  ...LIVE,
+  priceAmount: "2500000",
+  payoutMode: "intents",
+  route: {
+    id: "9e1f2a3b-4c5d-4e6f-8a7b-0c1d2e3f4a5b",
+    destinationChain: "near",
+    destinationAsset: "usdc",
+    destinationAddress: "new-payout.testnet",
+    refundAddress: "new-refund.testnet",
+    provider: "mock",
+    depositAddress: "mock-deposit-9",
+    modeDetail: "standing",
+  },
+});
+
+function editForm(
+  endpoint: EndpointDto,
+  values: EditFormValues,
+  extra: {
+    readonly errors?: FieldErrors;
+    readonly note?: string | null;
+    readonly busy?: boolean;
+  } = {},
+): string {
+  return text(
+    renderToStaticMarkup(
+      <EndpointEditorView
+        busy={extra.busy ?? false}
+        endpoint={endpoint}
+        errors={extra.errors ?? {}}
+        note={extra.note ?? null}
+        pendingAddress={null}
+        result={null}
+        values={values}
+        {...EDITOR_HANDLERS}
+      />,
+    ),
+  );
+}
+
+function editMarkup(
+  endpoint: EndpointDto,
+  values: EditFormValues,
+  extra: {
+    readonly errors?: FieldErrors;
+    readonly note?: string | null;
+    readonly busy?: boolean;
+  } = {},
+): string {
+  return renderToStaticMarkup(
+    <EndpointEditorView
+      busy={extra.busy ?? false}
+      endpoint={endpoint}
+      errors={extra.errors ?? {}}
+      note={extra.note ?? null}
+      pendingAddress={null}
+      result={null}
+      values={values}
+      {...EDITOR_HANDLERS}
+    />,
+  );
+}
+
+function edited(endpoint: EndpointDto): EditFormValues {
+  return {
+    ...editInitial(endpoint),
+    priceAmount: "2.50",
+    destinationAddress: "new-payout.testnet",
+    refundAddress: "new-refund.testnet",
+    payoutMode: "intents",
+  };
+}
+
+function withEditResult(result: EndpointUpdateResult): string {
+  return text(
+    renderToStaticMarkup(
+      <EndpointEditorView
+        busy={false}
+        endpoint={LIVE}
+        errors={{}}
+        note={null}
+        pendingAddress={null}
+        result={result}
+        values={editInitial(LIVE)}
+        {...EDITOR_HANDLERS}
+      />,
+    ),
+  );
+}
+
+const ACCEPTED = endpointUpdateResponseSchema.parse({
+  endpoint: RAISED,
+  checks: CHECKS.filter((check) => check.ok),
+});
+const STILL_LIVE = endpointUpdateResponseSchema.parse({ endpoint: LIVE, checks: CHECKS });
+
+describe("the edit form, prefilled from the row (F2, PO-7)", () => {
+  it("shows the endpoint's own terms, including the destination off its route", () => {
+    const markup = editMarkup(LIVE, editInitial(LIVE));
+    expect(markup).toContain('value="https://data.seller.test/prices"');
+    expect(markup).toContain('value="1.25"');
+    expect(markup).toContain('value="Live grain prices"');
+    expect(markup).toContain('value="seller.testnet"');
+    expect(markup).toContain('value="direct"');
+  });
+
+  it("renders one input per editable field and no field the API would refuse", () => {
+    const words = editForm(LIVE, editInitial(LIVE));
+    for (const field of EDIT_FIELD_ORDER) {
+      expect(words).toContain(FIELD_LABELS[field]);
+    }
+    // A network or token the seller could retype is a token they could move money to
+    // on somebody else's endpoint; D9 names them in its refusal and this names nothing.
+    expect(words).not.toContain("Network");
+    expect(words).not.toContain("Payment token");
+  });
+
+  it("keeps liveness out of the form, so a price save cannot reopen a paused paywall", () => {
+    const markup = editMarkup(LIVE, edited(LIVE));
+    expect(markup).not.toMatch(/name="active"/);
+    expect(markup).not.toMatch(/type="checkbox"/);
+    // The separate control, which says which way it goes and what is already true.
+    expect(text(markup)).toContain("Pause this paywall");
+    expect(text(editMarkup(INACTIVE, editInitial(INACTIVE)))).toContain("Open this paywall again");
+  });
+
+  it("puts each refusal sentence beside the field it names", () => {
+    const errors: FieldErrors = { priceAmount: "Give a price above zero, like 1.25." };
+    expect(editForm(LIVE, edited(LIVE), { errors })).toContain(errors.priceAmount ?? "");
+  });
+
+  it("says nothing has changed rather than sending an empty patch", () => {
+    const words = editForm(LIVE, editInitial(LIVE), {
+      note: "Nothing here has changed yet. Till saves only what you changed.",
+    });
+    expect(words).toContain("Nothing here has changed yet");
+  });
+});
+
+describe("confirming a new payout address (PO-2's rule, one step later)", () => {
+  function confirmView(busy: boolean): string {
+    return text(
+      renderToStaticMarkup(
+        <EndpointEditorView
+          busy={busy}
+          endpoint={LIVE}
+          errors={{}}
+          note={null}
+          pendingAddress="new-payout.testnet"
+          result={null}
+          values={edited(LIVE)}
+          {...EDITOR_HANDLERS}
+        />,
+      ),
+    );
+  }
+
+  it("confirms the difference, in both forms of the price, before Till writes", () => {
+    const words = confirmView(false);
+    expect(words).toContain("Confirm before Till writes this");
+    expect(words).toContain("Nothing has changed yet");
+    expect(words).toContain("1.25 of usdc.testnet");
+    expect(words).toContain("2.5 of usdc.testnet");
+    expect(words).toContain("Till pays out to new-payout.testnet");
+    expect(words).toContain("a settled payment keeps the one it was made under");
+    expect(words).not.toContain("Review the change");
+  });
+
+  it("marks the confirm button as busy rather than letting a second click through", () => {
+    const words = confirmView(true);
+    expect(words).toContain("Saving");
+    expect(words).not.toContain("Confirm and save");
+  });
+});
+
+describe("the four answers a change gets (D9)", () => {
+  it("shows the new terms as live once Till wrote them, in the units the seller reads", () => {
+    const words = withEditResult({ kind: "updated", result: ACCEPTED });
+    expect(words).toContain("Saved — the next payer is charged this");
+    expect(words).toContain("2.5 of usdc.testnet");
+    expect(words).toContain("Every creation check passed");
+    // Raw base units on a screen is how a seller reads 2.50 as 2,500,000.
+    expect(words).not.toContain("2500000");
+  });
+
+  it("says so when the terms it wrote are not taking money yet", () => {
+    const paused = endpointUpdateResponseSchema.parse({
+      endpoint: endpointDtoSchema.parse({ ...RAISED, active: false }),
+      checks: CHECKS.filter((check) => check.ok),
+    });
+    expect(withEditResult({ kind: "updated", result: paused })).toContain(
+      "Saved, and this paywall is closed",
+    );
+  });
+
+  it("renders a refused change as the terms still in force, not the ones it rejected", () => {
+    const words = withEditResult({ kind: "refused", result: STILL_LIVE });
+    expect(words).toContain("Till refused the change and wrote nothing");
+    expect(words).toContain("These are still the live terms");
+    expect(words).toContain("2 checks to fix");
+    expect(words).toContain("1.25 of usdc.testnet");
+    expect(words).toContain("seller.testnet");
+    expect(words).not.toContain("2.5");
+    expect(words).not.toContain("new-payout.testnet");
+  });
+
+  it("names both addresses when the confirmation disagreed with the row", () => {
+    const words = withEditResult({
+      kind: "rejected",
+      error: {
+        code: "destination_not_confirmed",
+        message: "Confirm the destination address that was shown to you.",
+        destinationAddress: "attacker.testnet",
+      },
+    });
+    expect(words).toContain("Till will keep paying out to");
+    expect(words).toContain("seller.testnet");
+    expect(words).toContain("attacker.testnet");
+  });
+
+  it("sends a seller whose session ended to sign in, and says nothing was written", () => {
+    const words = withEditResult({
+      kind: "rejected",
+      error: { code: "unauthenticated", message: "Sign in to change an endpoint." },
+    });
+    expect(words).toContain("Sign in again");
+    expect(words).toContain("Till wrote nothing");
+  });
+
+  it("says the endpoint was not there, and turns a body refusal into sentences", () => {
+    expect(
+      withEditResult({
+        kind: "rejected",
+        error: { code: "endpoint_not_found", message: "No endpoint of yours has that id." },
+      }),
+    ).toContain("No endpoint of yours has that id. Nothing was written.");
+
+    const words = withEditResult({
+      kind: "rejected",
+      error: {
+        code: "invalid_request",
+        message: "Nothing about this endpoint changed.",
+        issues: [{ path: "upstreamUrl", code: "invalid_string" }],
+      },
+    });
+    expect(words).toContain("Give the full https:// address of the API you are selling.");
+    expect(words).not.toContain("invalid_string");
+  });
+
+  it("refuses to claim a change when it could not read the answer", () => {
+    const words = withEditResult({ kind: "unreachable", detail: "/api/endpoints/x returned 502" });
+    expect(words).toContain("it is not claiming anything changed");
+    expect(words).toContain("/api/endpoints/x returned 502");
+    expect(words).not.toContain("Saved");
+  });
+
+  it("offers one way back to the form from every answer", () => {
+    for (const result of [
+      { kind: "updated", result: ACCEPTED } as EndpointUpdateResult,
+      { kind: "refused", result: STILL_LIVE } as EndpointUpdateResult,
+      {
+        kind: "rejected",
+        error: { code: "invalid_json", message: "The request body is not JSON." },
+      } as EndpointUpdateResult,
+      { kind: "unreachable", detail: "x" } as EndpointUpdateResult,
+    ]) {
+      expect(withEditResult(result)).toContain("Back to the form");
+    }
   });
 });

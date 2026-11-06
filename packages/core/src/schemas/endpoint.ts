@@ -97,6 +97,30 @@ export const endpointUpdateRequestSchema = endpointUpdateFields
   });
 export type EndpointUpdateRequest = z.infer<typeof endpointUpdateRequestSchema>;
 
+/**
+ * A payout route. Immutable: changing destination creates a new row and only
+ * affects later payments (PO-7). `depositAddress` and `modeDetail` stay null on
+ * `direct` routes; which intents sub-design survives is decided by S2.
+ *
+ * Declared before `endpointDtoSchema` because that DTO is built with a reference
+ * to it at module evaluation, and a `const` below would still be in its own
+ * temporal dead zone when the object is assembled.
+ */
+export const payoutRouteDtoSchema = z.object({
+  id: uuidSchema,
+  // `.min(1)` on the four destination fields states D5's invariant at the
+  // boundary: a route is only written once `checkEndpointCreation` called the
+  // destination sound, so an empty one on a read back is a bug, not a state.
+  destinationChain: z.string().min(1),
+  destinationAsset: z.string().min(1),
+  destinationAddress: z.string().min(1),
+  refundAddress: z.string().min(1),
+  provider: z.enum(["oneclick", "mock"]),
+  depositAddress: z.string().nullable(),
+  modeDetail: z.enum(["standing", "per_payment", "direct"]),
+});
+export type PayoutRouteDto = z.infer<typeof payoutRouteDtoSchema>;
+
 export const endpointDtoSchema = z.object({
   id: uuidSchema,
   slug: z.string(),
@@ -108,6 +132,14 @@ export const endpointDtoSchema = z.object({
   payoutMode: z.enum(["direct", "intents"]),
   active: z.boolean(),
   description: z.string().nullable(),
+  /**
+   * The endpoint's own payout route, or `null` when it has none (D5). Required
+   * rather than optional on purpose: the destination lives on that row, so a
+   * dashboard that cannot see it cannot show it, and D9 refuses a `PATCH` whose
+   * `confirmedAddress` does not echo what was shown. A read that forgot the join
+   * would otherwise render empty destination fields for a seller to "confirm".
+   */
+  route: payoutRouteDtoSchema.nullable(),
   /**
    * Why an endpoint was left inactive, in the seller's language (PO-2). The
    * checks that fill it are a fixed handful, so 16 is far above what a real
@@ -224,20 +256,3 @@ export const dashboardErrorSchema = z.object({
   destinationAddress: z.string().optional(),
 });
 export type DashboardError = z.infer<typeof dashboardErrorSchema>;
-
-/**
- * A payout route. Immutable: changing destination creates a new row and only
- * affects later payments (PO-7). `depositAddress` and `modeDetail` stay null on
- * `direct` routes; which intents sub-design survives is decided by S2.
- */
-export const payoutRouteDtoSchema = z.object({
-  id: uuidSchema,
-  destinationChain: z.string(),
-  destinationAsset: z.string(),
-  destinationAddress: z.string(),
-  refundAddress: z.string(),
-  provider: z.enum(["oneclick", "mock"]),
-  depositAddress: z.string().nullable(),
-  modeDetail: z.enum(["standing", "per_payment", "direct"]),
-});
-export type PayoutRouteDto = z.infer<typeof payoutRouteDtoSchema>;

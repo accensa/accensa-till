@@ -1,12 +1,17 @@
 import type { EndpointDto } from "@till/core/schemas";
 
 import { displayAmount } from "../../lib/format.ts";
+import { EndpointEditor } from "./EndpointEditor.tsx";
 
 /**
  * One endpoint in the seller's list (UI-2). Two states and nothing else: live, with
  * the link to hand a buyer, or left inactive with the reasons the creation checks
  * stored on the row (PO-2) — which is why a reload still explains itself instead of
  * showing an endpoint that silently does not work.
+ *
+ * The destination is drawn from `endpoint.route` (D5), and says so when the endpoint
+ * has no route at all rather than leaving the field blank: a seller who confirms an
+ * empty address has confirmed nothing, and `PATCH` refuses that (F2e-a).
  */
 export type EndpointCardProps = { readonly endpoint: EndpointDto };
 
@@ -39,6 +44,17 @@ export function EndpointCard({ endpoint }: EndpointCardProps) {
         </dd>
         <dt className="opacity-60">Payout mode</dt>
         <dd>{endpoint.payoutMode}</dd>
+        <dt className="opacity-60">Payout destination</dt>
+        <dd>
+          <code>{endpoint.route?.destinationAddress ?? "no route set"}</code>
+          {/* The address a `direct` endpoint pays is the signed-in account, which the
+              browser cannot know; an intents route names the deposit address beside it. */}
+          {typeof endpoint.route?.depositAddress === "string" ? (
+            <span className="ml-2 opacity-60">
+              via <code>{endpoint.route.depositAddress}</code>
+            </span>
+          ) : null}
+        </dd>
       </dl>
 
       {endpoint.creationWarnings.length > 0 ? (
@@ -56,6 +72,13 @@ export function EndpointCard({ endpoint }: EndpointCardProps) {
         Slug <code>{endpoint.slug}</code> — the only name a buyer sees, and not guessable from
         another endpoint's.
       </p>
+
+      {/* D9's `PATCH`, on the row it changes. Folded away because a list of eight
+          input boxes per endpoint is not a list; the seller opens it to change terms. */}
+      <details className="mt-3">
+        <summary className="cursor-pointer text-sm font-semibold">Change these terms</summary>
+        <EndpointEditor endpoint={endpoint} />
+      </details>
     </article>
   );
 }

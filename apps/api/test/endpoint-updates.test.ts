@@ -33,6 +33,7 @@ import {
   type EndpointCreationDeps,
   type SellerIdentity,
   createEndpoint,
+  listEndpoints,
   updateEndpoint,
 } from "../src/services/endpoints.ts";
 import { recordSettlement } from "../src/services/ledger.ts";
@@ -1017,6 +1018,164 @@ suite("what this file cannot show (D9)", () => {
     expect((await endpointRow(created.endpoint.id)).price_amount).toBe("80000");
   });
 });
+
+suite(
+  "the endpoint the dashboard reads carries the route it pays out through (F2, PO-7's edit step)",
+  () => {
+    beforeAll(seed);
+
+    it("answers a create with the destination it resolved and the address it advertises", async () => {
+      // D5 put these four columns on the route and nowhere else, so the DTO either
+      // carries the row or the seller's editor has nothing to show — and D9 refuses a
+      // `PATCH` whose `confirmedAddress` does not echo what was shown.
+      const seller = await addSeller("dtointents");
+      const deps = creationDeps();
+      const input = intentsInput(seller, "dto-intents");
+      const created = await createEndpoint(need().db, deps, seller, input);
+
+      const routeId = (await endpointRow(created.endpoint.id)).route_id;
+      expect(routeId).not.toBeNull();
+      // The DTO's route is the row, field for field, read back from the database.
+      expect(created.endpoint.route).toEqual(await routeRow(routeId as string));
+      expect(created.endpoint.route?.destinationAddress).toBe(input.destinationAddress);
+      // And nothing the seller has no use for came along with it: the quote reference,
+      // the memo, the deadline and the seller id are Till's columns, not the form's.
+      expect(Object.keys(created.endpoint.route ?? {}).sort()).toEqual(
+        [
+          "depositAddress",
+          "destinationAddress",
+          "destinationAsset",
+          "destinationChain",
+          "id",
+          "modeDetail",
+          "provider",
+          "refundAddress",
+        ].sort(),
+      );
+    });
+
+    it("answers a create that never got a route with the null that says so", async () => {
+      // A destination whose shape is broken writes no route (B12), so the honest answer
+      // is "there is no address yet" rather than an empty string an editor could echo.
+      const seller = await addSeller("dto_noroute");
+      const deps = creationDeps();
+      const created = await createEndpoint(
+        need().db,
+        deps,
+        seller,
+        createInput(seller, { payoutMode: "intents", destinationAddress: "not an account" }),
+      );
+
+      expect(failedCodes(created.checks)).toContain("destination_address");
+      expect(created.endpoint.route).toBeNull();
+      expect((await endpointRow(created.endpoint.id)).route_id).toBeNull();
+      expect(await routeCount(seller.id)).toBe(0);
+    });
+
+    it("lists every endpoint with its own route, in the one read the page makes", async () => {
+      const seller = await addSeller("dtolist");
+      const deps = creationDeps();
+      const direct = await createEndpoint(need().db, deps, seller, createInput(seller));
+      const intents = await createEndpoint(
+        need().db,
+        deps,
+        seller,
+        intentsInput(seller, "dto-list"),
+      );
+
+      const listed = await listEndpoints(need().db, deps, seller.id);
+      expect(listed.map((endpoint) => endpoint.slug)).toEqual([
+        intents.endpoint.slug,
+        direct.endpoint.slug,
+      ]);
+
+      const bySlug = new Map(listed.map((endpoint) => [endpoint.slug, endpoint]));
+      const listedDirect = bySlug.get(direct.endpoint.slug);
+      const listedIntents = bySlug.get(intents.endpoint.slug);
+      expect(listedDirect?.route).toEqual(
+        await routeRow((await endpointRow(direct.endpoint.id)).route_id as string),
+      );
+      expect(listedIntents?.route).toEqual(
+        await routeRow((await endpointRow(intents.endpoint.id)).route_id as string),
+      );
+      // `direct` has no address to advertise (PO-6) and the list says so rather than
+      // dropping the row or inventing an account.
+      expect(listedDirect?.route?.depositAddress).toBeNull();
+      expect(listedDirect?.route?.modeDetail).toBe("direct");
+      expect(listedIntents?.route?.depositAddress).not.toBeNull();
+    });
+
+    it("answers a landed destination change with the route the next payment will use", async () => {
+      const seller = await addSeller("dtolanded");
+      const deps = creationDeps();
+      const created = await createEndpoint(
+        need().db,
+        deps,
+        seller,
+        intentsInput(seller, "dto-new"),
+      );
+      const oldRouteId = (await endpointRow(created.endpoint.id)).route_id as string;
+      const routeBefore = await routeRow(oldRouteId);
+
+      const moved = await updateEndpoint(need().db, deps, seller, created.endpoint.id, {
+        destinationAddress: `dto-moved-${run}.testnet`,
+      });
+      expect(failedCodes(checksOf(moved))).toEqual([]);
+
+      const newRouteId = (await endpointRow(created.endpoint.id)).route_id as string;
+      expect(newRouteId).not.toBe(oldRouteId);
+      expect(endpointOf(moved).route).toEqual(await routeRow(newRouteId));
+      expect(endpointOf(moved).route?.destinationAddress).toBe(`dto-moved-${run}.testnet`);
+      // The old row is still exactly what it was: the endpoint moved, the route did not.
+      expect(await routeRow(oldRouteId)).toEqual(routeBefore);
+    });
+
+    it("answers a refused change with the destination the endpoint still pays out to", async () => {
+      // The one that decides what the form shows after a 422. If the DTO carried the
+      // *proposed* route, the seller's next submission would echo an address that is not
+      // live, and the address they were charged for is not the one money will reach.
+      const seller = await addSeller("dtorefused");
+      const deps = creationDeps();
+      const input = intentsInput(seller, "dto-refused");
+      const created = await createEndpoint(need().db, deps, seller, input);
+      const routeId = (await endpointRow(created.endpoint.id)).route_id as string;
+
+      const refused = await updateEndpoint(need().db, deps, seller, created.endpoint.id, {
+        destinationAddress: `dto-unreachable-${run}.testnet`,
+        priceAmount: amount("1"),
+      });
+      expect(failedCodes(checksOf(refused))).toContain("price_floor");
+      expect(endpointOf(refused).route).toEqual(await routeRow(routeId));
+      expect(endpointOf(refused).route?.destinationAddress).toBe(input.destinationAddress);
+      expect(endpointOf(refused).priceAmount).toBe("10000");
+      // No second row for the destination that was never written, and no quote spent.
+      expect(await routeCount(seller.id)).toBe(1);
+      expect(deps.prep.asked.length).toBe(1);
+    });
+
+    it("keeps a price-only change on the same route id, so the echo still matches the row", async () => {
+      const seller = await addSeller("dtosame");
+      const deps = creationDeps();
+      const created = await createEndpoint(
+        need().db,
+        deps,
+        seller,
+        intentsInput(seller, "dto-same"),
+      );
+      const routeId = (await endpointRow(created.endpoint.id)).route_id as string;
+
+      const changed = await updateEndpoint(need().db, deps, seller, created.endpoint.id, {
+        priceAmount: amount("25000"),
+      });
+      expect(failedCodes(checksOf(changed))).toEqual([]);
+      expect(endpointOf(changed).route?.id).toBe(routeId);
+      // One destination is one standing route (D5): a price is not a new destination, so
+      // a price change asks the provider for nothing on the way to handing the row back.
+      expect(deps.prep.asked.length).toBe(1);
+      expect(await routeCount(seller.id)).toBe(1);
+    });
+  },
+);
 
 afterAll(async () => {
   // No deletes: `ledger_entries` refuses them (A7's append-only trigger) and this run's

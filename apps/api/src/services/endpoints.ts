@@ -15,7 +15,7 @@ import {
 } from "@till/core";
 
 import type { Db } from "../db/client.ts";
-import { type PayoutRoute, endpoints } from "../db/schema.ts";
+import { type PayoutRoute, endpoints, payoutRoutes } from "../db/schema.ts";
 import { type ResolveNames, UpstreamPolicyError, resolveUpstreamTarget } from "../gateway/ssrf.ts";
 import { type RoutePreparer, routeById, routeForDestination } from "./payout-routes.ts";
 
@@ -398,7 +398,11 @@ function gatewayUrl(base: string, endpointSlug: string): string {
   return `${base.replace(/\/+$/, "")}/r/${endpointSlug}`;
 }
 
-function toDto(row: typeof endpoints.$inferSelect, deps: EndpointCreationDeps): EndpointDto {
+function toDto(
+  row: typeof endpoints.$inferSelect,
+  route: PayoutRoute | null,
+  deps: EndpointCreationDeps,
+): EndpointDto {
   return endpointDtoSchema.parse({
     id: row.id,
     slug: row.slug,
@@ -410,6 +414,24 @@ function toDto(row: typeof endpoints.$inferSelect, deps: EndpointCreationDeps): 
     payoutMode: row.payoutMode,
     active: row.active,
     description: row.description,
+    // The route and not a copy of its columns: D5 put the destination there, and an
+    // editor that had to be told the address separately is an editor that can be told
+    // the wrong one. Spelled out rather than run through `payoutRouteDtoSchema`,
+    // because the row's `sellerId`, memo, quote ref and deadline are not the
+    // seller's form's business — a parse of the whole row would put them on the wire.
+    route:
+      route === null
+        ? null
+        : {
+            id: route.id,
+            destinationChain: route.destinationChain,
+            destinationAsset: route.destinationAsset,
+            destinationAddress: route.destinationAddress,
+            refundAddress: route.refundAddress,
+            provider: route.provider,
+            depositAddress: route.depositAddress,
+            modeDetail: route.modeDetail,
+          },
     creationWarnings: row.creationWarnings,
   });
 }
@@ -471,6 +493,7 @@ export async function createEndpoint(
     (check) => !check.ok && DESTINATION_CODES.includes(check.code),
   );
   let routeId: string | null = null;
+  let routeRow: PayoutRoute | null = null;
 
   if (!destinationSound) {
     if (input.payoutMode === "intents") {
@@ -490,6 +513,7 @@ export async function createEndpoint(
     );
     if (route.ok) {
       routeId = route.route.id;
+      routeRow = route.route;
       if (input.payoutMode === "intents") {
         checks.push(depositCheck(route.route, route.reused));
       }
@@ -531,7 +555,7 @@ export async function createEndpoint(
     throw new Error("endpoint insert returned no row");
   }
 
-  return { endpoint: toDto(endpoint, deps), checks };
+  return { endpoint: toDto(endpoint, routeRow, deps), checks };
 }
 
 /**
@@ -648,6 +672,11 @@ export async function updateEndpoint(
   // route row for terms nobody will ever be charged under (B12), and the failing checks
   // already name what is actually wrong.
   let routeId = stored.routeId;
+  // The route that the *landed* terms point at. A refused change never overwrites
+  // it, because the answer must carry the address the endpoint still pays out to —
+  // the seller's editor reads its current values off this DTO, and D9's echo check
+  // compares against what that field showed them.
+  let routeRow = route;
   const failing = checks.filter((check) => !check.ok);
   const destinationSound = !failing.some((check) => DESTINATION_CODES.includes(check.code));
   if (!destinationSound) {
@@ -668,6 +697,7 @@ export async function updateEndpoint(
     );
     if (resolved.ok) {
       routeId = resolved.route.id;
+      routeRow = resolved.route;
       if (terms.payoutMode === "intents") {
         checks.push(depositCheck(resolved.route, resolved.reused));
       }
@@ -687,7 +717,7 @@ export async function updateEndpoint(
   // written: no endpoint update, no warning row, no route rewrite — the live terms
   // stay exactly as they were and the checks explain what the change would have done.
   if (checks.some((check) => !check.ok)) {
-    return { found: true, endpoint: toDto(stored, deps), checks };
+    return { found: true, endpoint: toDto(stored, route, deps), checks };
   }
 
   const [updated] = await db
@@ -714,7 +744,7 @@ export async function updateEndpoint(
     throw new Error("endpoint update matched no row");
   }
 
-  return { found: true, endpoint: toDto(updated, deps), checks };
+  return { found: true, endpoint: toDto(updated, routeRow, deps), checks };
 }
 
 export async function listEndpoints(
@@ -722,10 +752,16 @@ export async function listEndpoints(
   deps: EndpointCreationDeps,
   sellerId: string,
 ): Promise<EndpointDto[]> {
+  // One query, not one per row: the destination the seller is about to edit lives on
+  // the route, and a list that read it lazily would be a list of N+1 reads behind
+  // every card on the screen. `left` because an endpoint can legitimately have no
+  // route — a create whose destination failed never got one — and that is a state the
+  // editor has to show rather than a row to drop.
   const rows = await db
-    .select()
+    .select({ endpoint: endpoints, route: payoutRoutes })
     .from(endpoints)
+    .leftJoin(payoutRoutes, eq(endpoints.routeId, payoutRoutes.id))
     .where(eq(endpoints.sellerId, sellerId))
     .orderBy(desc(endpoints.createdAt));
-  return rows.map((row) => toDto(row, deps));
+  return rows.map((row) => toDto(row.endpoint, row.route, deps));
 }

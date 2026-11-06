@@ -4,6 +4,8 @@ import {
   type EndpointCreateRequest,
   type EndpointCreateResponse,
   type EndpointDto,
+  type EndpointUpdateRequest,
+  type EndpointUpdateResponse,
   type HealthDto,
   type PayerBlockDto,
   type PaymentDto,
@@ -12,6 +14,7 @@ import {
   discrepancyResolveResponseSchema,
   endpointCreateResponseSchema,
   endpointListResponseSchema,
+  endpointUpdateResponseSchema,
   healthDtoSchema,
   payerBlockClearResponseSchema,
   payerBlockListResponseSchema,
@@ -127,6 +130,26 @@ export type PayerBlockClearResult =
   | { readonly kind: "rejected"; readonly error: DashboardError }
   | Unreachable;
 
+/**
+ * An edit of a live endpoint's terms (D9, PO-7's UI half). Four answers, and the two
+ * 422s are not the same fact:
+ *
+ * - `updated` — the write happened and the checks all passed on the new terms.
+ * - `refused` — nothing was written. The body is the endpoint *as it stands*, route
+ *   included, so the seller reads the price and the payout address still in force
+ *   beside the reasons the change was not. Drawing this as `rejected` would lose the
+ *   live terms; drawing it as `updated` would tell the seller they are charging
+ *   something Till refused to write.
+ * - `rejected` — the request itself was refused (`destination_not_confirmed`, a body
+ *   the schema rejects, an id that is not yours, a session that ended).
+ * - `unreachable` — an answer Till's own contract cannot read.
+ */
+export type EndpointUpdateResult =
+  | { readonly kind: "updated"; readonly result: EndpointUpdateResponse }
+  | { readonly kind: "refused"; readonly result: EndpointUpdateResponse }
+  | { readonly kind: "rejected"; readonly error: DashboardError }
+  | Unreachable;
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -210,6 +233,56 @@ export const api = {
       : {
           kind: "unreachable",
           detail: `/api/endpoints returned ${response.status} with no readable reason`,
+        };
+  },
+
+  /**
+   * Change one endpoint's terms (D9, PO-7's UI half). The body is the *diff* —
+   * `buildEditBody` in `lib/endpoint-edit.ts` decides what goes in it — so this
+   * function never adds a field of its own, and in particular never sends `active`:
+   * liveness is the pause control's own body, because a price save that opened the
+   * paywall would be the dashboard spending the seller's pause without them.
+   */
+  updateEndpoint: async (
+    endpointId: string,
+    request: EndpointUpdateRequest,
+    cookie?: string,
+  ): Promise<EndpointUpdateResult> => {
+    const path = `/api/endpoints/${encodeURIComponent(endpointId)}`;
+    let response: Response;
+    try {
+      response = await fetch(requestUrl(path), {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          ...(cookie === undefined ? {} : { cookie }),
+        },
+        body: JSON.stringify(request),
+      });
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const payload = await readJson(response);
+    // The check list first, because a refused change answers 422 with the live
+    // endpoint beside it, and that pair is the more useful of the two shapes to read.
+    const changed = endpointUpdateResponseSchema.safeParse(payload);
+    if (changed.success && (response.status === 200 || response.status === 422)) {
+      return response.status === 200
+        ? { kind: "updated", result: changed.data }
+        : { kind: "refused", result: changed.data };
+    }
+    const refused = dashboardErrorSchema.safeParse(payload);
+    return refused.success
+      ? { kind: "rejected", error: refused.data }
+      : {
+          kind: "unreachable",
+          detail: `${path} returned ${response.status} with no readable reason`,
         };
   },
 

@@ -92,7 +92,7 @@ till/
 │   └── web/                       # Next 15 App Router, single origin (A5)
 │       ├── next.config.ts        # rewrites /api/* to the API, baked at build time from API_ORIGIN
 │       ├── vitest.config.ts      # JSX through esbuild; the suite runs in Node, no browser
-│       ├── test/                 # the form rules, the client against a fetch stub, rendered markup
+│       ├── test/                 # the form and edit rules, the client against a fetch stub, rendered markup
 │       ├── app/
 │       │   ├── (auth)/sign-in/   # stub until F8: needs a browser wallet prompt, and that package is F8's open question
 │       │   ├── (app)/
@@ -106,10 +106,12 @@ till/
 │       │   └── domain/                   # EndpointCard, CreateEndpointForm, CreationCheckResults,
 │       │                                 #   SessionNotice, PaymentTable, PaymentRow, SwapTimeline,
 │       │                                 #   DiscrepancyCard + PayerBlockTable (UI-4, presentational),
-│       │                                 #   ReconcileActions (UI-4: the screen's one "use client" boundary)
+│       │                                 #   ReconcileActions (UI-4: the screen's one "use client" boundary),
+│       │                                 #   EndpointEditor (F9: D9's PATCH, view + container)
 │       └── lib/
 │           ├── api-client.ts             # every fetch, each response parsed or answered `unreachable`
 │           ├── endpoint-form.ts          # the form's rules as plain functions, no React
+│           ├── endpoint-edit.ts          # the edit's rules: the diff, the echo, the pause body
 │           ├── payments.ts                 # explorer link per row, the four state words, the copy
 │           ├── reconcile.ts              # severity words, an age against a passed-in clock, the empty and held copy
 │           └── format.ts                 # base units to display amounts
@@ -158,7 +160,8 @@ app/(app)/endpoints/page.tsx     # lists and creates on the session (UI-2)
 app/(app)/payments/page.tsx        # the same read shape for the ledger (UI-3)
 app/(app)/reconciliation/page.tsx  # the open items and the holds, read on the session (UI-4)
 components/domain/               # what a seller sees; each renders a named type
-  EndpointCard.tsx               # one endpoint: live, or not live with D4's reasons
+  EndpointCard.tsx               # one endpoint: live, or not live with D4's reasons, its destination from its route
+  EndpointEditor.tsx             # change these terms: view + container, the confirmation step (F9, "use client")
   CreateEndpointForm.tsx         # edit → confirm → result ("use client")
   CreationCheckResults.tsx       # failed checks first, then the passed ones
   SessionNotice.tsx              # the three screens that are not a list
@@ -168,6 +171,7 @@ PayerBlockTable.tsx              # who is held, with the count that put them the
 ReconcileActions.tsx             # the screen's one "use client": both lists, both actions ("use client")
 lib/api-client.ts                # every fetch in the app, and the only place that parses
 lib/endpoint-form.ts             # the rules, as plain functions (buildCreateInput, orderChecks)
+lib/endpoint-edit.ts             # the edit's rules as plain functions (buildEditBody, livenessBody, changeRows)
 lib/payments.ts                    # paymentTxLink, paymentStateWords, the seller-facing copy
 lib/reconcile.ts                 # severityWords, discrepancyAge(openedAt, nowMs), the empty and held copy
 lib/format.ts                    # base units → decimal, for display only
@@ -175,11 +179,12 @@ test/                            # the rules, the client against a fetch stub, t
 next.config.ts                   # /api/* → API_ORIGIN, which makes the cookie first-party
 ```
 
-- **A body that will not parse is `unreachable`, never an empty list** (F2). `api.endpoints()` and `api.createEndpoint()` return a small named union — `ok`/`created`, `signed_out`/`rejected`, `unreachable` — and each arm is checked against the schemas in `packages/core/src/schemas/endpoint.ts` before it is returned. An unverified response is not a verified empty one: on the client this replaced, contract drift rendered "No endpoints yet" and invited the seller to create a second endpoint that already exists. `test/api-client.test.ts` pins the negative case.
+- **A body that will not parse is `unreachable`, never an empty list** (F2). `api.endpoints()` and `api.createEndpoint()` return a small named union — `ok`/`created`, `signed_out`/`rejected`, `unreachable` — and each arm is checked against the schemas in `packages/core/src/schemas/endpoint.ts` before it is returned. An unverified response is not a verified empty one: on the client this replaced, contract drift rendered "No endpoints yet" and invited the seller to create a second endpoint that already exists. `test/api-client.test.ts` pins the negative case. `api.updateEndpoint()` (F9) has four arms and two of them are `422`: `refused` is the check list *with* the live terms beside it, `rejected` is the request itself being refused, and folding the first into the second would throw away the price the endpoint is actually charging.
 - **A payment list is scoped by a join, and a link is only drawn where one exists** (UI-3). `listPaymentsForSeller` filters on `endpoints.seller_id` because a payment row has no seller of its own; adding a column would put the same fact in two places that can disagree. `paymentTxLink` returns `null` for a hash that is not on chain yet and for a network Till has no explorer for, and `PaymentTable` then says so in words instead of wrapping the hash in an anchor — a wrong explorer URL is read as evidence. `selfPayment` is decided against the session's own account, so a seller testing with their wallet sees *a test, not revenue*.
 - **"The page contains this string" is not a test of a Next page.** `next start` ships both the rendered markup and the RSC payload with the same text inside `<script>` tags, so a count over raw HTML reads 2 where a browser paints 1. Its server render also separates adjacent text with `<!-- -->` and escapes `'` as `&#x27;`, so `2 unpaid serves` and a sentence with an apostrophe do not appear as written — and `renderToStaticMarkup` does neither, which is why the same assertion can pass in a unit test and fail against the running app. Live checks strip the scripts, drop the comments and decode the entities first (`ROADMAP.md` section 8, 2026-11-05).
 - **One client boundary per screen, and it re-reads rather than hoping** (UI-4). The page is a server component because the session cookie is `HttpOnly`; it hands both lists to `ReconcileActions`, which owns the busy state and, after an action the API accepted, calls the read again instead of marking the row closed itself. The order of the cards is the API's — `listOpenDiscrepanciesForSeller` builds its `CASE` from core's `SEVERITIES` and the page sorts nothing, because a second sort is a second opinion about what is most urgent. The screen's own copy carries no digits: the strike window and threshold are C9's and live in `apps/api`, which web must not import, so each row states its own count instead.
 - **The form's rules are functions, not JSX.** `lib/endpoint-form.ts` decides what is valid, what the confirmation table shows and what a refusal's sentence is; `CreateEndpointForm.tsx` only calls it. That is what makes UI-2's acceptance testable in Node, which is where it runs today.
+- **An edit sends a diff, and pausing is its own body** (F9, PO-7). `lib/endpoint-edit.ts` compares the form against the endpoint it was given and puts only the differences in the `PATCH` body, because D9 merges whatever it receives onto the stored terms — so a form that resubmitted everything would name fields nobody touched, and two of those are not innocent: `active` (an edit that reopened a paywall somebody paused) and `destinationAddress` (a payout route nobody confirmed). Hence `livenessBody`, which is the pause button's whole request, and `buildEditBody`, which refuses an address change it has not been shown a confirmation for. `EndpointEditor` keeps only the *address* it is waiting on and rebuilds the body when the seller confirms, so a `confirmedAddress` cannot exist in a request that was assembled before that step; the mutation that deletes the guard fails two tests, and the one that adds an `active` checkbox fails the render test that looks for it.
 - **`apps/web` imports `@till/core/schemas` and `@till/core/money`, never `@till/core`.** The barrel re-exports `ids.ts` and `auth/nep413.ts`, both of which import `node:crypto`, and webpack refuses a `node:` specifier in a client bundle. The dependency rule below says what enforces it.
 - **`API_ORIGIN` is read twice with different lifetimes**: `next build` bakes the `/api/*` rewrite into `.next/routes-manifest.json`, while `lib/api-client.ts` reads the variable per request for the server component's fetch. Set it before the build when the API is not on `PORT`'s default, or the rewrite answers 500 while the page itself loads.
 - **Tests render with `react-dom/server`, not a browser.** `vitest.config.ts` turns JSX through esbuild (the tsconfig keeps `jsx: "preserve"` for Next) and the suite asserts the text a seller would read; `test/react-dom-server.d.ts` declares the one entry point they call, because `@types/react-dom` would be a new dependency (C19). No click simulation: a click only sets state, and the state a click would set is passed to these components as a prop.

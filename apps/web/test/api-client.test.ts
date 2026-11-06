@@ -1,6 +1,7 @@
 import {
   discrepancyDtoSchema,
   endpointCreateRequestSchema,
+  endpointUpdateRequestSchema,
   payerBlockDtoSchema,
   paymentDtoSchema,
 } from "@till/core/schemas";
@@ -52,6 +53,18 @@ const ENDPOINT = {
   payoutMode: "direct",
   active: true,
   description: null,
+  // The route the endpoint pays out through (F2e-a). A direct one has no deposit
+  // address to advertise, which is the state the editor has to be able to show.
+  route: {
+    id: "3b0c8b6a-2b0f-4a11-9c1d-2f4a6b8c0e22",
+    destinationChain: "near",
+    destinationAsset: "usdc",
+    destinationAddress: "seller.testnet",
+    refundAddress: "seller.testnet",
+    provider: "mock",
+    depositAddress: null,
+    modeDetail: "direct",
+  },
   creationWarnings: [],
 };
 
@@ -122,6 +135,128 @@ const REQUEST = endpointCreateRequestSchema.parse({
   destinationAddress: "seller.testnet",
   refundAddress: "seller.testnet",
   confirmedAddress: "seller.testnet",
+});
+
+describe("changing an endpoint's terms", () => {
+  // Parsed, so `priceAmount` is the branded base-unit string the request type wants.
+  const PRICE = endpointUpdateRequestSchema.parse({ priceAmount: "2500000" });
+  const DESTINATION = endpointUpdateRequestSchema.parse({
+    destinationAddress: "new-payout.testnet",
+    confirmedAddress: "new-payout.testnet",
+  });
+
+  it("patches the endpoint's own path with the body the diff produced, and nothing else", async () => {
+    const calls = stubAnswer(
+      json({ endpoint: { ...ENDPOINT, priceAmount: "2500000" }, checks: CHECKS }),
+    );
+    const changed = await api.updateEndpoint(ENDPOINT.id, PRICE, "till_session=token-value");
+
+    expect(changed.kind).toBe("updated");
+    if (changed.kind !== "updated") {
+      throw new Error("unreachable");
+    }
+    expect(changed.result.endpoint.priceAmount).toBe("2500000");
+    expect(first(calls).url).toBe(`http://localhost:3000/api/endpoints/${ENDPOINT.id}`);
+    expect(first(calls).init.method).toBe("PATCH");
+    expect(headerOf(first(calls), "cookie")).toBe("till_session=token-value");
+    expect(sentBody(first(calls))).toEqual({ priceAmount: "2500000" });
+  });
+
+  it("reads a 422 that carries the checks as a refusal, and keeps the terms it says are live", async () => {
+    // The two 422s the route can answer are different facts and the seller's next
+    // step differs: this one means "nothing was written, here is why", so the endpoint
+    // in the body is the one still taking money — including its route.
+    const paused = { ...ENDPOINT, active: false, priceAmount: "1250000" };
+    stubAnswer(
+      json({
+        endpoint: paused,
+        checks: [
+          { code: "price_floor", ok: false, message: "0.0025 is below Till's 0.01 minimum." },
+        ],
+      }),
+      422,
+    );
+    const refused = await api.updateEndpoint(ENDPOINT.id, PRICE);
+    expect(refused.kind).toBe("refused");
+    if (refused.kind !== "refused") {
+      throw new Error("unreachable");
+    }
+    expect(refused.result.checks.filter((check) => !check.ok).map((check) => check.code)).toEqual([
+      "price_floor",
+    ]);
+    // The live terms, not the requested ones: a screen that drew the proposed price
+    // would tell the seller they are charging something Till refused to write.
+    expect(refused.result.endpoint.priceAmount).toBe("1250000");
+    expect(refused.result.endpoint.route?.destinationAddress).toBe("seller.testnet");
+  });
+
+  it("hands back the unconfirmed-destination refusal with the address the route names", async () => {
+    const calls = stubAnswer(
+      json({
+        code: "destination_not_confirmed",
+        message: "Confirm the destination address that was shown to you.",
+        destinationAddress: "new-payout.testnet",
+      }),
+      422,
+    );
+    const refused = await api.updateEndpoint(ENDPOINT.id, {
+      ...DESTINATION,
+      confirmedAddress: "something-else.testnet",
+    });
+    expect(refused.kind).toBe("rejected");
+    if (refused.kind !== "rejected") {
+      throw new Error("unreachable");
+    }
+    expect(refused.error.code).toBe("destination_not_confirmed");
+    expect(refused.error.destinationAddress).toBe("new-payout.testnet");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("keeps a body the shared contract refuses out of the seller's list", async () => {
+    // 422 with a check code nobody declared is drift in the API; drawing it as a
+    // refusal with one failing check would be a claim about money nobody read.
+    stubAnswer(
+      json({
+        endpoint: ENDPOINT,
+        checks: [{ code: "brand_new_rule", ok: false, message: "nope" }],
+      }),
+      422,
+    );
+    expect((await api.updateEndpoint(ENDPOINT.id, PRICE)).kind).toBe("unreachable");
+
+    stubAnswer(json({ endpoint: { ...ENDPOINT, route: { id: "not-a-uuid" } }, checks: [] }));
+    expect((await api.updateEndpoint(ENDPOINT.id, PRICE)).kind).toBe("unreachable");
+
+    stubAnswer("<html>502</html>", 502, "text/html");
+    const failed = await api.updateEndpoint(ENDPOINT.id, PRICE);
+    expect(failed.kind === "unreachable" ? failed.detail : "").toContain("no readable reason");
+  });
+
+  it("says signed out in the API's own words when the session ended mid-edit", async () => {
+    stubAnswer(json({ code: "unauthenticated", message: "Sign in to change an endpoint." }), 401);
+    const refused = await api.updateEndpoint(ENDPOINT.id, PRICE);
+    expect(refused.kind).toBe("rejected");
+    expect(refused.kind === "rejected" ? refused.error.code : null).toBe("unauthenticated");
+  });
+
+  it("answers not-found without saying whether the endpoint exists at all", async () => {
+    // 404 is the route's one answer for "not there" and "somebody else's"; the client
+    // passes the sentence through rather than inventing a shorter one here.
+    const calls = stubAnswer(
+      json({ code: "endpoint_not_found", message: "No endpoint of yours has that id." }),
+      404,
+    );
+    const refused = await api.updateEndpoint("3b0c8b6a-2b0f-4a11-9c1d-2f4a6b8c0e99", PRICE);
+    expect(refused.kind === "rejected" ? refused.error.code : null).toBe("endpoint_not_found");
+    expect(first(calls).init.method).toBe("PATCH");
+  });
+
+  it("reports a dead socket as unreachable rather than as a change that did not land", async () => {
+    stubFailure("fetch failed: ECONNREFUSED");
+    const refused = await api.updateEndpoint(ENDPOINT.id, PRICE);
+    expect(refused.kind).toBe("unreachable");
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain("ECONNREFUSED");
+  });
 });
 
 afterEach(() => {
