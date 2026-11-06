@@ -1,12 +1,14 @@
 import { randomBytes } from "node:crypto";
 
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
 import {
   type CreationCheck,
   type CreationCheckCode,
   type EndpointCreateInput,
   type EndpointDto,
+  type EndpointUpdateInput,
+  baseUnitAmountSchema,
   endpointDtoSchema,
   formatAmount,
   nearAccountIdSchema,
@@ -15,7 +17,7 @@ import {
 import type { Db } from "../db/client.ts";
 import { type PayoutRoute, endpoints } from "../db/schema.ts";
 import { type ResolveNames, UpstreamPolicyError, resolveUpstreamTarget } from "../gateway/ssrf.ts";
-import { type RoutePreparer, routeForDestination } from "./payout-routes.ts";
+import { type RoutePreparer, routeById, routeForDestination } from "./payout-routes.ts";
 
 /**
  * Endpoint creation checks (D4, PO-1/PO-2), in the order ARCHITECTURE 11.3 lists
@@ -442,10 +444,14 @@ const DESTINATION_CODES: readonly CreationCheckCode[] = [
 function depositCheck(route: PayoutRoute, reused: boolean): CreationCheck {
   const simulated =
     route.provider === "mock" ? " The mock provider made this address up; no swap will run." : "";
+  // `modeDetail` is named only when the quote is new: a reused route is standing by
+  // definition, and "the standing standing address" is what reading the column out
+  // unconditionally produced.
+  const kind = reused ? "standing" : `newly prepared ${route.modeDetail}`;
   return ok(
     "deposit_address",
     `Payouts on ${route.destinationChain} to ${route.destinationAddress} arrive at ${route.depositAddress}, ` +
-      `the ${reused ? "standing" : "newly prepared"} ${route.modeDetail} address for that destination.${simulated}`,
+      `the ${kind} address for that destination.${simulated}`,
   );
 }
 
@@ -526,6 +532,189 @@ export async function createEndpoint(
   }
 
   return { endpoint: toDto(endpoint, deps), checks };
+}
+
+/**
+ * A change that lands and the checks that decided it. `found: false` is the answer
+ * for an id that is not this seller's endpoint — one answer for "not there" and
+ * "somebody else's", because telling them apart says which rows another seller has
+ * (the same rule F4 applies to a discrepancy).
+ */
+export type EndpointUpdateResult =
+  | { readonly found: true; readonly endpoint: EndpointDto; readonly checks: CreationCheck[] }
+  | { readonly found: false };
+
+/**
+ * The stored terms with the change applied, as a full creation input.
+ *
+ * `network` and `assetContract` come from the row and cannot come from the change:
+ * they are what a payer's signed delegate is denominated in, and the core schema
+ * refuses them in a body. The destination is read from the *route*, because those
+ * four columns live there and not on the endpoint, which is why an endpoint with no
+ * route merges to empty strings — and empty strings fail the destination checks, so
+ * a change that needs a destination the row never had is refused rather than
+ * invented.
+ */
+function mergedTerms(
+  stored: typeof endpoints.$inferSelect,
+  route: PayoutRoute | null,
+  input: EndpointUpdateInput,
+): EndpointCreateInput {
+  // Only `direct` is read as direct. A stored value that is neither word cannot come
+  // from Till's own write path, and treating it as `intents` means the destination
+  // checks run and most likely fail it, which is the honest answer for a row this
+  // process did not write.
+  const storedMode = stored.payoutMode === "direct" ? "direct" : "intents";
+  // The column is plain text; the input type is a branded base-unit string. Going
+  // through `baseUnitAmountSchema` brands it without deciding whether the price is
+  // *allowed*: a stored `0` still parses here and is then refused by the price-floor
+  // check, which is the check that owns that answer. A value that does not parse at
+  // all becomes `0` so the same check says so instead of the merge throwing.
+  const storedPrice = baseUnitAmountSchema.safeParse(stored.priceAmount);
+  return {
+    upstreamUrl: input.upstreamUrl ?? stored.upstreamUrl,
+    priceAmount:
+      input.priceAmount ??
+      (storedPrice.success ? storedPrice.data : baseUnitAmountSchema.parse("0")),
+    assetContract: stored.assetContract,
+    network: stored.network,
+    description: input.description ?? stored.description ?? undefined,
+    payoutMode: input.payoutMode ?? storedMode,
+    destinationChain: input.destinationChain ?? route?.destinationChain ?? "",
+    destinationAsset: input.destinationAsset ?? route?.destinationAsset ?? "",
+    destinationAddress: input.destinationAddress ?? route?.destinationAddress ?? "",
+    refundAddress: input.refundAddress ?? route?.refundAddress ?? "",
+  };
+}
+
+/**
+ * Change what a live endpoint charges and where it pays out (D9, PO-7).
+ *
+ * **A change that fails a check is refused, not applied.** D4's rule for a *create*
+ * is the opposite — write the row `active: false` with the reasons on it — and the
+ * difference is on purpose. A create has nothing to protect: there is no paywall
+ * until the row exists. An edit has a live one behind it, and de-activating an
+ * endpoint that was earning because somebody typed a bad new address would cost the
+ * seller money that was already arriving. So the rule is one sentence: **a change
+ * lands only when every check passes on the new terms.** That is also what keeps
+ * `active: true` worth reading after this row — an active endpoint is one whose terms
+ * all passed the last time they changed.
+ *
+ * The failing checks are in the response and not on the row. They cannot go on the
+ * row: `creation_warnings` means "why this endpoint is not live", and an active
+ * endpoint carrying a refused edit's reasons would tell the next reader — and the
+ * gateway's own join — something untrue about the live terms.
+ *
+ * What the write cannot do is reach a payment. `payments.amount`, `route_id` and
+ * `asset_contract` were copied from the advertisement at verify time, and nothing here
+ * updates the `payments` table, so earlier payments keep the price and the payout they
+ * were charged under (PO-7) while the next 402 names the new ones.
+ *
+ * Two more things a landed change does not do, both because a change is an edit of one
+ * field of a form the seller already filled in:
+ *
+ * - it does not decide whether the endpoint is live. `active` keeps its value unless the
+ *   body names it, so repairing a paused endpoint's price does not open the paywall.
+ * - it does not ask a provider for anything it cannot use. A quote is taken for a new
+ *   destination only when every other check passed, so a change that was going to be
+ *   refused for an unrelated reason costs no call and no orphan route row (B12).
+ */
+export async function updateEndpoint(
+  db: Db,
+  deps: EndpointCreationDeps,
+  seller: SellerIdentity,
+  endpointId: string,
+  input: EndpointUpdateInput,
+): Promise<EndpointUpdateResult> {
+  const [stored] = await db
+    .select()
+    .from(endpoints)
+    .where(and(eq(endpoints.id, endpointId), eq(endpoints.sellerId, seller.id)))
+    .limit(1);
+  if (stored === undefined) return { found: false };
+
+  const route = stored.routeId === null ? null : await routeById(db, stored.routeId);
+  const terms = mergedTerms(stored, route, input);
+  const checks = await checkEndpointCreation(terms, seller, deps);
+
+  // The route is resolved the way `createEndpoint` resolves it (D5) — from the merged
+  // terms, not from what the body happened to name — so an edit cannot end up with a
+  // destination its create path would not have taken. A price-only change re-reads the
+  // endpoint's own standing row and asks the provider for nothing; a new destination
+  // costs exactly one quote.
+  //
+  // A change that is refused for any *other* reason resolves nothing either: the write
+  // below is skipped, so a quote taken here would be a provider call and an orphan
+  // route row for terms nobody will ever be charged under (B12), and the failing checks
+  // already name what is actually wrong.
+  let routeId = stored.routeId;
+  const failing = checks.filter((check) => !check.ok);
+  const destinationSound = !failing.some((check) => DESTINATION_CODES.includes(check.code));
+  if (!destinationSound) {
+    if (terms.payoutMode === "intents") {
+      checks.push(
+        failed(
+          "deposit_address",
+          "Till asks the payout provider for a deposit address only once the destination itself is sound; fix the address above first.",
+        ),
+      );
+    }
+  } else if (failing.length === 0) {
+    const resolved = await routeForDestination(
+      db,
+      { providerName: deps.payoutProvider, preparer: deps.routePreparer },
+      seller.id,
+      terms,
+    );
+    if (resolved.ok) {
+      routeId = resolved.route.id;
+      if (terms.payoutMode === "intents") {
+        checks.push(depositCheck(resolved.route, resolved.reused));
+      }
+    } else if (terms.payoutMode === "intents") {
+      checks.push(
+        failed(
+          "deposit_address",
+          `Till has no address to advertise for this destination: ${resolved.detail}`,
+        ),
+      );
+    } else {
+      throw new Error(`the direct payout route could not be written: ${resolved.detail}`);
+    }
+  }
+
+  // The refusal half of "a change lands only when every check passes". Nothing is
+  // written: no endpoint update, no warning row, no route rewrite — the live terms
+  // stay exactly as they were and the checks explain what the change would have done.
+  if (checks.some((check) => !check.ok)) {
+    return { found: true, endpoint: toDto(stored, deps), checks };
+  }
+
+  const [updated] = await db
+    .update(endpoints)
+    .set({
+      upstreamUrl: terms.upstreamUrl,
+      priceAmount: terms.priceAmount,
+      payoutMode: terms.payoutMode,
+      routeId,
+      description:
+        input.description === undefined ? stored.description : (input.description ?? null),
+      // A change that lands is a clean read of the terms, so the reasons a previous
+      // creation stored are no longer true of this row.
+      creationWarnings: [],
+      // Liveness is not a side effect of an edit. A seller who paused an endpoint and
+      // then fixed its price gets a live paywall only if they say so, and a seller who
+      // repaired an endpoint that D4 left inactive has to open it on purpose. `active`
+      // is in the input precisely so that turning the money on is the named change.
+      active: input.active ?? stored.active,
+    })
+    .where(and(eq(endpoints.id, stored.id), eq(endpoints.sellerId, seller.id)))
+    .returning();
+  if (updated === undefined) {
+    throw new Error("endpoint update matched no row");
+  }
+
+  return { found: true, endpoint: toDto(updated, deps), checks };
 }
 
 export async function listEndpoints(

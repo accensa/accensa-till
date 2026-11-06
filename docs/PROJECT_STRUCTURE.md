@@ -67,14 +67,14 @@ till/
 │   │   │   │   ├── payments.ts   # state transitions; listPaymentsForSeller is UI-3's scoped read
 │   │   │   │   ├── strikes.ts    # strike count + appended seller clear (C9), and the grouped list of who is held on that same predicate (UI-4)
 │   │   │   │   ├── ledger.ts     # the only writer of ledger_entries
-│   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address (D4); resolves the payout route before the insert (D5)
+│   │   │   │   ├── endpoints.ts  # creation checks: registration, floor, address (D4); resolves the payout route before the insert (D5); changes a live endpoint's terms whole or not at all (D9)
 │   │   │   │   ├── payout-routes.ts # the only writer of payout_routes: one standing quote per destination and mode, never an update (D5)
 │   │   │   │   ├── access-keys.ts # the chain read sign-in needs: is this key full access on that account (F1)
 │   │   │   │   ├── sellers.ts    # the only place a seller row is created, keyed by account name (F1)
 │   │   │   │   └── discrepancies.ts  # the only writer of discrepancies; dedupe, auto-resolve, manual close (E8), the severity-ordered open worklist (UI-4)
 │   │   │   ├── routes/           # dashboard API
 │   │   │   │   ├── auth.ts       # nonce + verify, the only routes that answer without a session (F1)
-│   │   │   │   ├── endpoints.ts  # GET list / POST create with confirmation (D4)
+│   │   │   │   ├── endpoints.ts  # GET list / POST create with confirmation (D4); PATCH one endpoint's terms on the same checks and the same echo (D9)
 │   │   │   │   ├── payments.ts  # GET /payments, scoped by the endpoint join, 500 on an unreadable row (UI-3)
 │   │   │   │   ├── swaps.ts
 │   │   │   │   ├── discrepancies.ts # GET the worklist and the holds, POST a resolve and a clear, every one scoped by the session (UI-4)

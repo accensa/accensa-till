@@ -1,7 +1,12 @@
 import { Hono } from "hono";
 import { getCookie } from "hono/cookie";
 
-import { SESSION_COOKIE, endpointCreateRequestSchema } from "@till/core";
+import {
+  SESSION_COOKIE,
+  endpointCreateRequestSchema,
+  endpointUpdateRequestSchema,
+  uuidSchema,
+} from "@till/core";
 
 import type { Db } from "../db/client.ts";
 import type { Env } from "../env.ts";
@@ -16,6 +21,7 @@ import {
   createEndpoint,
   createTokenStorageReader,
   listEndpoints,
+  updateEndpoint,
 } from "../services/endpoints.ts";
 import type { RoutePreparer } from "../services/payout-routes.ts";
 
@@ -159,6 +165,113 @@ export function createEndpointRoutes(deps: EndpointRouteDeps): Hono {
     );
 
     return c.json({ endpoint: created.endpoint, checks: created.checks }, 201);
+  });
+
+  /**
+   * Change the terms of an endpoint that already exists (D9, PO-7).
+   *
+   * Two answers matter. `200` means the new terms are live, and the body is the
+   * endpoint as it now stands with every check beside it. `422` means **nothing was
+   * written**: a change whose checks do not all pass is refused rather than applied,
+   * because a live paywall that was earning is worth more than a half-landed edit, and
+   * the body still carries the checks so the seller can read which one said no. That is
+   * why the refusal is not an error object with one sentence — the per-check messages
+   * are the answer.
+   *
+   * Neither answer reaches a payment that already happened. Those copied their price
+   * and their payout route from the advertisement at verify time, and this route writes
+   * only to `endpoints`.
+   */
+  app.patch("/endpoints/:id", async (c) => {
+    const seller = await read(getCookie(c, SESSION_COOKIE));
+    if (seller === null) {
+      return c.json({ code: "unauthenticated", message: "Sign in to change an endpoint." }, 401);
+    }
+
+    const id = c.req.param("id");
+    if (!uuidSchema.safeParse(id).success) {
+      return c.json(
+        { code: "invalid_request", message: "The endpoint to change is named by its id." },
+        422,
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await c.req.json();
+    } catch {
+      return c.json({ code: "invalid_json", message: "The request body is not JSON." }, 400);
+    }
+    const parsed = endpointUpdateRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      return c.json(
+        {
+          code: "invalid_request",
+          message: "Nothing about this endpoint changed.",
+          issues: parsed.error.issues.map((issue) => ({
+            // A strict-object refusal carries the offending names in `keys` and an
+            // empty path, so the key is put where a UI can show it beside the input it
+            // came from. Without this a seller gets "invalid_request" and no field.
+            path: issue.code === "unrecognized_keys" ? issue.keys.join(",") : issue.path.join("."),
+            code: issue.code,
+          })),
+        },
+        400,
+      );
+    }
+
+    const request = parsed.data;
+    // The same echo a create demands, for the same reason and with the same code: a
+    // destination the seller was never shown is a payout route to a stranger. It is
+    // only asked of a change that *names* a new address — an edit of the price alone
+    // has never shown anybody an address.
+    if (
+      request.destinationAddress !== undefined &&
+      request.confirmedAddress !== request.destinationAddress
+    ) {
+      return c.json(
+        {
+          code: "destination_not_confirmed",
+          message: "Confirm the destination address that was shown to you.",
+          destinationAddress: request.destinationAddress,
+        },
+        422,
+      );
+    }
+
+    const changed = await updateEndpoint(
+      db,
+      creationDeps,
+      {
+        id: seller.sellerId,
+        nearAccountId: seller.nearAccountId,
+      },
+      id,
+      request,
+    );
+
+    if (!changed.found) {
+      // One answer for "not there" and "somebody else's", which is the rule F4 applies
+      // to a discrepancy: telling them apart says which endpoints another seller has.
+      return c.json(
+        { code: "endpoint_not_found", message: "No endpoint of yours has that id." },
+        404,
+      );
+    }
+
+    const refused = changed.checks.some((check) => !check.ok);
+    log.info(
+      {
+        code: refused ? "endpoint_change_refused" : "endpoint_changed",
+        endpointId: changed.endpoint.id,
+        priceAmount: changed.endpoint.priceAmount,
+        active: changed.endpoint.active,
+        failures: changed.checks.filter((check) => !check.ok).map((check) => check.code),
+      },
+      refused ? "endpoint change refused, nothing written" : "endpoint terms changed",
+    );
+
+    return c.json({ endpoint: changed.endpoint, checks: changed.checks }, refused ? 422 : 200);
   });
 
   return app;

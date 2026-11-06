@@ -7,7 +7,13 @@ import {
   fromBaseUnits,
   positiveBaseUnitAmountSchema,
 } from "../schemas/common.ts";
-import { endpointCreateSchema, endpointDtoSchema } from "../schemas/endpoint.ts";
+import {
+  endpointCreateSchema,
+  endpointDtoSchema,
+  endpointUpdateRequestSchema,
+  endpointUpdateResponseSchema,
+  endpointUpdateSchema,
+} from "../schemas/endpoint.ts";
 import { ledgerEntryDtoSchema } from "../schemas/ledger.ts";
 import { overviewDtoSchema } from "../schemas/overview.ts";
 import {
@@ -301,6 +307,101 @@ describe("money that is allowed to be negative stays signed (G6 F1 scope)", () =
   it("leaves the signed schema unchanged, so sums of ledger rows still validate", () => {
     expect(baseUnitAmountSchema.safeParse("-1").success).toBe(true);
     expect(fromBaseUnits(-1n)).toBe("-1");
+  });
+});
+
+/**
+ * D9 (PO-7): what a seller may change on an endpoint that already exists.
+ *
+ * The shape of this body is the whole boundary. A payment snapshots its price and
+ * its route at verify time, so a change cannot reach an earlier row — but a body
+ * that could name an `id`, a `sellerId` or the token an endpoint charges in would
+ * let a request do the things the snapshot cannot protect against. So those are
+ * refused here, by name, rather than ignored: zod drops unknown keys by default,
+ * and an ignored `sellerId` is a bug waiting for a caller that assumes it was
+ * honoured.
+ */
+describe("endpointUpdateSchema (D9, PO-7)", () => {
+  it("accepts a price-only change and leaves the rest unset", () => {
+    const parsed = endpointUpdateSchema.safeParse({ priceAmount: "25000" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.priceAmount).toBe("25000");
+      expect(parsed.data.payoutMode).toBeUndefined();
+      expect(parsed.data.destinationAddress).toBeUndefined();
+    }
+  });
+
+  it("accepts a destination change with its confirmation echo beside it", () => {
+    const parsed = endpointUpdateRequestSchema.safeParse({
+      payoutMode: "intents",
+      destinationAddress: "0x742d35cc6634c0532923a5f8",
+      confirmedAddress: "0x742d35cc6634c0532923a5f8",
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("refuses a body that changes nothing", () => {
+    // Not pedantry: an empty change is a write of the same values, a fresh set of
+    // check messages and a log line for an edit that did not happen.
+    expect(endpointUpdateSchema.safeParse({}).success).toBe(false);
+    expect(endpointUpdateRequestSchema.safeParse({ confirmedAddress: "a.testnet" }).success).toBe(
+      false,
+    );
+  });
+
+  it("refuses the fields a change is not allowed to reach, naming each one", () => {
+    const cases = [
+      ["network", "near:mainnet"],
+      ["assetContract", "usdc"],
+      ["id", "00000000-0000-4000-8000-000000000001"],
+      ["slug", "someone-elses-name"],
+      ["sellerId", "00000000-0000-4000-8000-000000000002"],
+      ["routeId", "00000000-0000-4000-8000-000000000003"],
+    ] as const;
+    for (const [field, value] of cases) {
+      const parsed = endpointUpdateSchema.safeParse({ priceAmount: "25000", [field]: value });
+      expect([field, parsed.success]).toEqual([field, false]);
+      if (!parsed.success) {
+        expect([field, parsed.error.issues[0]?.code]).toEqual([field, "unrecognized_keys"]);
+        expect(parsed.error.issues[0]?.message).toContain(field);
+      }
+    }
+  });
+
+  it("holds the money boundary on the way in, the same way creation does", () => {
+    for (const price of ["-1", "0", "1.5", "1e3", "abc", ""]) {
+      expect(endpointUpdateSchema.safeParse({ priceAmount: price }).success).toBe(false);
+    }
+    expect(endpointUpdateSchema.safeParse({ priceAmount: "10000" }).success).toBe(true);
+  });
+
+  it("refuses a non-boolean active and a description past its cap", () => {
+    expect(endpointUpdateSchema.safeParse({ active: "true" }).success).toBe(false);
+    expect(endpointUpdateSchema.safeParse({ description: "x".repeat(501) }).success).toBe(false);
+    expect(endpointUpdateSchema.safeParse({ description: "new price" }).success).toBe(true);
+  });
+
+  it("answers with the endpoint and every check, in the shape create already uses", () => {
+    const parsed = endpointUpdateResponseSchema.safeParse({
+      endpoint: validEndpointDto,
+      checks: [
+        {
+          code: "price_floor",
+          ok: true,
+          message: "The price is at or above the configured floor.",
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+
+    // An undeclared check code is a parse error here rather than an unmapped code
+    // in the dashboard, which is the same reason the create response declares them.
+    const drifted = endpointUpdateResponseSchema.safeParse({
+      endpoint: validEndpointDto,
+      checks: [{ code: "some_new_check", ok: false, message: "nope" }],
+    });
+    expect(drifted.success).toBe(false);
   });
 });
 

@@ -127,6 +127,20 @@ function findStandingRoute(
     .then((rows) => rows[0] ?? null);
 }
 
+/**
+ * The route an endpoint already points at (D9). Read-only, and here rather than in
+ * `services/endpoints.ts` so that `payout_routes` has one module that knows its
+ * columns — the same reason it has one writer.
+ */
+export function routeById(db: Db, routeId: string): Promise<PayoutRoute | null> {
+  return db
+    .select()
+    .from(payoutRoutes)
+    .where(eq(payoutRoutes.id, routeId))
+    .limit(1)
+    .then((rows) => rows[0] ?? null);
+}
+
 export async function routeForDestination(
   db: Db,
   deps: PayoutRouteDeps,
