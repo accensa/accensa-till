@@ -87,6 +87,13 @@ hits=$(violations_in 'insert\(ledgerEntries\)|into ledger_entries' 'services/led
 hits=$(violations_in 'insert\(payoutRoutes\)' 'services/payout-routes\.ts' apps/api/src)
 [ -z "$hits" ] || report "only services/payout-routes.ts inserts into payout_routes (D5, PO-1)" "$hits"
 
+# E2 (LR-2): the link between a payment and a swap has exactly one writer. D6's poller
+# owns a swap's state and amounts; nobody else may decide which payment a swap belongs
+# to, because a second matcher is a second opinion about the same money — and the one
+# opinion Till is allowed to have is the transaction hash (risk B6 forbids the rest).
+hits=$(violations_in 'set\(\{ paymentId|set payment_id|payment_id" *=' 'services/swaps\.ts' apps/api/src)
+[ -z "$hits" ] || report "only services/swaps.ts links a payment to a swap (E2, LR-2)" "$hits"
+
 hits=$(violations_in 'update\(payoutRoutes\)|delete\(payoutRoutes\)|into payout_routes|payout_routes set' 'never-matches' apps/api/src)
 [ -z "$hits" ] || report "payout_routes is never rewritten from application code: insert a new route (D5, PO-7)" "$hits"
 
