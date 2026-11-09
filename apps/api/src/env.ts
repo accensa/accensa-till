@@ -158,6 +158,13 @@ export const envSchema = z
      */
     POLL_MAX_BACKOFF_SECONDS: positiveInt(900),
     RECONCILE_INTERVAL_SECONDS: positiveInt(60),
+    /**
+     * E9's `PAYMENT_NOT_SWEPT` window: a settled `intents` payment with no swap
+     * that carries its hash after this is a finding. C11 deleted this knob because
+     * nothing read it; E9 is the reader, and ARCHITECTURE 7 asks for the sweep
+     * delay to come from the environment rather than from a rule.
+     */
+    SWEEP_WINDOW_SECONDS: positiveInt(300),
     STUCK_WINDOW_SECONDS: positiveInt(900),
     SHORTFALL_TOLERANCE_BPS: toleranceBps(50),
 

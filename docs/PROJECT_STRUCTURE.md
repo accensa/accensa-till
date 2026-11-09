@@ -82,8 +82,9 @@ till/
 │   │   │   │   └── export.ts     # ledger CSV (P1)
 │   │   │   ├── jobs/
 │   │   │   │   ├── loop.ts       # timer helper with SKIP LOCKED claiming
-│   │   │   │   ├── poll-payouts.ts
-│   │   │   │   ├── reconcile.ts  # load snapshot, call core rules, persist findings
+│   │   │   │   ├── poll-payouts.ts # claims due swaps, asks the provider, books the answer, and names the sellers it moved (D6)
+│   │   │   │   ├── reconcile.ts  # one transaction per seller: claim it, read its snapshot on the database clock, call core's rules, write the findings (E9)
+│   │   │   │   ├── ticks.ts      # the two loop bodies: poll and then reconcile the sellers it moved, and reconcile everyone on the other interval (E9)
 │   │   │   │   └── sweep-stale.ts    # boot sweep (C10): stale `verified` rows by row evidence + chain read
 │   │   │   └── lib/
 │   │   │       ├── logger.ts
@@ -216,6 +217,7 @@ db                     ──►  lib
 - A test suite that writes ledger rows cannot delete them, in `test/` or anywhere else: A7's trigger refuses `DELETE` on `ledger_entries`, then the foreign key refuses the payment a ledger row points at, then the endpoint behind that. So a DB-backed suite mints its own ids per run and asserts counts filtered by them, and leaves its rows in the database (`append-only.test.ts` and `ledger.test.ts` both end with `sql.end()` and nothing else). That is not a leak to fix but the table's rule applied to the test, and it is the reason no test here counts a whole table.
 - Only `services/payout-routes.ts` inserts into `payout_routes`, and nothing in `apps/api/src` updates, deletes or raw-writes it (D5). Two guards, deliberately redundant: `scripts/check-boundaries.sh` greps the source so a rewrite fails the commit, and migration `0007_payout_routes_immutable.sql` raises at the database so a row cannot be edited after the fact. The grep cannot see a rewrite that already happened and the trigger cannot stop the code from being written, so neither alone is the rule.
 - Only `services/swaps.ts` links a payment to a swap (E2, LR-2). The column is `swaps.payment_id`, and the rule is about who may write it, not about who may write `swaps`: D6's poller owns a swap's state, amounts and timestamps, and may not decide which payment the money belongs to. `scripts/check-boundaries.sh` greps for a `set({ paymentId })` (or a raw `payment_id` assignment) outside that file, and the rule was watched firing — a planted second writer printed the rule with the offending file and line and exited 1, then was deleted and the gate re-run green. The other half of hard rule 5, "never match by amount or time", is *not* expressible as a grep: text cannot prove the absence of a heuristic. It is held instead by `test/swap-matching.test.ts`, which links two rows whose amount and timestamps disagree and refuses two rows whose amount, asset and both timestamps agree, so a matcher that drifted toward a heuristic fails a test rather than passing a build.
+- Only `services/discrepancies.ts` writes the `discrepancies` table (E9, LR-4). Rules are pure and never touch it; `jobs/reconcile.ts` hands its findings to `writeFindings` *inside the transaction that holds the seller's claim*, and the dashboard closes a row through `resolveManually` in this same file rather than with an UPDATE of its own. One owner matters because that file owns two answers nothing else can recompute: which cause a row *is* (`dedupeKeyFor`) and when it was first seen (`opened_at`, which a re-run must not move). The grep was watched firing at a planted second writer — an UPDATE and an INSERT in a new file, both printed with file and line, gate exit 1 — then deleted and re-run green.
 - `payouts` and `x402` never import from `db` or `services`.
 - `apps/web` never imports from `apps/api`.
 - `apps/web` never imports `@till/core` itself, only its browser-safe subtrees `@till/core/schemas`, `@till/core/money`, `@till/core/states`. The barrel reaches `node:crypto` and a client bundle cannot contain it, so `scripts/check-boundaries.sh` runs `next build` and lets the bundler judge the whole tree instead of grepping for one specifier: a core subtree that re-exported `ids.ts` passed every string rule and failed the build (observed 2026-11-05). Cost is about 16 seconds on `pnpm boundaries`.
@@ -232,7 +234,7 @@ db                     ──►  lib
 | A payout provider | New folder in `apps/api/src/payouts/`, implement `PayoutProvider`, register in `createProvider` |
 | A dashboard endpoint | Zod schema in `packages/core/src/schemas/`, route in `apps/api/src/routes/`, mounted in `app.ts`, call in `apps/web/lib/api-client.ts` |
 | A table or column | `apps/api/src/db/schema.ts`, run `pnpm db:generate`, commit the migration |
-| A background loop | File in `apps/api/src/jobs/`, start it from `server.ts` |
+| A background loop | File in `apps/api/src/jobs/`, its body in `ticks.ts`, and start it from `server.ts` — a test cannot import `server.ts` without binding a port, so nothing that must be asserted on belongs in the `startLoop` call |
 | A guard on paid requests | `apps/api/src/gateway/guards.ts` with a test in `apps/api/test/` |
 | An env var | `env.ts` schema and `.env.example` in the same change — except a variable only `apps/web` reads (`API_ORIGIN`), which has no `env.ts` and is documented in `.env.example` and the apps/web section above |
 | A UI primitive | `apps/web/components/ui/` |
@@ -278,7 +280,7 @@ db                     ──►  lib
 - `UPSTREAM_TIMEOUT_MS`, `UPSTREAM_MAX_BYTES`, `AUTHORIZATION_EXPIRY_MARGIN_MS`
 - `MAX_SPONSORED_GAS`, `MIN_PRICE_BASE_UNITS`
 - `POLL_INTERVAL_SECONDS`, `POLL_MAX_BACKOFF_SECONDS`, `RECONCILE_INTERVAL_SECONDS`
-- `STUCK_WINDOW_SECONDS`, `SHORTFALL_TOLERANCE_BPS`
+- `STUCK_WINDOW_SECONDS`, `SWEEP_WINDOW_SECONDS`, `SHORTFALL_TOLERANCE_BPS`
 
 `C10`'s boot sweep has no window variable of its own: it uses Guard 3's derived
 in-flight window (`UPSTREAM_TIMEOUT_MS + AUTHORIZATION_EXPIRY_MARGIN_MS`), because

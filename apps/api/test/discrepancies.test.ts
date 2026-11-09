@@ -214,6 +214,35 @@ describe.skipIf(handle === null)("E8 discrepancies", () => {
     ]);
   });
 
+  it("recomputes the dedupe key instead of trusting the one a finding carries", async () => {
+    const { db } = need();
+    // Two different causes whose rules both wrote the *same* hand-written key. The
+    // key is this module's, not a rule's, so the causes stay two causes: a writer
+    // that trusted `finding.dedupeKey` would swallow the second one as a duplicate of
+    // the first and the seller would never see a live cause at all.
+    const written = await persistFindings(db, sellerId, [
+      finding({ code: "PAYOUT_STUCK", dedupeKey: "one-key-two-causes" }),
+      finding({ code: "PAYMENT_NOT_SWEPT", dedupeKey: "one-key-two-causes" }),
+    ]);
+    expect(written).toEqual({ opened: 2, closed: 0 });
+    expect((await openRows(sellerId)).map((row) => row.dedupe_key)).toEqual([
+      "PAYMENT_NOT_SWEPT:none:none",
+      "PAYOUT_STUCK:none:none",
+    ]);
+
+    // The recomputed key is also what deduplicates a repeat, so the string a rule
+    // hands over cannot strand a cause as a fresh row: one reported cause, with a
+    // *different* bogus key, is still the row that is already open. The other cause
+    // is no longer reported and closes.
+    const again = await persistFindings(db, sellerId, [
+      finding({ code: "PAYOUT_STUCK", dedupeKey: "a-different-bogus-key" }),
+    ]);
+    expect(again).toEqual({ opened: 0, closed: 1 });
+    expect((await openRows(sellerId)).map((row) => row.dedupe_key)).toEqual([
+      "PAYOUT_STUCK:none:none",
+    ]);
+  });
+
   it("keeps the same null-subject cause open for two sellers", async () => {
     // The cause key carries no seller id, so the index must: a global key would
     // let one seller's orphan deposit block every other seller's.

@@ -106,25 +106,39 @@ const home = {
   label: "home",
 };
 
+/**
+ * A second seller, route only. It exists for `movedSellers`, which is a *set* and so
+ * cannot be shown to be a set out of one seller's rows.
+ */
+const far = {
+  sellerId: randomUUID(),
+  routeId: randomUUID(),
+  label: "far",
+};
+
+type Fixture = typeof home | typeof far;
+
 async function seed(): Promise<void> {
   const { db } = need();
-  await db.insert(sellers).values({
-    id: home.sellerId,
-    nearAccountId: `till-d6-${home.label}-${run}.testnet`,
-    displayName: `D6 fixture ${home.label}`,
-  });
-  await db.insert(payoutRoutes).values({
-    id: home.routeId,
-    sellerId: home.sellerId,
-    destinationChain: "near",
-    destinationAsset: DESTINATION_ASSET,
-    destinationAddress: `dest-${run}.testnet`,
-    refundAddress: `refund-${run}.testnet`,
-    provider: "mock",
-    depositAddress: `mock-deposit-${run}`,
-    quoteRef: `mock-quote-${run}`,
-    modeDetail: "standing",
-  });
+  for (const seller of [home, far]) {
+    await db.insert(sellers).values({
+      id: seller.sellerId,
+      nearAccountId: `till-d6-${seller.label}-${run}.testnet`,
+      displayName: `D6 fixture ${seller.label}`,
+    });
+    await db.insert(payoutRoutes).values({
+      id: seller.routeId,
+      sellerId: seller.sellerId,
+      destinationChain: "near",
+      destinationAsset: DESTINATION_ASSET,
+      destinationAddress: `dest-${seller.label}-${run}.testnet`,
+      refundAddress: `refund-${seller.label}-${run}.testnet`,
+      provider: "mock",
+      depositAddress: `mock-deposit-${seller.label}-${run}`,
+      quoteRef: `mock-quote-${seller.label}-${run}`,
+      modeDetail: "standing",
+    });
+  }
 }
 
 /**
@@ -152,13 +166,15 @@ async function newSwap(fields: {
   amountIn?: string | null;
   amountOut?: string | null;
   raw?: unknown;
+  /** Whose money this is; the second seller exists so a set can be a set. */
+  seller?: Fixture;
 }): Promise<{ id: string; providerRef: string }> {
   const { db } = need();
   const providerRef = `d6-ref-${randomUUID()}`;
   const [row] = await db
     .insert(swaps)
     .values({
-      routeId: home.routeId,
+      routeId: (fields.seller ?? home).routeId,
       providerRef,
       state: fields.state ?? "pending",
       terminalAt: fields.terminalAt ?? null,
@@ -466,6 +482,7 @@ suite("the payout poller polls, refuses and reschedules (D6, PO-4)", () => {
       booked: 0,
       ignored: 0,
       retried: 0,
+      movedSellers: [home.sellerId],
     });
     expect(provider.asked).toEqual([[providerRef]]);
     const row = await swapRow(id);
@@ -478,6 +495,39 @@ suite("the payout poller polls, refuses and reschedules (D6, PO-4)", () => {
     // The row's own next gap, on the database clock: due in about a poll interval,
     // and not before it.
     expect(await gapSeconds(id)).toBeGreaterThan(0);
+  });
+
+  it("names every seller whose status it moved, once each", async () => {
+    // Two rows for one seller and one for another: E9 reconciles per seller, so
+    // three moved swaps are three counts and two names.
+    await newSwap({ state: "pending" });
+    await newSwap({ state: "pending" });
+    await newSwap({ state: "pending", seller: far });
+
+    const polled = await poll({
+      provider: fakeProvider(always({ state: "processing" })).source,
+    });
+
+    expect(polled.moved).toBe(3);
+    // Sorted, because the list is a set of ids and the ids are random: the order the
+    // lock handed the rows out in is not a fact about the money.
+    expect(polled.movedSellers).toEqual([home.sellerId, far.sellerId].sort());
+  });
+
+  it("names nobody for a status it dropped rather than wrote", async () => {
+    // The sticky branch claimed the row, disagreed with it and changed nothing, so
+    // there is no new fact for a reconcile pass to act on. A poller that named
+    // sellers here would reconcile a provider's lie as if it were news.
+    await newSwap({ state: "succeeded", terminalAt: null });
+
+    const polled = await poll({
+      provider: fakeProvider(always({ state: "processing" })).source,
+    });
+
+    expect(polled.claimed).toBe(1);
+    expect(polled.ignored).toBe(1);
+    expect(polled.moved).toBe(0);
+    expect(polled.movedSellers).toEqual([]);
   });
 
   it("does not ask again about a swap whose own gap has not passed", async () => {

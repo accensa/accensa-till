@@ -30,7 +30,19 @@ import { discrepancies } from "../db/schema.ts";
  * that no longer appears has cleared. Overlapping runs for one seller are E9's
  * problem — it serialises them with `SKIP LOCKED` — and this function assumes
  * one run at a time per seller.
+ *
+ * E9 is why the body is a second function (`writeFindings`) rather than one: the
+ * reconcile pass claims the seller row `FOR UPDATE SKIP LOCKED` and must still be
+ * holding that claim when the findings land, so it hands its own transaction in.
+ * A single exported function could either wrap in a transaction (releasing the
+ * claim) or not (leaving E8's callers to guess), and a caller that guesses wrong
+ * loses the guarantee the claim exists to give. So the wrapper is explicit about
+ * which door it is: `persistFindings` opens a transaction of its own,
+ * `writeFindings` runs inside one that is already open.
  */
+
+/** drizzle's transaction handle: the same `Tx` shape the ledger and swap writers take. */
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** Bounded at the read as well as in the contract (C15): the page renders what it is given. */
 export const DISCREPANCY_LIST_LIMIT = 256;
@@ -40,54 +52,81 @@ export type PersistFindingsResult = {
   readonly closed: number;
 };
 
+export type PersistFindingsOptions = {
+  /**
+   * Close open causes the findings do not name. Default `true`, and E9 sets it to
+   * `false` for a pass whose snapshot is **partial** — the rules could not see
+   * everything the seller has, so an absent cause is not evidence of a cleared one.
+   * Turning this off costs a stale row lingering until a complete pass; turning it
+   * on for a partial snapshot would silently shut a live finding, which is the
+   * failure mode the row exists to prevent.
+   */
+  readonly autoClose?: boolean;
+};
+
 export async function persistFindings(
   db: Db,
   sellerId: string,
   findings: readonly Finding[],
+  options: PersistFindingsOptions = {},
+): Promise<PersistFindingsResult> {
+  return db.transaction((tx) => writeFindings(tx, sellerId, findings, options));
+}
+
+/** The same write, inside a transaction the caller already holds. */
+export async function writeFindings(
+  tx: Tx,
+  sellerId: string,
+  findings: readonly Finding[],
+  options: PersistFindingsOptions = {},
 ): Promise<PersistFindingsResult> {
   const keys = [...new Set(findings.map((finding) => keyOf(finding)))];
 
-  return db.transaction(async (tx) => {
-    const opened: { id: string }[] = [];
-    for (const finding of findings) {
-      const inserted = await tx
-        .insert(discrepancies)
-        .values({
-          sellerId,
-          code: finding.code,
-          severity: finding.severity,
-          paymentId: finding.paymentId,
-          swapId: finding.swapId,
-          dedupeKey: keyOf(finding),
-          explanation: finding.explanation,
-          suggestedAction: finding.suggestedAction,
-          details: finding.details ?? null,
-          openedAt: sql`now()`,
-        })
-        .onConflictDoNothing({
-          target: [discrepancies.sellerId, discrepancies.dedupeKey],
-          where: sql`${discrepancies.resolvedAt} is null`,
-        })
-        .returning({ id: discrepancies.id });
-      opened.push(...inserted);
-    }
-
-    const closed = await tx
-      .update(discrepancies)
-      .set({ resolvedAt: sql`now()`, resolution: "auto" })
-      .where(
-        keys.length === 0
-          ? and(eq(discrepancies.sellerId, sellerId), isNull(discrepancies.resolvedAt))
-          : and(
-              eq(discrepancies.sellerId, sellerId),
-              isNull(discrepancies.resolvedAt),
-              notInArray(discrepancies.dedupeKey, keys),
-            ),
-      )
+  const opened: { id: string }[] = [];
+  for (const finding of findings) {
+    const inserted = await tx
+      .insert(discrepancies)
+      .values({
+        sellerId,
+        code: finding.code,
+        severity: finding.severity,
+        paymentId: finding.paymentId,
+        swapId: finding.swapId,
+        dedupeKey: keyOf(finding),
+        explanation: finding.explanation,
+        suggestedAction: finding.suggestedAction,
+        details: finding.details ?? null,
+        openedAt: sql`now()`,
+      })
+      .onConflictDoNothing({
+        target: [discrepancies.sellerId, discrepancies.dedupeKey],
+        where: sql`${discrepancies.resolvedAt} is null`,
+      })
       .returning({ id: discrepancies.id });
+    opened.push(...inserted);
+  }
 
-    return { opened: opened.length, closed: closed.length };
-  });
+  if (options.autoClose === false) {
+    // A partial pass opens and never closes, so `closed` is a fact about this write
+    // rather than a number that quietly means "nothing needed closing".
+    return { opened: opened.length, closed: 0 };
+  }
+
+  const closed = await tx
+    .update(discrepancies)
+    .set({ resolvedAt: sql`now()`, resolution: "auto" })
+    .where(
+      keys.length === 0
+        ? and(eq(discrepancies.sellerId, sellerId), isNull(discrepancies.resolvedAt))
+        : and(
+            eq(discrepancies.sellerId, sellerId),
+            isNull(discrepancies.resolvedAt),
+            notInArray(discrepancies.dedupeKey, keys),
+          ),
+    )
+    .returning({ id: discrepancies.id });
+
+  return { opened: opened.length, closed: closed.length };
 }
 
 /**

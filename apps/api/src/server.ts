@@ -5,8 +5,9 @@ import { createDb } from "./db/client.ts";
 import { loadEnv } from "./env.ts";
 import { inFlightWindowSeconds } from "./gateway/guards.ts";
 import { startLoop } from "./jobs/loop.ts";
-import { type PollStatusSource, pollPayouts } from "./jobs/poll-payouts.ts";
+import type { PollStatusSource } from "./jobs/poll-payouts.ts";
 import { sweepStaleOnBoot } from "./jobs/sweep-stale.ts";
+import { pollTick, reconcileTick } from "./jobs/ticks.ts";
 import { createLogger } from "./lib/logger.ts";
 import { createProvider } from "./payouts/index.ts";
 import type { PayoutProvider } from "./payouts/provider.ts";
@@ -84,26 +85,42 @@ const statusSource: PollStatusSource = {
   },
 };
 
+// E9's three windows, all from the environment (ARCHITECTURE 7): a rule that aged a
+// row against a number in its own file could not be retuned for a slower payout
+// provider without a code change.
+const reconcileConfig = {
+  sweepWindowSeconds: env.SWEEP_WINDOW_SECONDS,
+  stuckWindowSeconds: env.STUCK_WINDOW_SECONDS,
+  shortfallToleranceBps: env.SHORTFALL_TOLERANCE_BPS,
+};
+
+// Two timer loops in this one process (hard rule 10), and the bodies are in
+// `jobs/ticks.ts` rather than here: this file cannot be imported by a test without
+// binding a port, so the wiring that E9's task line asks for -- reconcile the
+// sellers whose status just moved -- is the function a test can call.
+// `startLoop`'s overlap skip is what keeps a slow provider from stacking a tick on
+// top of the one it fired for.
 startLoop({
   name: "poll-payouts",
   seconds: env.POLL_INTERVAL_SECONDS,
   log,
-  run: async () => {
-    const polled = await pollPayouts({
+  run: () =>
+    pollTick({
       db,
-      provider: statusSource,
+      statusSource,
       pollSeconds: env.POLL_INTERVAL_SECONDS,
       maxBackoffSeconds: env.POLL_MAX_BACKOFF_SECONDS,
+      config: reconcileConfig,
       log,
-    });
-    if (polled.claimed > 0) {
-      log.info({ loop: "poll-payouts", ...polled }, "payout statuses polled");
-    }
-  },
+    }),
 });
 
-// TODO(E9): start the reconcile loop from here on the same helper:
-//   startLoop({ name: "reconcile", seconds: env.RECONCILE_INTERVAL_SECONDS, run: reconcile })
+startLoop({
+  name: "reconcile",
+  seconds: env.RECONCILE_INTERVAL_SECONDS,
+  log,
+  run: () => reconcileTick({ db, config: reconcileConfig, log }),
+});
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {
   log.info({ port: info.port, provider: env.PAYOUT_PROVIDER }, "api listening");

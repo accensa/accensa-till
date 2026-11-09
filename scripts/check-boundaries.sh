@@ -97,6 +97,15 @@ hits=$(violations_in 'set\(\{ paymentId|set payment_id|payment_id" *=' 'services
 hits=$(violations_in 'update\(payoutRoutes\)|delete\(payoutRoutes\)|into payout_routes|payout_routes set' 'never-matches' apps/api/src)
 [ -z "$hits" ] || report "payout_routes is never rewritten from application code: insert a new route (D5, PO-7)" "$hits"
 
+# E9 (LR-4, LR-5): `discrepancies` has one writer. The rules are pure and the loop is
+# a reader, so a second module that inserted or updated rows would be a second owner of
+# the dedupe key and of `opened_at` — and "when was this first seen" plus "is this the
+# same cause" are the two answers the whole worklist is built on. E8's `writeFindings`
+# is that one place; the dashboard closes a row through `resolveManually`, in the same
+# file, rather than with an UPDATE of its own.
+hits=$(violations_in 'insert\(discrepancies\)|update\(discrepancies\)|delete\(discrepancies\)|into discrepancies|discrepancies set' 'services/discrepancies\.ts' apps/api/src)
+[ -z "$hits" ] || report "only services/discrepancies.ts writes the discrepancies table (E9, LR-4)" "$hits"
+
 hits=$(violations_in 'from "\.\./(db|services)/' 'never-matches' apps/api/src/payouts apps/api/src/x402)
 [ -z "$hits" ] || report "payouts/ and x402/ must not import upward from db/ or services/" "$hits"
 

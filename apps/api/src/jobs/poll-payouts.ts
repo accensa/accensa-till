@@ -76,11 +76,12 @@ export type PollDeps = {
 };
 
 /**
- * Every field is a count this file's tests read, so none of them is decoration:
- * `claimed` is what the lock handed out, `moved` is what actually changed state,
- * `terminal` is the transitions that are now events (E1's question), `booked` the
- * ledger lines written for them, `ignored` the statuses dropped as disagreements,
- * and `retried` the rows pushed onto a longer gap by a provider that threw.
+ * Six counts and one list, and every one of them is read by this file's tests, so
+ * none is decoration: `claimed` is what the lock handed out, `moved` is what
+ * actually changed state, `terminal` is the transitions that are now events (E1's
+ * question), `booked` the ledger lines written for them, `ignored` the statuses
+ * dropped as disagreements, `retried` the rows pushed onto a longer gap by a
+ * provider that threw, and `movedSellers` whose money that was.
  */
 export type PollResult = {
   readonly claimed: number;
@@ -89,6 +90,15 @@ export type PollResult = {
   readonly booked: number;
   readonly ignored: number;
   readonly retried: number;
+  /**
+   * The sellers whose swaps this pass actually changed, sorted so a caller can
+   * assert it without depending on row order. E9 reconciles exactly these right
+   * away, because "a status changed" is the event that makes a seller's open
+   * discrepancies wrong, and waiting for the next interval tick to notice would
+   * leave the dashboard describing money that has already moved (ARCHITECTURE 7).
+   * A pass that claimed rows and disagreed with all of them names nobody.
+   */
+  readonly movedSellers: readonly string[];
 };
 
 /**
@@ -99,8 +109,8 @@ export type PollResult = {
  */
 export const DEFAULT_POLL_BATCH_SIZE = 25;
 
-/** The result's own fields, mutable while one pass is running. */
-type Counts = { -readonly [K in keyof PollResult]: PollResult[K] };
+/** The result's own counts, mutable while one pass is running. */
+type Counts = { -readonly [K in keyof Omit<PollResult, "movedSellers">]: PollResult[K] };
 
 /** A provider answer this module is willing to write, after the boundary check. */
 type Answer = {
@@ -239,6 +249,9 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
   const batchSize = deps.batchSize ?? DEFAULT_POLL_BATCH_SIZE;
   // The public shape publishes these as read-only; the pass fills them in as it goes.
   const counts: Counts = { claimed: 0, moved: 0, terminal: 0, booked: 0, ignored: 0, retried: 0 };
+  // Distinct, because one seller with three swaps that all moved is one seller for
+  // E9, and a duplicated id would ask the reconcile pass to lock it twice.
+  const movedSellers = new Set<string>();
 
   await db.transaction(async (tx) => {
     // The annotation is the check that the claim query still answers what the loop
@@ -421,6 +434,7 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
           .set({ ...writes, state: to })
           .where(eq(swaps.id, row.id));
         counts.moved += 1;
+        movedSellers.add(row.sellerId);
         if (becameTerminal) {
           counts.terminal += 1;
         }
@@ -489,5 +503,5 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
     }
   });
 
-  return { ...counts };
+  return { ...counts, movedSellers: [...movedSellers].sort() };
 }

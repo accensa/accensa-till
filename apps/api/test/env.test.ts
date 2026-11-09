@@ -249,3 +249,52 @@ describe("process-wide limits (GW-10, C13)", () => {
     ).toBe(BigInt(exact));
   });
 });
+
+/**
+ * E9's three windows (LR-3). These are the numbers the reconcile rules age against,
+ * and `jobs/reconcile.ts` is their only reader: an env value that parses but is not
+ * wired into `ReconcileConfig` is a knob that does nothing, which is what C11 deleted
+ * `SWEEP_WINDOW_SECONDS` for. So the default and the wiring are pinned together here.
+ */
+describe("reconciliation windows (E9, LR-3)", () => {
+  it("defaults to the PRD's five and fifteen minutes over a 50 bps tolerance", () => {
+    const env = loadEnv({ ...process.env, ...required });
+    expect(env.SWEEP_WINDOW_SECONDS).toBe(300);
+    expect(env.STUCK_WINDOW_SECONDS).toBe(900);
+    expect(env.SHORTFALL_TOLERANCE_BPS).toBe(50);
+  });
+
+  it("refuses a sweep window that is not a positive integer", () => {
+    // A zero or negative sweep window would make `PAYMENT_NOT_SWEPT` fire on a
+    // payment still inside the relayer's own turn, and a float would be rounded by
+    // whichever of the two parsers met it first.
+    for (const value of ["0", "-300", "1.5", "abc"]) {
+      expect(
+        () => loadEnv({ ...process.env, ...required, SWEEP_WINDOW_SECONDS: value }),
+        value,
+      ).toThrow(/SWEEP_WINDOW_SECONDS/);
+    }
+  });
+
+  it("carries every window to the rules in one config object", () => {
+    // The shape `server.ts` builds for `reconcileSellers`; if a key is renamed or
+    // dropped there, this object stops matching the rule's own input type.
+    const env = loadEnv({
+      ...process.env,
+      ...required,
+      SWEEP_WINDOW_SECONDS: "45",
+      STUCK_WINDOW_SECONDS: "60",
+      SHORTFALL_TOLERANCE_BPS: "25",
+    });
+    const config = {
+      sweepWindowSeconds: env.SWEEP_WINDOW_SECONDS,
+      stuckWindowSeconds: env.STUCK_WINDOW_SECONDS,
+      shortfallToleranceBps: env.SHORTFALL_TOLERANCE_BPS,
+    };
+    expect(config).toEqual({
+      sweepWindowSeconds: 45,
+      stuckWindowSeconds: 60,
+      shortfallToleranceBps: 25,
+    });
+  });
+});
