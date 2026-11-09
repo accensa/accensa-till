@@ -1,6 +1,8 @@
 # DQ-1: a fresh clone runs `docker compose up` with no keys. The values below are
-# development-only defaults, chosen to be useless anywhere else. Real secrets come
-# from a local .env, which is gitignored (AGENTS.md "Money and secrets safety").
+# development-only defaults, chosen to be useless anywhere else. Nothing here reads
+# a .env file — `apps/api/src/env.ts` reads process.env, and AGENTS.md "Money and
+# secrets safety" forbids creating one — so these are the whole configuration, and
+# `compose up` is the only way this file ships any of it.
 name: till
 
 services:

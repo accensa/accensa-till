@@ -20,6 +20,13 @@ print; the numbered steps are the judge's script (DQ-1, and `HACKATHON.md` Q-012
 and Q-017 — this file is written to be followed by a machine as much as by a
 person).
 
+Those steps were also run from a fresh `git clone` of `main` rather than from a
+developer's checkout (G3): cold image build with zero cached steps, no key, no
+secret and no exported variable, `pnpm seed` idempotent on its second call, the
+`402` below, `pnpm demo` exiting `0` twice on one volume, and `git status` clean
+with no root-owned file in the clone afterwards. What that run cannot claim is a
+different machine: it was the same host, daemon and OS as everything else here.
+
 ### With Docker
 
 1. `docker compose up`
