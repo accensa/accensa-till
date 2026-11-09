@@ -10,7 +10,7 @@ Change from v1: `packages/db`, `packages/payouts` and `packages/x402` became fol
 
 ```
 till/
-├── README.md                     # what is real vs mocked, known limitations, quickstart
+├── README.md                     # quickstart, real vs mocked, limitations, built with, contributing
 ├── AGENTS.md                     # rules for coding agents (shared)
 ├── CLAUDE.md                     # Claude Code additions; imports AGENTS.md
 ├── ROADMAP.md                    # live task list and status; updated in EVERY contribution

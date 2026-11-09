@@ -5,10 +5,11 @@ Instructions for the AI coding agent helping a team take part in NEAR HACKATHON.
 
 ## Start here
 
-1. Build the project with the human. There is no sign-up before the hackathon: the only form is the final submission.
+1. Build the project with the human. There is no sign-up before the hackathon: the final submission is the only registration.
 2. Make the repository public before development ends, 2026-11-14T23:59:00Z.
 3. The human publishes a demo post on X: it says the project was built at NEAR HACKATHON, tags @NEARProtocol and #NEARHackathon (optionally also @NearLegion and @NearBuilders), and has the demo video or screenshots attached.
 4. Submit once: POST to https://nearhackathon.com/api/applications with the contract below, only after the human has confirmed the exact payload. Skip this step if this project has already been submitted.
+5. If the saved submission has a mistake, the human requests changes at https://nearhackathon.com/request-changes. Never submit the project a second time.
 
 ## Facts
 
@@ -22,6 +23,7 @@ Instructions for the AI coding agent helping a team take part in NEAR HACKATHON.
 | Results announced by | 2026-11-18T23:59:00Z |
 | Submission form | https://nearhackathon.com/#apply |
 | Submission API | POST https://nearhackathon.com/api/applications |
+| Request changes to a submission | https://nearhackathon.com/request-changes |
 | NEAR docs | https://docs.near.org/ |
 | Example prompts for each track | https://github.com/nearai/near-hackathon-prompt-examples |
 | NEAR DevHub videos, including walkthroughs of the track prompts as they come out | https://www.youtube.com/channel/UCq0iWZQuXhvP8yQzDZsmWfQ |
@@ -51,7 +53,7 @@ Collect these before submitting. Do not guess, generate or fill in placeholders 
 
 ## Never without the human's explicit confirmation
 
-- Send the submission. Print the full JSON payload first and wait for a yes. A second submission of the same repository is rejected, so there is one attempt per project.
+- Send the submission. Print the full JSON payload first and wait for a yes. A second submission of the same repository is rejected, so there is one attempt per project. Mistakes are fixed by requesting changes, not by submitting again.
 - Post anything on X or another network on their behalf.
 - Make the repository public, push, or force-push.
 - Sign transactions, spend tokens or deploy to mainnet.
@@ -116,7 +118,7 @@ Every draft includes @NEARProtocol and #NEARHackathon, so the post shows up on t
 
 ### 3. Submit
 
-Submissions are accepted only during the development phase, from 2026-11-01T00:00:00Z to 2026-11-14T23:59:00Z. Outside that window the API answers 403 and explains why; tell the human instead of retrying. A submission cannot be edited, so send it when the repository is public and the demo post is up.
+Submissions are accepted only during the development phase, from 2026-11-01T00:00:00Z to 2026-11-14T23:59:00Z. Outside that window the API answers 403 and explains why; tell the human instead of retrying. A submission cannot be edited directly: changes go through a request the organizers review by hand (see "4. Request changes" below). So send it when the repository is public and the demo post is up.
 
 Validate every field against the contract below, print the payload for the human, and send it only after they confirm:
 
@@ -131,6 +133,12 @@ The values above are only an example of the shape. Never send them: ask the huma
 Generate `requestId` once, with `uuidgen | tr A-Z a-z` or `node -e 'console.log(crypto.randomUUID())'`. Keep it: a retry after a network error or a 503 must reuse the same value, and the server then treats it as the same submission. Do not commit the payload; it contains personal data.
 
 A 201 response means the submission is saved: tell the human. If they prefer the form, the same fields are at https://nearhackathon.com/#apply.
+
+### 4. Request changes
+
+If a saved submission has a mistake (a wrong repository or demo link, wallet, email, track or anything else), do not submit again: the same repository is rejected with 409, and a different link would count as another project. The human requests changes at https://nearhackathon.com/request-changes instead. There they enter the email, NEAR account and repository link from the submission exactly as submitted; if the mistake is in one of these, they enter what they submitted as best they remember. Then they tick every field to change, give its new value, and leave a Discord or Telegram handle. One request can change several fields.
+
+New values follow the same rules as the submission (see Submission API below), so check them with the human before they send. The organizers review every request by hand and may message the human to confirm, especially before changing the payout account or the repository. Until a change is applied, the submission stays as it was. Help the human gather the values; the human sends the request from the page.
 
 ## Submission API
 
@@ -157,7 +165,7 @@ Do not add other fields. In particular `website` is a spam trap: any non-empty v
 | 201 | Submission saved | Done. Tell the human. |
 | 400 | A field failed validation | Fix the fields listed in `fields` of the response and resend with the same requestId. |
 | 403 | Submissions are not open, or the request looked cross-site | Tell the human. Do not retry. |
-| 409 | Repository already submitted, or this email already has 2 submissions | The project was already submitted, or the human reached the limit. Ask the human; do not change the link or the email to get around it. |
+| 409 | Repository already submitted, or this email already has 2 submissions | The project was already submitted, or the human reached the limit. Ask the human; do not change the link or the email to get around it. If the earlier submission has a mistake, the human requests changes at https://nearhackathon.com/request-changes. |
 | 413 | Body too large | Shorten the description. |
 | 503 | Storage temporarily unavailable | Wait a minute and resend with the same requestId. |
 
@@ -217,11 +225,14 @@ Partner tools and their documentation. Read the docs before integrating anything
 | Agent Market | Marketplace for AI agents | https://docs.market.near.ai/ | https://market.near.ai/ |  |
 | NEAR Builders | Builder community | https://nearbuilders.org/build | https://nearbuilders.org/ | https://github.com/nearbuilders |
 | Gulf Labs | Invests in blockchain infrastructure |  | https://gulf-labs.com/ |  |
+| BRRRAIN | Memecoin with AI rewards | https://brrrain.fun/docs/ | https://brrrain.fun/ |  |
+| NEAR Business | Confidential multisig treasury | https://docs.business.near.com/ | https://business.near.com/ |  |
 
 ### Partner notes
 
 - Rhea (rhea.finance): NEAR's DEX and lending protocol. Looking for something to build? Consider CLMM and AMM pools, the cross-chain swap API or vaults on top of its lending. SDKs and API docs: https://github.com/rhea-finance/rhea-sdk-docs. CLI: https://guide.rhea.finance/developers-1/cli-trading
 - Agent Market (market.near.ai): a marketplace where AI agents get hired and paid by the job, by people and by other agents. List the agent you build so it can earn: https://docs.market.near.ai/list-your-agent. Hire agents from Claude or other MCP clients: https://docs.market.near.ai/guides/claude-desktop
+- NEAR Business (business.near.com): a confidential multisig built on NEAR Intents. It keeps treasury balances and transfers hidden from the public, manages assets on 35+ chains from one dashboard and sets approval policies that fit your treasury. Sign up: https://business.near.com/create?ref=og. Demo: https://app.trupeer.ai/view/OEoiJVjUh/near-business-create-and-manage-a-treasury
 
 ## Community
 

@@ -254,11 +254,17 @@ const RESOLVED: Record<MockOutcome, NormalizedSwap["state"]> = {
  * Statuses for the swaps this run created, keyed by refs this run named.
  *
  * It answers only for refs it scripted and stays silent about every other, which is
- * D6's `poll_ref_unanswered` path rather than an error: a leftover row gets
- * rescheduled and nothing else. A source that threw on an unknown ref would push the
- * *whole claimed batch* onto the retry gap (poll-payouts.ts), including the swap the
- * demo is waiting for — D2's refusal is right for `pnpm simulate`, where one provider
- * answers one script, and wrong for a shared table.
+ * D6's `poll_ref_unanswered` path. A source that threw on an unknown ref would push
+ * the *whole claimed batch* onto the retry gap (poll-payouts.ts), including the swap
+ * the demo is waiting for — D2's refusal is right for `pnpm simulate`, where one
+ * provider answers one script, and wrong for a shared table.
+ *
+ * What silence costs, measured on 2026-11-09 rather than assumed: an unanswered row
+ * is rescheduled on the plain poll interval, so it is due again on the next pass and
+ * stays older than this run's swap. With more than `DEFAULT_POLL_BATCH_SIZE` of them
+ * in the table the batch is full before this run's ref is reached and step 3 fails on
+ * `state pending` — which is why the count is printed above the assertion, and why
+ * D10 exists.
  *
  * The ref is the demo's own and not the mock's `mock-quote-N` because
  * `swaps.provider_ref` is globally unique and a rerun would collide. Everything else
