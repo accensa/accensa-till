@@ -143,7 +143,7 @@ export type GatewayRouteDeps = {
 type GatewayEnv = { Variables: { requestId: string } };
 
 type Refusal = {
-  readonly status: 403 | 404 | 409 | 429 | 502 | 503;
+  readonly status: 403 | 404 | 405 | 409 | 429 | 502 | 503;
   readonly code: string;
   readonly detail: string;
   readonly retryAfterSeconds?: number;
@@ -286,10 +286,43 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
 
   const route = new Hono<GatewayEnv>();
 
+  /**
+   * C20, GW-2: the paywall is a GET, and any other method is refused before the
+   * resolve, the limiter, `verify` and `settle` -- no row read, no upstream dial, no
+   * ledger line, and no `PAYMENT-REQUIRED` challenge, because a method nobody can
+   * pay for gets no price to pay. GW-10's limiter does not cover the refusal: the
+   * refusal does no work worth bounding.
+   *
+   * Two call sites, because Hono cannot route a HEAD to a HEAD handler --
+   * `hono-base.js` dispatches a HEAD as a GET and answers `new Response(null, …)`.
+   * That is why the paid path saw HEADs at all: it verified a genuine delegate,
+   * settled real money, and dropped the body, so the buyer who then asked for the
+   * artifact collided with their own replay key on a `409`. The method stays
+   * readable from the request inside the GET handler, so HEAD is refused there; the
+   * rest reach the registration below instead of Hono's plain-text `404`, which a
+   * client cannot name as a policy.
+   */
+  const refuseMethod = (requestLog: Logger, method: string): Response => {
+    requestLog.warn({ code: "method_not_allowed", method }, "gateway 405");
+    return refuse({
+      status: 405,
+      code: "method_not_allowed",
+      detail: "this endpoint serves GET only",
+      headers: { Allow: "GET" },
+    });
+  };
+
   route.get("/r/:slug", async (c) => {
     const requestId = c.get("requestId");
     const slug = c.req.param("slug");
     const requestLog = log.child({ requestId, slug });
+
+    // C20: Hono rewrites a HEAD into this handler and empties the answer after it,
+    // but the request it hands the context still says HEAD, so this is where a HEAD
+    // can still be seen.
+    if (c.req.method !== "GET") {
+      return refuseMethod(requestLog, c.req.method);
+    }
 
     // 0. The process-wide request limit (GW-10), before the row read: the bound
     //    is on the work, and a limiter that ran after the SELECT would put the
@@ -749,6 +782,17 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
     );
     return responseOf(served, settled.nearTxHash);
   });
+
+  /**
+   * C20: the methods Hono does route by name, so they reach a handler instead of
+   * Hono's default `404`. HEAD is not among them -- see `refuseMethod`.
+   */
+  route.on(["POST", "PUT", "PATCH", "DELETE", "OPTIONS"], "/r/:slug", (c) =>
+    refuseMethod(
+      log.child({ requestId: c.get("requestId"), slug: c.req.param("slug") }),
+      c.req.method,
+    ),
+  );
 
   /**
    * A proxy that forwards a relative `Location` verbatim hands the buyer a path on

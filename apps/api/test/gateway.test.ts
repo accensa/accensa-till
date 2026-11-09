@@ -634,6 +634,8 @@ type CallInput = {
   readonly headers?: Record<string, string>;
   /** Ask for a slug other than this fixture's, which is how a miss is tested. */
   readonly slug?: string;
+  /** C20: every case but the method suite asks the way a payer does, with no method. */
+  readonly method?: string;
   readonly db?: Db;
   readonly limits?: GatewayLimits;
   readonly responses?: ResponseCache;
@@ -656,7 +658,10 @@ async function call(name: string, input: CallInput) {
       paymentHeaderValue(input.payment),
     );
   }
-  const response = await built.route.request(`/r/${input.slug ?? target.slug}`, { headers });
+  const response = await built.route.request(`/r/${input.slug ?? target.slug}`, {
+    headers,
+    ...(input.method === undefined ? {} : { method: input.method }),
+  });
   return { response, lines: built.lines, route: built.route };
 }
 
@@ -1856,6 +1861,141 @@ suite("the gateway paid request (C4, GW-2)", () => {
     expect(updates).toHaveLength(2);
     expect(updates[0]).toEqual({ nearTxHash: hash });
     expect(updates[1]).toMatchObject({ state: "settled", nearTxHash: hash });
+  });
+
+  /**
+   * C20, GW-2. The paid pipeline is registered for GET, and nothing in `gateway/`
+   * reads `c.req.method` -- while `proxy.ts` dials the seller with `method: "GET"`
+   * whatever arrived. So a `HEAD` that carries a real authorization verifies, serves
+   * and settles, and the transport drops the body it paid for: a payer charged for
+   * nothing, and `settled` is neither a strike (GW-7) nor a discrepancy (E4/E5), so
+   * nothing downstream would ever report it. The other methods reached Hono's
+   * plain-text `404`, which is not a Till answer.
+   *
+   * The `HEAD` case runs the shipped verifier over a genuine delegate rather than a
+   * script, because "verifies nothing" is only evidence when the payment it refuses
+   * is one the scheme would accept.
+   */
+  describe("the method policy (C20, GW-2)", () => {
+    /**
+     * Its own endpoint, not C4's `direct`. A NEP-366 delegate signs the
+     * advertisement it was minted against and is byte-identical for one pay-to and
+     * one price, so minting against the fixture the shipped-verifier test already
+     * settled would hash to that settled row, and every "nothing was booked"
+     * assertion below would be counting somebody else's payment.
+     */
+    beforeAll(async () => {
+      await insertFixture({ name: "method", payoutMode: "direct" });
+    });
+
+    /**
+     * `ledgerOf` asks what a payment booked and throws when there is no payment; the
+     * C20 question is the opposite one -- that the refusal left nothing to book -- so
+     * this counts from the key without needing a row.
+     */
+    async function ledgerCountByReplayKey(replayKey: string): Promise<number> {
+      const { sql } = need();
+      const [row] = await sql<{ n: string }[]>`
+        select count(*)::text as n
+        from ledger_entries e
+        join payments p on p.id = e.payment_id
+        where p.replay_key = ${replayKey}`;
+      return Number(row?.n ?? "0");
+    }
+
+    it("refuses a HEAD carrying a genuine paid authorization, and spends nothing", async () => {
+      fixture("method");
+      const advertised = decodeChallenge(
+        await call("method", { x402: shippedX402() }).then((c) => c.response),
+      ).accepts[0];
+      if (advertised === undefined) {
+        throw new Error("the advertisement carried no price");
+      }
+      const minted = await mintPayment(advertised);
+      const replayKey = replayKeyOf(minted.delegate);
+      const hits = sellerHits.length;
+
+      const head = await call("method", {
+        x402: shippedX402(),
+        payment: minted.body,
+        method: "HEAD",
+      });
+
+      expect(head.response.status).toBe(405);
+      expect(head.response.headers.get("allow")).toBe("GET");
+      // A method nobody can pay for gets no challenge to pay.
+      expect(head.response.headers.has(PAYMENT_REQUIRED_HEADER)).toBe(false);
+      // The three things the row exists for: no row, no dial, no ledger line.
+      expect(await paymentCountByReplayKey(replayKey)).toBe(0);
+      expect(await ledgerCountByReplayKey(replayKey)).toBe(0);
+      expect(sellerHits).toHaveLength(hits);
+      expect(head.lines).toContainEqual(
+        expect.objectContaining({ code: "method_not_allowed", method: "HEAD" }),
+      );
+    });
+
+    it("refuses the HEAD before the payment layer, so no verify is even asked", async () => {
+      const hits = sellerHits.length;
+      const calls: Call[] = [];
+
+      const head = await call("method", {
+        x402: scriptedX402({ verify: "ok", settle: "ok" }, calls),
+        payment: payloadFor("whatever.testnet"),
+        method: "HEAD",
+      });
+
+      expect(head.response.status).toBe(405);
+      expect(calls).toEqual([]);
+      expect(sellerHits).toHaveLength(hits);
+    });
+
+    it("names every other method instead of falling through to a 404", async () => {
+      for (const method of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS"]) {
+        const hits = sellerHits.length;
+        const { response, lines } = await call("method", {
+          x402: scriptedX402({ verify: "ok" }),
+          method,
+        });
+        expect([method, response.status, response.headers.get("allow")]).toEqual([
+          method,
+          405,
+          "GET",
+        ]);
+        expect(((await response.json()) as { error: string }).error).toBe("method_not_allowed");
+        expect(response.headers.has(PAYMENT_REQUIRED_HEADER)).toBe(false);
+        expect(lines).toContainEqual(
+          expect.objectContaining({ code: "method_not_allowed", method }),
+        );
+        expect(sellerHits).toHaveLength(hits);
+      }
+    });
+
+    it("serves the GET that follows the refused HEAD, on the same authorization", async () => {
+      const advertised = decodeChallenge(
+        await call("method", { x402: shippedX402() }).then((c) => c.response),
+      ).accepts[0];
+      if (advertised === undefined) {
+        throw new Error("the advertisement carried no price");
+      }
+      const minted = await mintPayment(advertised);
+      const replayKey = replayKeyOf(minted.delegate);
+
+      const head = await call("method", {
+        x402: shippedX402(),
+        payment: minted.body,
+        method: "HEAD",
+      });
+      expect(head.response.status).toBe(405);
+      expect(await paymentCountByReplayKey(replayKey)).toBe(0);
+
+      const paid = await call("method", { x402: shippedX402(), payment: minted.body });
+      expect(paid.response.status).toBe(200);
+      expect(await paymentByReplayKey(replayKey)).not.toBeNull();
+      expect(await ledgerOf(replayKey)).toEqual([
+        { kind: "payment_in", amount: PRICE },
+        { kind: "payout_out", amount: PRICE },
+      ]);
+    });
   });
 });
 

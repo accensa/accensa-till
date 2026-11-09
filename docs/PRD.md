@@ -47,7 +47,12 @@ Today the seller finds out by checking a block explorer, the Intents explorer an
 
 - A buyer or payer SDK.
 - A new facilitator protocol or any custom smart contract.
-- Non-GET methods, request bodies and streaming responses.
+- Non-GET methods, request bodies and streaming responses. A non-`GET` on a paid path
+  answers `405` with `Allow: GET` and no `PAYMENT-REQUIRED` header, before the
+  endpoint row is read and before any payment is verified (GW-2, C20): a method this
+  product does not serve is a method nobody can pay for. `HEAD` counts as a non-`GET`
+  exactly because the proxy would otherwise dial the seller with `method: "GET"`,
+  settle real money and drop the body.
 - Payout assets other than 6-decimal stablecoins.
 - Native NEAR as a payment asset (not supported by the underlying scheme).
 - Revenue splits, invoicing, tax reporting, fiat ramps and multi-user teams.
@@ -83,7 +88,7 @@ P0 must ship. P1 ships if P0 is solid. Nothing below P1 is planned.
 | ID | Pri | Requirement | Acceptance criteria |
 |---|---|---|---|
 | GW-1 | P0 | Unpaid requests get an x402 v2 `402` with requirements | `curl` returns 402 with price, asset, network and pay-to **in the base64 `PAYMENT-REQUIRED` response header**; C2 read this off the shipped client, whose body path fires only for `x402Version: 1`, so a body-only 402 is a 402 no v2 wallet can pay. Till sends the header and the same JSON in the body |
-| GW-2 | P0 | Verify, proxy to upstream, then settle | Paid call returns the upstream body; settlement hash stored |
+| GW-2 | P0 | Verify, proxy to upstream, then settle | Paid call returns the upstream body; settlement hash stored; only `GET` is served — `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS` answer `405` with `Allow: GET` before the endpoint read, the limiter, `verify` and `settle`, so nothing dials the seller and no ledger line is written (C20) |
 | GW-3 | P0 | Settle only when upstream returns 2xx; 4xx passes through, 5xx and timeouts return 502, none are charged | Tests for 2xx, 4xx, 5xx and timeout show the expected ledger result |
 | GW-4 | P0 | Replay protection; an `abandoned` payment may be retried with the same authorization, a settled one gets 409 with its receipt | Tests cover both cases |
 | GW-5 | P0 | Pre-serve guards: authorization expiry must outlast the upstream timeout, payer balance must cover the price | Tests reject short-lived and underfunded authorizations before any upstream call |

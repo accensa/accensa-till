@@ -353,16 +353,25 @@ in checks against a response or the database:
   delegate's nonce still refuses a second serve). That is reconciliation's to find,
   not the payer's to suffer. While the first request is *still* running the answer
   is C8's `429`, which is the honest one: there is no response to replay yet.
-- **GET only, and a non-GET does not say so.** The gateway registers exactly one
-  handler, `route.get("/r/:slug")`, so `POST`, `PUT`, `PATCH`, `DELETE` and
-  `OPTIONS` never reach the paywall — Hono's default not-found answers them with the
-  plain text `404 Not Found`, not `405 Method Not Allowed` and not the gateway's own
-  JSON `{"error":"endpoint_not_found"}`. Both shapes were observed on the running
-  stack: `curl -X POST /r/demo` is a text `404`, `curl /r/nope` is a JSON `404`.
-  `HEAD` is the one to know about, because it is Hono dispatching the *whole* GET
-  pipeline and dropping the body: `curl -I /r/demo` returned `402` with the
-  `PAYMENT-REQUIRED` header attached, and a `HEAD` carrying a valid payment header
-  would verify, serve and settle. The rest of PRD §4's non-goals fall out of what the
+- **GET only, and a non-GET says so.** The gateway serves one method and refuses the
+  rest by name (C20): `HEAD`, `POST`, `PUT`, `PATCH`, `DELETE` and `OPTIONS` answer
+  `405` with `Allow: GET` and the gateway's own JSON
+  `{"error":"method_not_allowed"}`, and none of them get a `PAYMENT-REQUIRED` header,
+  because a method nobody can pay for is not offered a price. The refusal runs before
+  the endpoint read, the request limiter, `verify` and `settle`, so it books no row,
+  dials no seller and writes no ledger line. It also precedes existence: `POST
+  /r/nope` is a `405`, not a `404`. `HEAD` is what made this a money bug rather than a
+  wording one. Hono cannot route a HEAD to a HEAD handler — `hono-base.js` dispatches
+  it as a GET and answers `new Response(null, …)` — so before C20 a `HEAD` carrying a
+  valid payment verified, served and settled, and the server dropped the body. Since
+  `settled` is neither a strike nor a discrepancy, nothing in the product would ever
+  have reported a payer who paid for nothing, and the follow-up GET was refused `409`
+  on its own replay key. Both halves were seen on the compose stack today: `curl -I
+  /r/demo` and `curl -X POST /r/demo` answer `405` with `allow: GET` and no challenge
+  header where `GET /r/demo` still answers `402` with one, and the api logs carry the
+  `{"code":"method_not_allowed","method":…}` warns. The behaviour is asserted against
+  real Postgres in `apps/api/test/gateway.test.ts`, "the method policy (C20, GW-2)".
+  The rest of PRD §4's non-goals fall out of what the
   proxy does rather than from a refusal: the buyer's request body is never read (only
   the URL and its query string go upstream), responses are buffered rather than
   streamed and capped at `UPSTREAM_MAX_BYTES` (1 MiB by default, asked for with
