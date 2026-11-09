@@ -151,6 +151,12 @@ export const envSchema = z
     MIN_PRICE_BASE_UNITS: baseUnits("10000"),
 
     POLL_INTERVAL_SECONDS: positiveInt(20),
+    /**
+     * D6's retry ceiling. A provider call that throws pushes each row it was asking
+     * about onto `POLL_INTERVAL_SECONDS * 2 ** attempts`, capped here, so a provider
+     * that is down is asked about less while it is down rather than more.
+     */
+    POLL_MAX_BACKOFF_SECONDS: positiveInt(900),
     RECONCILE_INTERVAL_SECONDS: positiveInt(60),
     STUCK_WINDOW_SECONDS: positiveInt(900),
     SHORTFALL_TOLERANCE_BPS: toleranceBps(50),
@@ -167,6 +173,16 @@ export const envSchema = z
         code: z.ZodIssueCode.custom,
         path: ["SPONSORED_GAS_BUDGET"],
         message: "must be at least MAX_SPONSORED_GAS, or no settlement fits",
+      });
+    }
+    // D6's ceiling is a ceiling, so it has to sit at or above the interval it is
+    // meant to stretch. A smaller value makes a failing swap poll *more often* than
+    // a healthy one, which is the opposite of what a provider outage needs.
+    if (value.POLL_MAX_BACKOFF_SECONDS < value.POLL_INTERVAL_SECONDS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["POLL_MAX_BACKOFF_SECONDS"],
+        message: "must be at least POLL_INTERVAL_SECONDS, or backoff would poll faster than health",
       });
     }
   });

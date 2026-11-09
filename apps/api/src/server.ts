@@ -4,8 +4,12 @@ import { createApp } from "./app.ts";
 import { createDb } from "./db/client.ts";
 import { loadEnv } from "./env.ts";
 import { inFlightWindowSeconds } from "./gateway/guards.ts";
+import { startLoop } from "./jobs/loop.ts";
+import { type PollStatusSource, pollPayouts } from "./jobs/poll-payouts.ts";
 import { sweepStaleOnBoot } from "./jobs/sweep-stale.ts";
 import { createLogger } from "./lib/logger.ts";
+import { createProvider } from "./payouts/index.ts";
+import type { PayoutProvider } from "./payouts/provider.ts";
 import { createX402Near } from "./x402/near.ts";
 
 /**
@@ -64,8 +68,41 @@ if (swept.abandoned + swept.recovered + swept.unproven > 0) {
   log.info({ ...swept }, "boot sweep finished");
 }
 
-// TODO(D6, E2): start the timer loops from here once they exist:
-//   startLoop({ name: "poll-payouts", seconds: env.POLL_INTERVAL_SECONDS, run: pollPayouts })
+// D6: the payout poller is a timer loop in this same process (hard rule 10 -- no
+// worker, no queue). The provider is built on the first tick rather than at boot,
+// which keeps D3's `not implemented (oneclick)` throw a poll that never starts
+// instead of a process that cannot serve: the paywall does not need a poller to
+// answer a payer. The script list is empty on purpose (D2): with nothing scripted a
+// mock cannot resolve a payout, and it says so instead of inventing one (DQ-2).
+let provider: PayoutProvider | null = null;
+const statusSource: PollStatusSource = {
+  getStatus: async (input) => {
+    if (provider === null) {
+      provider = createProvider(env, []);
+    }
+    return provider.getStatus(input);
+  },
+};
+
+startLoop({
+  name: "poll-payouts",
+  seconds: env.POLL_INTERVAL_SECONDS,
+  log,
+  run: async () => {
+    const polled = await pollPayouts({
+      db,
+      provider: statusSource,
+      pollSeconds: env.POLL_INTERVAL_SECONDS,
+      maxBackoffSeconds: env.POLL_MAX_BACKOFF_SECONDS,
+      log,
+    });
+    if (polled.claimed > 0) {
+      log.info({ loop: "poll-payouts", ...polled }, "payout statuses polled");
+    }
+  },
+});
+
+// TODO(E9): start the reconcile loop from here on the same helper:
 //   startLoop({ name: "reconcile", seconds: env.RECONCILE_INTERVAL_SECONDS, run: reconcile })
 
 serve({ fetch: app.fetch, port: env.PORT }, (info) => {

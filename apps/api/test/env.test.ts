@@ -114,6 +114,53 @@ describe("environment refusals (G6 F1, F4)", () => {
 });
 
 /**
+ * D6's retry ceiling, cross-checked the way GW-10's budget is (C13). The value is
+ * only ever a *ceiling* on a gap that starts at `POLL_INTERVAL_SECONDS`, so a config
+ * that parses fine — a positive integer — can still invert the rule: a ceiling below
+ * the interval makes a swap whose provider is failing poll more often than a healthy
+ * one, which is the opposite of what an outage needs, and it fails quietly.
+ */
+describe("payout poll schedule (D6, PO-4)", () => {
+  it("defaults to a fifteen minute ceiling on a twenty second interval", () => {
+    const env = loadEnv({ ...process.env, ...required });
+    expect(env.POLL_INTERVAL_SECONDS).toBe(20);
+    expect(env.POLL_MAX_BACKOFF_SECONDS).toBe(900);
+  });
+
+  it("refuses a ceiling below the interval it is meant to stretch", () => {
+    for (const value of ["19", "1", "0"]) {
+      expect(
+        () => loadEnv({ ...process.env, ...required, POLL_MAX_BACKOFF_SECONDS: value }),
+        value,
+      ).toThrow(/POLL_MAX_BACKOFF_SECONDS/);
+    }
+    // The boundary is allowed: a ceiling equal to the interval is backoff switched
+    // off, which is a caller's choice and not a broken rule.
+    expect(
+      loadEnv({
+        ...process.env,
+        ...required,
+        POLL_INTERVAL_SECONDS: "30",
+        POLL_MAX_BACKOFF_SECONDS: "30",
+      }).POLL_MAX_BACKOFF_SECONDS,
+    ).toBe(30);
+  });
+
+  it("refuses a non-integer interval or ceiling rather than rounding one", () => {
+    for (const [key, value] of [
+      ["POLL_INTERVAL_SECONDS", "1.5"],
+      ["POLL_INTERVAL_SECONDS", "-20"],
+      ["POLL_MAX_BACKOFF_SECONDS", "900.5"],
+    ] as const) {
+      expect(
+        () => loadEnv({ ...process.env, ...required, [key]: value }),
+        `${key}=${value}`,
+      ).toThrow(new RegExp(key));
+    }
+  });
+});
+
+/**
  * C1 pushed these two guards into the config. `x402/near.ts` asserts the curve
  * prefix and the `namespace:reference` network to library types it cannot import,
  * so the check has to happen where a value can still be reported by key name — at

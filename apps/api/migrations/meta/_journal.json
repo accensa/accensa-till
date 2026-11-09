@@ -57,6 +57,13 @@
       "when": 1793892099101,
       "tag": "0007_payout_routes_immutable",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1794210672143,
+      "tag": "0008_organic_ego",
+      "breakpoints": true
     }
   ]
 }

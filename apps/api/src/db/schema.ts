@@ -232,8 +232,23 @@ export const swaps = pgTable(
     originTxHash: text("origin_tx_hash"),
     destinationTxHash: text("destination_tx_hash"),
     refundedAmount: money("refunded_amount"),
+    /**
+     * The last poll that *answered*, not the last one that was tried: UI-5 shows it as
+     * the provider's freshness, and a pass that threw must not look like a healthy
+     * answer (D6).
+     */
     lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
     terminalAt: timestamp("terminal_at", { withTimezone: true }),
+    /**
+     * D6's schedule, per ref rather than per pass, which is what spike S5 asked D3 to
+     * carry: one provider call bounds a whole batch, so a row whose answer is already
+     * known has to be excluded by its own due time and not only by the interval.
+     * `poll_attempts` counts consecutive provider failures for this row and is reset
+     * by an answer; the gap is `POLL_INTERVAL_SECONDS * 2 ** attempts`, capped, so a
+     * provider that is down is asked less, not more.
+     */
+    pollAttempts: integer("poll_attempts").notNull().default(0),
+    nextPollAt: timestamp("next_poll_at", { withTimezone: true }),
     /** Raw provider payload, kept so a mapping bug is diagnosable without a re-poll. */
     raw: jsonb("raw").notNull(),
     createdAt: createdAt(),
@@ -251,6 +266,16 @@ export const swaps = pgTable(
     ),
     index("swaps_origin_tx_idx").on(table.originTxHash),
     index("swaps_route_idx").on(table.routeId, table.state),
+    /**
+     * D6's claim window. Partial on `terminal_at is null` rather than on a list of
+     * non-terminal states because the terminal list is D1's decision in
+     * `@till/core/states.ts` and a second copy in SQL is exactly how it came to
+     * disagree with itself once (S5). The poller keeps that column filled, so the
+     * predicate and the state machine cannot drift apart.
+     */
+    index("swaps_poll_due_idx")
+      .on(table.nextPollAt)
+      .where(sql`${table.terminalAt} is null`),
   ],
 );
 

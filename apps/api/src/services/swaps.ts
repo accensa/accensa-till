@@ -3,6 +3,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { endpoints, payments, payoutRoutes, swaps } from "../db/schema.ts";
 
+/** D6 polls inside a transaction, so the link is written in the same one (see `pollPayouts`). */
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+type Writer = Db | Tx;
+
 /**
  * The only writer of the link between a payment and a swap (LR-2, D13).
  *
@@ -63,7 +67,7 @@ type SwapState = {
 };
 
 /** The swap's own recorded hash, never a hash a caller passes in. */
-async function swapState(db: Db, swapId: string): Promise<SwapState | null> {
+async function swapState(db: Writer, swapId: string): Promise<SwapState | null> {
   const rows = await db
     .select({
       paymentId: swaps.paymentId,
@@ -76,7 +80,7 @@ async function swapState(db: Db, swapId: string): Promise<SwapState | null> {
   return rows[0] ?? null;
 }
 
-async function candidateIds(db: Db, hash: string, sellerId: string): Promise<string[]> {
+async function candidateIds(db: Writer, hash: string, sellerId: string): Promise<string[]> {
   const rows = await db
     .select({ id: payments.id })
     .from(payments)
@@ -100,7 +104,7 @@ async function candidateIds(db: Db, hash: string, sellerId: string): Promise<str
  * value often arrives as `""`, and matching one would pair every such swap with
  * every such payment.
  */
-export async function linkSwapByHash(db: Db, swapId: string): Promise<SwapLink> {
+export async function linkSwapByHash(db: Writer, swapId: string): Promise<SwapLink> {
   const swap = await swapState(db, swapId);
   if (swap === null) {
     throw new Error(`no swap ${swapId}`);

@@ -77,13 +77,17 @@ export async function recordSettlement(
  * The kind is the function's, not the caller's: a `LedgerWrite` whose `kind` this
  * parameter overrode would let a caller type `refund_in` and get a payout, which is
  * the one mistake a ledger is supposed to make impossible.
+ *
+ * `Db | Tx` is D6's: the poller writes a swap's terminal state and its ledger line in
+ * the same transaction it claimed the row in, so a payout that reached terminal has a
+ * line or the state change did not commit -- never a terminal swap nobody booked.
  */
-export function recordPayoutOut(db: Db, entry: Omit<LedgerWrite, "kind">): Promise<void> {
+export function recordPayoutOut(db: Db | Tx, entry: Omit<LedgerWrite, "kind">): Promise<void> {
   return insert(db, { ...entry, kind: "payout_out" });
 }
 
 /** D6: a swap reaching `refunded` writes one `refund_in`. */
-export function recordRefundIn(db: Db, entry: Omit<LedgerWrite, "kind">): Promise<void> {
+export function recordRefundIn(db: Db | Tx, entry: Omit<LedgerWrite, "kind">): Promise<void> {
   return insert(db, { ...entry, kind: "refund_in" });
 }
 
