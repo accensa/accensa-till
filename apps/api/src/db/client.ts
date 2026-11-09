@@ -15,3 +15,12 @@ export function createDb(databaseUrl: string) {
   const client = postgres(databaseUrl, { max: 10, idle_timeout: 20, connect_timeout: 10 });
   return drizzle(client, { schema });
 }
+
+/**
+ * Release the pool. `server.ts` never calls this — it is meant to listen until the
+ * process is killed — but a script that finishes its work and leaves the pooled
+ * sockets open is a script that never exits.
+ */
+export function closeDb(db: Db): Promise<unknown> {
+  return db.$client.end({ timeout: 5 });
+}

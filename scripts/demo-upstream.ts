@@ -11,8 +11,10 @@ import { fileURLToPath } from "node:url";
  *   GET /slow   never answers, so UPSTREAM_TIMEOUT_MS decides
  *   GET /moved  302 with a *relative* Location (the gateway makes it absolute)
  *
- * localhost only, and it is the only place an http (not https) upstream is
- * allowed, via ALLOW_INSECURE_UPSTREAM.
+ * localhost only. `resolveUpstreamTarget` refuses a loopback address for every
+ * seller, whatever `ALLOW_INSECURE_UPSTREAM` says (C5: that knob relaxes http
+ * versus https, never the address rule), so the demo reaches this server through
+ * the gateway's `upstream` seam instead — see `scripts/demo.ts`.
  */
 
 export const DEMO_UPSTREAM_PORT = 4100;

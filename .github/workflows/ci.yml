@@ -69,17 +69,21 @@ jobs:
       - name: roadmap
         run: pnpm roadmap:check
 
-  # DQ-1. Kept separate so a failing unit test does not hide a broken demo, and
-  # because the demo is the thing a judge actually runs.
+  # DQ-1, G1: the PRD section 8 walk, asserted, on a database that has only just
+  # been migrated. Kept a separate job so a failing unit test does not hide a broken
+  # demo, and because the demo is the thing a judge actually runs.
   #
-  # Manual dispatch only until D2 lands: `pnpm seed` and `pnpm demo` are stubs
-  # that throw `not implemented`, so this job would be red on every PR for a
-  # feature that does not exist yet, and a permanently red check teaches people
-  # to ignore CI. D2's Done-when puts `push` and `pull_request` back here by
-  # deleting the `if:` line. It never runs on a schedule: AGENTS.md forbids
-  # sending a mainnet transaction from automation.
+  # It runs twice. The second pass is the rerun check `scripts/demo.ts` cannot make
+  # about itself: on a database that already holds a finished walk, every "exactly
+  # one row is this run's" assertion is a real test of the run ids, and a payment
+  # whose signed delegate happens to repeat an earlier run's is refused `409` as the
+  # replay it is. One pass on a fresh database would ship that bug green.
+  #
+  # No funded key anywhere: the chain, the payout provider and the loopback upstream
+  # are the three surfaces `scripts/demo.ts` marks SIMULATED in its own output. It
+  # never runs on a schedule, because AGENTS.md forbids sending a mainnet transaction
+  # from automation.
   demo:
-    if: github.event_name == 'workflow_dispatch'
     needs: checks
     runs-on: ubuntu-latest
     services:
@@ -113,3 +117,5 @@ jobs:
       # Must exit non-zero on any failed assertion (DQ-1). Mock payouts only:
       # CI never holds a funded key.
       - run: pnpm demo
+      - name: demo (again, against the database the first pass just wrote)
+        run: pnpm demo

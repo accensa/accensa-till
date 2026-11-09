@@ -143,11 +143,10 @@ The scaffold executes: `pnpm install --frozen-lockfile`, `pnpm lint`, `pnpm type
 
 ## Quickstart
 
-The database and the two dev servers work; the end-to-end demo does not, and
-that is the honest state rather than an oversight. `pnpm seed` and `pnpm demo`
-throw `not implemented` until the gateway exists (C11, G1), which is also why the
-`demo` CI job is manual-dispatch only for now. The payout half of the flow is
-already scriptable end to end — that is `pnpm simulate`, below.
+Everything here runs with no keys. The database, the two dev servers and the
+end-to-end demo all work: `pnpm demo` is the asserted walk (G1, PRD section 8)
+and `pnpm simulate` is the payout half on its own. Both print what they checked
+and exit non-zero when a check fails, so neither can pass by leaving a step out.
 
 ```sh
 pnpm install
@@ -157,7 +156,23 @@ pnpm dev                   # api on :3000, web on :3001, /api/* rewritten to the
 ```
 
 ```sh
+pnpm seed                  # one demo seller, endpoint and payout route (idempotent)
+pnpm demo                  # PRD section 8, six steps, asserted
 pnpm simulate [succeed|refund|fail|stall]   # one scripted payout outcome
+```
+
+`pnpm seed` and `pnpm demo` read the same three variables as the api does —
+`DATABASE_URL`, `GATEWAY_PUBLIC_URL` and `SESSION_SECRET`, listed in
+[`.env.example`](.env.example) and deliberately blank there, because nothing in
+this repository loads a `.env` and no secret belongs in git. `simulate` needs
+none of them: it is the provider and the rules with no network, no keys and no
+database.
+
+```sh
+export DATABASE_URL=postgres://till:till@localhost:5432/till
+export SESSION_SECRET=at-least-32-characters-of-your-own-making
+export GATEWAY_PUBLIC_URL=http://localhost:3000
+pnpm seed && pnpm demo
 ```
 
 It runs the mock provider, turns what the provider reports into the rows the
@@ -178,7 +193,9 @@ and a root-owned `.pnpm-store` of about 650 MB that you cannot delete without
 ### Seeing the paywall, with no keys
 
 The free half of the gateway runs today. This is the probe that was actually run
-(C4); `pnpm seed` does not exist yet, so the endpoint row goes in by hand:
+for C4, back when `pnpm seed` did not exist yet, so the endpoint row went in by
+hand (today `pnpm seed` writes the same row through the service, and `pnpm demo`
+needs no manual step):
 
 ```sh
 pnpm db:migrate                                  # Postgres from `docker compose up postgres`
@@ -210,7 +227,7 @@ it: `no relayer key: the gateway can advertise but not settle (A10)`.
 The insert above lists the columns this build needs; if `db:migrate` has added
 NOT NULLs since, `psql "$DATABASE_URL" -c "\d endpoints"` shows the current set.
 
-The two halves C11 ships can be run on their own today:
+The two halves C11 ships can still be run on their own:
 
 ```sh
 pnpm exec tsx scripts/demo-upstream.ts       # 127.0.0.1:4100 — /data, /fail, /slow, /moved
@@ -221,14 +238,37 @@ The agent exits `2` when `DEMO_PAYER_ACCOUNT_ID` and `DEMO_PAYER_SECRET_KEY` are
 unset, which is the honest state until A10's funded testnet payer and relayer
 exist; with both set it signs through the shipped `@fastnear/x402` client and
 asserts the `PAYMENT-RESPONSE` receipt. The upstream has no keys at all.
-`pnpm demo` (the orchestrator that seeds, runs both and drives the simulated
-failures) is G1 and still throws `not implemented`.
 
-Once the demo path closes:
+`pnpm demo` now runs both itself, against its own Postgres rows, and asserts the
+whole PRD section 8 walk (G1). Six steps, each ending in checks against a response
+or the database:
 
-```sh
-pnpm seed && pnpm demo     # end-to-end with mock payouts, non-zero exit on failure
-```
+1. a seeded endpoint answers `402` with the six fields a payer signs against, and
+   the unpaid request dialled the seller zero times and booked zero ledger lines;
+2. `scripts/demo-agent.ts` pays as its own process, exits `0`, and leaves exactly
+   one `settled` payment row carrying the receipt's settlement hash;
+3. the money books one `payment_in` in the token the payer sent, the polled swap
+   reaches `succeeded`, and the payout books one `payout_out` on the *destination's*
+   asset — two different tokens, which is the cross-chain half;
+4. a refund comes back, books one `refund_in`, and reconciliation opens
+   `PAYOUT_REFUNDED` for that swap with an explanation and a suggested action;
+5. a payer whose balance is below the price is refused `402` with the reason in the
+   re-challenge, the seller is never dialled, and no row is opened;
+6. a payer served twice without settling is blocked `403 payer_blocked` on the third,
+   neither strike books revenue, and reconciliation opens `SERVED_NOT_SETTLED` for
+   each.
+
+Three surfaces are SIMULATED and the output says so on every run (DQ-2): the chain
+(a loopback JSON-RPC stub plus the payment layer's `signer` seam, so the delegate is
+genuinely signed but nothing is submitted and no key exists), the payout provider
+(`PAYOUT_PROVIDER=mock`, every status marked `raw.simulated = true`), and the
+loopback upstream origin (through `app.ts`'s `gateway.upstream` seam — the SSRF
+policy is bypassed at one call site, not relaxed). The gateway route, the
+verification, the guards, the ledger writers, the poll loop, the reconciliation rules
+and the dashboard's own reads are the shipped code, on real Postgres. The CI `demo`
+job runs this file twice on a freshly migrated database, on every push and pull
+request; the second pass is what proves a rerun on a database that already holds a
+finished walk still asserts its own rows.
 
 Payouts default to `PAYOUT_PROVIDER=mock` and the network to `near:testnet`. A
 run never sends a mainnet transaction unless a human asks for it (see

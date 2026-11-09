@@ -19,7 +19,7 @@
     "test": "pnpm -r test",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "typecheck": "pnpm -r typecheck",
+    "typecheck": "pnpm -r typecheck && tsc -p tsconfig.scripts.json",
     "boundaries": "sh scripts/check-boundaries.sh",
     "roadmap": "tsx scripts/roadmap-progress.ts",
     "roadmap:check": "tsx scripts/roadmap-progress.ts --check && sh scripts/check-roadmap.sh"

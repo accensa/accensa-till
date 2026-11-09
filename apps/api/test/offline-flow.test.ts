@@ -153,8 +153,9 @@ describe("the driver refuses to look clean when the numbers are not (LR-2, LR-5,
     expect(second.swapRow).toEqual(first.swapRow);
   });
 
-  it("names the empty payer as a gateway gap rather than skipping it quietly", async () => {
-    expect(() => scenarioFor("empty-payer")).toThrow(/not implemented \(C8/);
+  it("points the empty payer at the guard that refuses it, instead of faking a payout outcome", async () => {
+    expect(() => scenarioFor("empty-payer")).toThrow(/not a payout outcome/);
+    expect(() => scenarioFor("empty-payer")).toThrow(/pnpm demo/);
     await expect(driveScenario("empty-payer", { at: AT })).rejects.toThrow(/gateway guard/);
   });
 

@@ -7,10 +7,10 @@ import {
 } from "../apps/api/src/payouts/mock/scenarios.ts";
 
 /**
- * Scripted failures against the mock provider (D2): succeed, refund, fail,
- * stall, and an empty-account payer. The demo and every reconciliation rule test
- * drive their "money moved without an audit trail" cases from here, so a failure
- * mode can be shown on demand instead of waiting for one to happen.
+ * Scripted failures against the mock provider (D2): succeed, refund, fail and stall.
+ * The demo and every reconciliation rule test drive their "money moved without an
+ * audit trail" cases from here, so a failure mode can be shown on demand instead of
+ * waiting for one to happen.
  *
  * Each simulated outcome must be labelled as simulated on screen and in the
  * README (DQ-2) — the line between mocked and real is the thing a judge is most
@@ -19,6 +19,12 @@ import {
  * `pnpm simulate [succeed|refund|fail|stall|empty-payer]...` with no arguments
  * runs all four payout outcomes. Exits non-zero when a scenario does not produce
  * what it said it would, so the demo cannot pass by omission.
+ *
+ * `empty-payer` is the one name here this script cannot serve: an account too empty
+ * to pay is refused inside the payment verification (C8, GW-7, PRD 8.6), which needs
+ * a gateway, a chain read and a payment row rather than a scripted provider status.
+ * It exits non-zero with the reason and the pointer — step 5 of `pnpm demo`, where
+ * the shipped scheme does it for real.
  */
 
 function base(amount: bigint | null): string {

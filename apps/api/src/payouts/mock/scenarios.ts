@@ -115,8 +115,13 @@ export const SCENARIOS: Readonly<Record<Exclude<SimulationName, "empty-payer">, 
 
 export function scenarioFor(name: SimulationName): Scenario {
   if (name === "empty-payer") {
+    // Not a gap in the product: C8 shipped, and an empty account is refused inside
+    // the payment verification itself (PRD 8.6). It is a gap in what *this* script
+    // can show, because that refusal needs a gateway, a chain read and a payment row,
+    // and none of those belong in a provider-only driver. Step 5 of `pnpm demo` is
+    // where it happens, against the shipped scheme.
     throw new Error(
-      "not implemented (C8, GW-7): an empty payer is a gateway guard, not a payout outcome",
+      "gateway guard, not a payout outcome (C8, GW-7): an account whose balance is below the price is refused when the payment is verified — see step 5 of `pnpm demo`",
     );
   }
   return SCENARIOS[name];

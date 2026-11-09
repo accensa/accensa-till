@@ -17,6 +17,7 @@ till/
 ├── package.json                  # root scripts only
 ├── pnpm-workspace.yaml
 ├── tsconfig.base.json
+├── tsconfig.scripts.json         # the root `typecheck` runs it over `scripts/`, which no workspace package covers
 ├── biome.json
 ├── docker-compose.yml            # postgres, api, web
 ├── .env.example                  # every variable; defaults to mock payouts
@@ -260,10 +261,10 @@ db                     ──►  lib
 | `pnpm db:generate` | Generate a migration from the schema |
 | `pnpm db:migrate` | Apply migrations |
 | `pnpm seed` | Create a demo seller, endpoint and route |
-| `pnpm demo` | Run upstream, agent and simulated failures; assert outcomes; non-zero exit on failure |
+| `pnpm demo` | Run the PRD section 8 walk (its own upstream, agent, simulated chain and payouts) against Postgres; assert outcomes; non-zero exit on failure |
 | `pnpm test` | Unit and integration tests |
 | `pnpm lint` | Biome check |
-| `pnpm typecheck` | `tsc --noEmit` across the workspace |
+| `pnpm typecheck` | `tsc --noEmit` across the workspace, plus `tsconfig.scripts.json` over `scripts/` |
 | `pnpm boundaries` | Run the import-boundary check |
 | `pnpm roadmap` | Regenerate the `ROADMAP.md` progress block |
 | `pnpm roadmap:check` | Fail if `ROADMAP.md` is untouched by a change or its progress block is stale |
