@@ -17,6 +17,7 @@ import {
 import { ledgerEntryDtoSchema } from "../schemas/ledger.ts";
 import {
   overviewDtoSchema,
+  overviewResponseSchema,
   payoutPollDtoSchema,
   relayerBalanceDtoSchema,
   statusResponseSchema,
@@ -556,6 +557,7 @@ describe("arrays are bounded (C15)", () => {
     inTransitAmount: "0",
     paidOutAmount: "0",
     refundedAmount: "0",
+    adjustedAmount: "0",
   };
   const overviewWith = (byAsset: unknown) =>
     overviewDtoSchema.safeParse({
@@ -639,6 +641,55 @@ describe("arrays are bounded (C15)", () => {
     if (!notAnArray.success) {
       expect(notAnArray.error.issues[0]?.message).toContain("Expected array, received string");
     }
+  });
+});
+
+/**
+ * UI-6 (F6): the overview's five totals, and which of them a negative may appear in.
+ *
+ * The four that come from a non-negative ledger kind are refused below zero, for the
+ * reason A19 gives in the database: `payment_in`, `payout_out` and `refund_in` cannot
+ * hold a negative, so one in a total means a read that cannot be described, not a
+ * seller who has received less than nothing. `adjustedAmount` is the opposite case —
+ * 6.1 makes the sign *be* the correction — and so is the one field that must accept
+ * it, which is what the pair of tests below pins from either side.
+ */
+describe("the overview totals contract (UI-6)", () => {
+  const row = {
+    asset: "usdc.testnet",
+    settledAmount: "10000",
+    inTransitAmount: "0",
+    paidOutAmount: "0",
+    refundedAmount: "0",
+    adjustedAmount: "0",
+  };
+  const overview = (field: string, value: string) =>
+    overviewDtoSchema.safeParse({
+      byAsset: [{ ...row, [field]: value }],
+      openDiscrepancies: 0,
+      servedUnsettledCount: 0,
+    });
+
+  for (const field of ["settledAmount", "inTransitAmount", "paidOutAmount", "refundedAmount"]) {
+    it(`refuses a negative or a fraction in ${field}`, () => {
+      for (const value of ["-1", "-0", "1.5", "", "abc"]) {
+        expect([field, value, overview(field, value).success]).toEqual([field, value, false]);
+      }
+      expect(overview(field, "0").success).toBe(true);
+    });
+  }
+
+  it("keeps an adjustment's sign, because the sign is the correction", () => {
+    expect(overview("adjustedAmount", "-10000").success).toBe(true);
+    expect(overview("adjustedAmount", "10000").success).toBe(true);
+    expect(overview("adjustedAmount", "-0").success).toBe(true);
+  });
+
+  it("answers as an object, the way every other dashboard read does", () => {
+    const parsed = overviewResponseSchema.safeParse({
+      overview: { byAsset: [row], openDiscrepancies: 2, servedUnsettledCount: 1 },
+    });
+    expect(parsed.success).toBe(true);
   });
 });
 

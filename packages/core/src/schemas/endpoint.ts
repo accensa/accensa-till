@@ -256,6 +256,10 @@ export const dashboardErrorSchema = z.object({
     // a refusal with a code, not a header that dropped a line. A seller who reads a
     // missing balance as a balance of nothing is reading an absence as a fact.
     "status_unreadable",
+    // UI-6, same rule a fourth time: the overview's totals are the seller's money,
+    // and a read that cannot describe them answers with a code rather than the
+    // subset it managed. A missing asset row reads as a token with nothing in it.
+    "overview_unreadable",
     // D9, UI-2's edit step: an id that is not this seller's endpoint. Deliberately
     // one answer for "not there" and "somebody else's", for the same reason
     // `discrepancy_not_found` is: distinguishing them says which rows another

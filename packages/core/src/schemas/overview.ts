@@ -144,17 +144,48 @@ export type StatusResponse = z.infer<typeof statusResponseSchema>;
 /**
  * Seller overview totals by asset and state (UI-6, P1). These are computed by
  * query over the ledger and must equal the ledger rows they summarise.
+ *
+ * Four of the five totals are one ledger kind each, which is what makes the
+ * acceptance rule checkable: a seller can ask the database for
+ * `sum(amount) where kind = 'payment_in' and asset = a` and read the same number
+ * on the screen. `inTransitAmount` is the one that is not, and it is the number
+ * the cross-chain payout makes impossible to derive from the ledger — a settled
+ * `intents` payment books `payment_in` in the payer's asset while its
+ * `payout_out` arrives later in the *destination* asset, so subtracting one from
+ * the other per asset measures nothing about either. It is therefore counted from
+ * the payments themselves, by the rule spelled out in
+ * `apps/api/src/services/overview.ts`.
+ *
+ * `adjustedAmount` is kept out of the other four rather than folded into them
+ * because a correction does not say what it corrects: an adjustment beside a
+ * payout is not a payment-in, and a total that silently absorbed both would equal
+ * no set of ledger rows at all. Its sign is the correction (6.1), so it is the one
+ * field here that may be negative.
  */
+
+/**
+ * A total of three kinds the database guarantees non-negative
+ * (`ledger_entries_amount_sign_by_kind`, A19) and of payments received. A negative
+ * is not a small balance here but a read that cannot be described, which is why it
+ * is refused at the boundary rather than shown as a subtraction.
+ */
+const ledgerTotalSchema = z
+  .string()
+  .regex(/^(?:0|[1-9]\d*)$/)
+  .brand<"BaseUnitAmountString">();
+
 export const overviewDtoSchema = z.object({
   // One row per asset the seller has ever settled, and the asset set is small
   // (C15): 32 is above any real overview, not a guess at a limit.
   byAsset: boundedArray(
     z.object({
+      /** The stablecoin contract the money arrived in, as the ledger names it. */
       asset: z.string(),
-      settledAmount: baseUnitAmountSchema,
-      inTransitAmount: baseUnitAmountSchema,
-      paidOutAmount: baseUnitAmountSchema,
-      refundedAmount: baseUnitAmountSchema,
+      settledAmount: ledgerTotalSchema,
+      inTransitAmount: ledgerTotalSchema,
+      paidOutAmount: ledgerTotalSchema,
+      refundedAmount: ledgerTotalSchema,
+      adjustedAmount: baseUnitAmountSchema,
     }),
     32,
   ),
@@ -162,3 +193,7 @@ export const overviewDtoSchema = z.object({
   servedUnsettledCount: z.number().int().nonnegative(),
 });
 export type OverviewDto = z.infer<typeof overviewDtoSchema>;
+
+/** `GET /api/overview` (UI-6), behind the same session as every other dashboard read. */
+export const overviewResponseSchema = z.object({ overview: overviewDtoSchema });
+export type OverviewResponse = z.infer<typeof overviewResponseSchema>;

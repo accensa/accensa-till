@@ -36,6 +36,15 @@ docker compose down -v
 Needs Compose v2 (the machine's legacy `docker-compose` 1.29.2 cannot parse this file). The
 web container runs `next dev`, so it recompiles without a rebuild; the api container does not.
 
+## Interrupted checkpoint: 2026-11-10
+
+Branch `checkpoint/f6-e10-handoff` contains unfinished F6 overview and E10 fixture work.
+Read the 2026-11-10 handoff in `ROADMAP.md` section 9 before continuing. API tests (638)
+and workspace typechecking passed, but lint, final web verification, browser checks,
+demo and CI completion remain outstanding. The handoff lists known query-isolation,
+seller-scoping and misleading UI-copy issues; this is not a release-ready checkpoint.
+Do not merge it solely because some tests passed.
+
 ## Gates (Definition of done — run them, never read them)
 
 ```sh

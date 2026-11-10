@@ -17,6 +17,7 @@ import { endpoints, ledgerEntries, payments, payoutRoutes, sellers, swaps } from
 import type { Logger } from "../lib/logger.ts";
 import { writeFindings } from "../services/discrepancies.ts";
 import { SETTLEMENT_LEDGER_KIND } from "../services/ledger.ts";
+import { payoutModeOf } from "../services/payout-mode.ts";
 
 /**
  * The reconcile loop (E9, LR-2, LR-3): the seam between the pure rules and the
@@ -58,7 +59,10 @@ import { SETTLEMENT_LEDGER_KIND } from "../services/ledger.ts";
  *   under, and `endpoints.payout_mode` is a live, editable field (D9). Reading it
  *   for an old payment would let one edit silence `PAYMENT_NOT_SWEPT` on money
  *   already taken — the same drift D9 was written to prevent, arriving in the
- *   reader instead of the writer.
+ *   reader instead of the writer. That precedence is `services/payout-mode.ts`'s to
+   state, because UI-6's overview asks the same question of the same two columns
+   from inside a query, and the two forms are pinned against each other so they
+   cannot drift apart by row.
  */
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -123,26 +127,6 @@ function amountOf(value: string | null): BaseUnitAmount | null | undefined {
     return null;
   }
   return baseUnitAmountSchema.safeParse(value).success ? BigInt(value) : undefined;
-}
-
-/**
- * `direct` paid the seller's own account, so no swap was ever owed for it, and
- * every other mode moved through a route. `mode_detail` is the payment's own
- * snapshot (D5 wrote it at verify time), so it answers before the endpoint does.
- */
-function payoutModeOf(
-  routeMode: string | null,
-  endpointMode: string,
-): { readonly mode: "direct" | "intents"; readonly fromEndpoint: boolean } {
-  if (routeMode !== null) {
-    return { mode: routeMode === "direct" ? "direct" : "intents", fromEndpoint: false };
-  }
-  // Only the word `direct` reads as direct, which is the rule
-  // `services/endpoints.ts` already applies to the same column: a value neither
-  // word describes did not come from Till's write path, and treating it as
-  // `intents` keeps the swap rules looking rather than assuming the sale needed
-  // no sweep.
-  return { mode: endpointMode === "direct" ? "direct" : "intents", fromEndpoint: true };
 }
 
 /**

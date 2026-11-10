@@ -7,6 +7,7 @@ import { type Logger, newRequestId } from "./lib/logger.ts";
 import { type AuthRouteDeps, createAuthRoutes } from "./routes/auth.ts";
 import { type DiscrepancyRouteDeps, createDiscrepancyRoutes } from "./routes/discrepancies.ts";
 import { type EndpointRouteDeps, createEndpointRoutes } from "./routes/endpoints.ts";
+import { type OverviewRouteDeps, createOverviewRoutes } from "./routes/overview.ts";
 import { type PaymentRouteDeps, createPaymentRoutes } from "./routes/payments.ts";
 import { type StatusRouteDeps, createStatusRoutes } from "./routes/status.ts";
 import type { X402Near } from "./x402/types.ts";
@@ -69,6 +70,12 @@ export type AppDeps = {
    * session seam is the one every other dashboard route already has.
    */
   readonly status?: Partial<Pick<StatusRouteDeps, "session" | "balance">>;
+  /**
+   * UI-6's totals are one database read and nothing else, so the seam is the
+   * session alone — and the numbers themselves stay where they are computed, in the
+   * query, rather than becoming something this process assembles.
+   */
+  readonly overview?: Partial<Pick<OverviewRouteDeps, "session">>;
 };
 
 export type Variables = { requestId: string };
@@ -106,6 +113,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    *   routes/payments.ts      UI-3        the seller's ledger       (mounted, F3)
    *   routes/discrepancies.ts E2 / UI-4   worklist, resolve, blocks (mounted, F4)
    *   routes/status.ts        UI-5        header balance and last poll (mounted, F5)
+   *   routes/overview.ts      UI-6        ledger-equal totals         (mounted, F6)
    *   routes/swaps.ts         D6 / UI-3   payout leg                (open)
    *   routes/export.ts        LR-7        CSV export (P1)           (open)
    */
@@ -126,6 +134,10 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
   // UI-5, F5. The header's two facts, one from the chain and one from the
   // database, answered for the session's seller and for nobody else.
   app.route("/api", createStatusRoutes({ db, env, log, ...deps.status }));
+
+  // UI-6, F6. The overview's totals, answered for the session's seller by one
+  // transaction over the ledger, the payments and the worklist.
+  app.route("/api", createOverviewRoutes({ db, env, log, ...deps.overview }));
 
   // C4, GW-1/GW-2. Mounted last and outside `/api` on purpose: a payer is not a
   // session, and `app.route` keeps the request middleware above it (the id the

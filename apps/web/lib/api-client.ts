@@ -6,6 +6,7 @@ import {
   type EndpointDto,
   type EndpointUpdateRequest,
   type EndpointUpdateResponse,
+  type OverviewDto,
   type PayerBlockDto,
   type PaymentDto,
   type StatusDto,
@@ -15,6 +16,7 @@ import {
   endpointCreateResponseSchema,
   endpointListResponseSchema,
   endpointUpdateResponseSchema,
+  overviewResponseSchema,
   payerBlockClearResponseSchema,
   payerBlockListResponseSchema,
   paymentListResponseSchema,
@@ -149,6 +151,18 @@ export type StatusResult =
   | { readonly kind: "signed_out" }
   | Unreachable;
 
+/**
+ * Till's own totals by asset (UI-6, F6), the same three answers as the status read.
+ * `unreachable` rather than an overview with no rows in it: `byAsset: []` is a claim
+ * that the ledger holds nothing, and a seller who reads a failed totals query as that
+ * claim stops looking for money that is still theirs. The route says the same thing by
+ * answering `500 overview_unreadable`.
+ */
+export type OverviewResult =
+  | { readonly kind: "ok"; readonly overview: OverviewDto }
+  | { readonly kind: "signed_out" }
+  | Unreachable;
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -189,6 +203,39 @@ export const api = {
     return parsed.success
       ? { kind: "ok", status: parsed.data.status }
       : { kind: "unreachable", detail: "/api/status answered a body Till's own schema refuses" };
+  },
+
+  /**
+   * The overview totals, read with the page's session. The scope is the API's — the
+   * ledger query is scoped to the seller the cookie names — so nothing here can ask
+   * for another seller's money, and nothing here adds a total of its own.
+   */
+  overview: async (cookie?: string): Promise<OverviewResult> => {
+    let response: Response;
+    try {
+      response = await fetch(requestUrl("/api/overview"), fetchOptions(cookie));
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (response.status === 401) {
+      return { kind: "signed_out" };
+    }
+    if (!response.ok) {
+      const refusal = dashboardErrorSchema.safeParse(await readJson(response));
+      return {
+        kind: "unreachable",
+        detail: refusal.success
+          ? refusal.data.message
+          : `/api/overview returned ${response.status} with no readable reason`,
+      };
+    }
+    const parsed = overviewResponseSchema.safeParse(await readJson(response));
+    return parsed.success
+      ? { kind: "ok", overview: parsed.data.overview }
+      : { kind: "unreachable", detail: "/api/overview answered a body Till's own schema refuses" };
   },
 
   /**

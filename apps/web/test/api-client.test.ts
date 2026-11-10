@@ -2,6 +2,7 @@ import {
   discrepancyDtoSchema,
   endpointCreateRequestSchema,
   endpointUpdateRequestSchema,
+  overviewResponseSchema,
   payerBlockDtoSchema,
   paymentDtoSchema,
 } from "@till/core/schemas";
@@ -718,5 +719,109 @@ describe("clearing a payer block", () => {
 
     stubFailure("socket closed");
     expect((await api.clearPayerBlock("payer.testnet")).kind).toBe("unreachable");
+  });
+});
+
+describe("reading the overview totals", () => {
+  // Parsed, so the four non-negative totals and the signed adjustment are exactly what
+  // the API is allowed to send — including the negative, which is the one field here
+  // whose sign is information (6.1) and must survive the read untouched.
+  const OVERVIEW = overviewResponseSchema.parse({
+    overview: {
+      byAsset: [
+        {
+          asset: "usdc.testnet",
+          settledAmount: "1250000",
+          inTransitAmount: "250000",
+          paidOutAmount: "1000000",
+          refundedAmount: "50000",
+          adjustedAmount: "-250000",
+        },
+      ],
+      openDiscrepancies: 1,
+      servedUnsettledCount: 2,
+    },
+  });
+
+  it("forwards the session and keeps every total and sign it was given", async () => {
+    const calls = stubAnswer(json(OVERVIEW));
+    const listed = await api.overview("till_session=token-value");
+
+    expect(listed.kind).toBe("ok");
+    if (listed.kind !== "ok") {
+      throw new Error("unreachable");
+    }
+    expect(listed.overview.byAsset[0]?.adjustedAmount).toBe("-250000");
+    expect(listed.overview.openDiscrepancies).toBe(1);
+    expect(listed.overview.servedUnsettledCount).toBe(2);
+    expect(first(calls).url).toBe("http://localhost:3000/api/overview");
+    expect(headerOf(first(calls), "cookie")).toBe("till_session=token-value");
+    expect(first(calls).init.credentials).toBe("same-origin");
+    expect(first(calls).init.cache).toBe("no-store");
+  });
+
+  it("says signed_out for the 401, which is the only answer that means it", async () => {
+    stubAnswer(json({ code: "unauthenticated", message: "Sign in to read the overview." }), 401);
+    expect(await api.overview("till_session=expired")).toEqual({ kind: "signed_out" });
+  });
+
+  it("answers the 500 as unreachable, never as a seller with no totals", async () => {
+    const calls = stubAnswer(
+      json({
+        code: "overview_unreadable",
+        message: "An overview on record is not one Till can read, so none is shown.",
+      }),
+      500,
+    );
+    const refused = await api.overview("till_session=token-value");
+    expect(refused.kind).toBe("unreachable");
+    // `overview_unreadable` is not in `dashboardErrorSchema`'s codes yet, so the API's
+    // sentence cannot be parsed here and the fallback line is what the seller reads.
+    // The screen is still honest — an unreadable total is a failure, not an empty book —
+    // but the code belongs in core's enum for the same reason `status_unreadable` is.
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain(
+      "/api/overview returned 500",
+    );
+    expect(calls).toHaveLength(1);
+
+    stubAnswer("<html>500</html>", 500, "text/html");
+    const unreadable = await api.overview("till_session=token-value");
+    expect(unreadable.kind === "unreachable" ? unreadable.detail : "").toContain(
+      "no readable reason",
+    );
+  });
+
+  it("refuses to turn a body it cannot read into a seller with nothing", async () => {
+    // `overviewDtoSchema`'s totals are integer strings, so a decimal is a total nobody
+    // summed. It has to stay a failure: an overview drawn from it would be a number.
+    stubAnswer(
+      json({
+        overview: {
+          ...OVERVIEW.overview,
+          byAsset: [{ ...OVERVIEW.overview.byAsset[0], settledAmount: "1250000.5" }],
+        },
+      }),
+    );
+    const listed = await api.overview("till_session=token-value");
+    expect(listed.kind).toBe("unreachable");
+    if (listed.kind === "ok") {
+      throw new Error("a total the shared schema refuses must never render as a ledger");
+    }
+    expect("overview" in listed).toBe(false);
+
+    // A count the schema refuses, and a 200 with no overview in it, are the same failure.
+    stubAnswer(json({ overview: { ...OVERVIEW.overview, openDiscrepancies: -2 } }));
+    expect((await api.overview("till_session=token-value")).kind).toBe("unreachable");
+
+    stubAnswer(json({}));
+    expect((await api.overview("till_session=token-value")).kind).toBe("unreachable");
+  });
+
+  it("reports a dead socket as unreachable, not as a seller with no money", async () => {
+    const calls = stubFailure("fetch failed: ECONNREFUSED");
+    const refused = await api.overview("till_session=token-value");
+    expect(refused.kind).toBe("unreachable");
+    expect(refused.kind === "unreachable" ? refused.detail : "").toContain("ECONNREFUSED");
+    expect(calls).toHaveLength(1);
   });
 });
