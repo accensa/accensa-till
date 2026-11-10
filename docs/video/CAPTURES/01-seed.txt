@@ -1,0 +1,20 @@
+# pnpm seed on an empty compose database, captured in this session
+# Command run on the host: docker compose exec -T api pnpm seed
+# Container: till-api-1 (image till-api, rebuilt from this tree by `docker compose build`, on a fresh till_pgdata volume)
+# Finished: 2026-11-10T09:56:42Z   Exit code: 0
+# The database was dropped first (`docker compose down -v`), so this is the first-run output a reviewer sees, not a re-run.
+
+
+> till@0.0.0 seed /app
+> tsx scripts/seed.ts
+
+seeded   seller=01a1c4e3-6fe2-7000-9b80-7ddb3985cb08 endpoint=01a1c4e3-7020-7000-9cf7-f442af462b6b
+paywall  http://localhost:3000/r/demo
+price    1000000 base units of usdc.testnet
+deposit  mock-deposit-1 (made up by the mock provider; no swap will run)
+payout   eth/usdc -> 0x742d35cc662dd0c4f8e3f1b0a4b1e6a4d9d01f2c
+
+Run `pnpm demo` for the whole PRD section 8 walk, or:
+  pnpm --filter @till/api dev   # the gateway
+  tsx scripts/demo-upstream.ts  # the seller's API
+  tsx scripts/demo-agent.ts     # the buyer

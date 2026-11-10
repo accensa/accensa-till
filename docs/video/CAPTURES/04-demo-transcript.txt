@@ -1,0 +1,96 @@
+# pnpm demo transcript, captured in this session
+# Command run on the host: docker compose exec -T api pnpm demo
+# Container: till-api-1 (image till-api, built from this tree by `docker compose build`, on a fresh till_pgdata volume)
+# Finished: 2026-11-10T09:57:04Z   Exit code: 0
+# Database: the compose stack volume till_pgdata (host port 5432), seeded earlier in this session by `docker compose exec -T api pnpm seed`
+# Every "ok" line below is an assertion the script ran and printed. The run header states what is SIMULATED.
+
+
+> till@0.0.0 demo /app
+> tsx scripts/demo.ts
+
+SIMULATED run — the chain, the payout provider and the loopback upstream are scripted (DQ-2).
+The gateway, the payment verification, the guards, the ledger, the poll loop and the
+reconciliation rules are the shipped code, running for real against Postgres.
+
+gateway  http://127.0.0.1:34283
+chain    http://127.0.0.1:36887  (loopback JSON-RPC stub: no keys, no money moved)
+upstream http://127.0.0.1:32837/data  (the SSRF policy would refuse this address; the seam dials it)
+run      8ae02f1c  (labels this run's settlement hashes, and starts the chain at block 2453404721)
+
+1. the seller: one live paywalled endpoint, and no money in yet
+  ·        reusing the endpoint this database already had (slug demo)
+  ok       the seeded endpoint is priced at the demo's price
+  ok       its payout route has a deposit address to advertise
+  ok       an unpaid request answers 402
+  ok       and the 402 carries the six fields a payer signs against
+  ok       it names the exact scheme on near:testnet
+  ok       its amount is the endpoint's price in base units
+  ok       its asset is the seeded token
+  ok       its pay-to is the payout route's deposit address
+  ok       its timeout window is a positive number of seconds
+  ok       the 402 cost the seller nothing: not one byte dialled upstream
+  ok       and the seller's ledger is empty for this run
+
+2. the buyer: a 402, a signed NEAR delegate, and the data
+  ·        agent   -> http://127.0.0.1:34283/r/demo
+  ·        challenge x402Version=2 accepts=1
+  ·          scheme             exact
+  ·          network            near:testnet
+  ·          amount             1000000
+  ·          asset              usdc.testnet
+  ·          payTo              mock-deposit-1
+  ·          maxTimeoutSeconds  60
+  ·        payer   demo-agent-payer.testnet on near:testnet
+  ·        response 200
+  ok       scripts/demo-agent.ts paid and exited 0
+  ok       exactly one payment row is this run's
+  ok       it is settled
+  ok       it is the agent's account
+  ok       it carries the settlement hash the receipt carried
+
+3. the money: booked once in, and not yet out
+  ok       exactly one payment_in
+  ok       for the price, in the token the payer sent, against this payment
+  ok       and no payout_out yet: the provider has not been asked about the deposit
+  ok       the route pays out on another chain than the payment came from
+  ·        polled to a terminal state in 1 pass
+  ok       the polled swap reached its scripted terminal state
+  ok       the poller matched it to the payment by transaction hash, and nothing else
+  ok       the row is marked simulated in the raw provider payload
+  ok       the payout books exactly one payout_out
+  ok       on the destination asset (eth/usdc)
+  ok       the two lines name two different tokens, which is the cross-chain part
+  ok       and the dashboard's payment read still shows the payment, settled
+
+4. a refund, and the discrepancy reconciliation opens for it
+  ok       a second buyer is served, and its payment settled
+  ·        polled to a terminal state in 1 pass
+  ok       the swap reports refunded
+  ok       the deposit coming back books one refund_in
+  ok       in the token the deposit was made in, not the destination's
+  ok       reconciliation opens PAYOUT_REFUNDED for this swap
+  ok       with an explanation and a suggested action, not just a code
+  ·        explanation The payout swap to the destination chain was refunded, so the money did not arrive where the seller asked for it.
+  ·        action      Confirm the destination address and asset are supported, then re-route the payout or keep it on NEAR.
+
+5. the empty account: refused before it can cost the seller anything
+  ok       a payer whose balance is below the price is not served
+  ok       and the re-challenge says why: the balance, not the signature
+  ok       and the seller's upstream never saw the request
+  ok       and no payment row was opened for it
+
+6. a buyer served without settling, and the block that follows
+  ·        a fresh payer for this run: strike-8ae02f1c.testnet
+  ok       both attempts are served with 200 even though settlement failed
+  ok       the seller was dialled for each of them
+  ok       the third is refused 403 payer_blocked, not another 402
+  ·        Two strikes in 24 hours block the third request (GW-7), and that is the number PRD 8.6 states: one strike would block a payer whose single failure was the gateway's own.
+  ok       both strikes are stored as served_unsettled
+  ok       and neither of them books revenue
+  ok       reconciliation opens SERVED_NOT_SETTLED for each of them
+  ·        explanation The buyer's request was answered but the payment never settled, so this call was served without revenue and the relayer paid the gas.
+  ·        action      Check whether settlement is still in flight. If it is not, decide whether to retry the settlement or write the request off.
+  ok       and the payer is on the seller's blocked list, with its strike count
+
+PRD section 8 ran and every assertion held.

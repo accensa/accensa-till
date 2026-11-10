@@ -1,0 +1,13 @@
+$ curl -i http://localhost:3000/r/demo
+# Live capture Tue, 10 Nov 2026 09:56:47 GMT against the docker compose stack (api host port 3000, PAYOUT_PROVIDER=mock, NEAR_NETWORK=near:testnet, seeded by `docker compose exec api pnpm seed`).
+# The paywall, unpaid. No payment header was sent; nothing was dialled upstream.
+
+HTTP/1.1 402 Payment Required
+content-type: application/json
+PAYMENT-REQUIRED: eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cDovL2xvY2FsaG9zdDozMDAwL3IvZGVtbyIsImRlc2NyaXB0aW9uIjoiRGVtbyBwcmljZXMgZW5kcG9pbnQgKHNlZWRlZCBieSBzY3JpcHRzL3NlZWQudHMpIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sImFjY2VwdHMiOlt7InNjaGVtZSI6ImV4YWN0IiwibmV0d29yayI6Im5lYXI6dGVzdG5ldCIsImFtb3VudCI6IjEwMDAwMDAiLCJhc3NldCI6InVzZGMudGVzdG5ldCIsInBheVRvIjoibW9jay1kZXBvc2l0LTEiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjAsImV4dHJhIjp7fX1dfQ==
+Date: Tue, 10 Nov 2026 09:56:47 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+Content-Length: 346
+
+{"x402Version":2,"error":"Payment required","resource":{"url":"http://localhost:3000/r/demo","description":"Demo prices endpoint (seeded by scripts/seed.ts)","mimeType":"application/json"},"accepts":[{"scheme":"exact","network":"near:testnet","amount":"1000000","asset":"usdc.testnet","payTo":"mock-deposit-1","maxTimeoutSeconds":60,"extra":{}}]}

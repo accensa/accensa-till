@@ -1,0 +1,23 @@
+$ grep -m1 "^PAYMENT-REQUIRED: " 02-curl-402-raw.txt | cut -d" " -f2 | base64 -d | python3 -m json.tool
+# base64-decoded PAYMENT-REQUIRED header from the live 402 captured Tue, 10 Nov 2026 09:56:47 GMT. Compared field for field with the response body of the same reply: identical.
+
+{
+    "x402Version": 2,
+    "error": "Payment required",
+    "resource": {
+        "url": "http://localhost:3000/r/demo",
+        "description": "Demo prices endpoint (seeded by scripts/seed.ts)",
+        "mimeType": "application/json"
+    },
+    "accepts": [
+        {
+            "scheme": "exact",
+            "network": "near:testnet",
+            "amount": "1000000",
+            "asset": "usdc.testnet",
+            "payTo": "mock-deposit-1",
+            "maxTimeoutSeconds": 60,
+            "extra": {}
+        }
+    ]
+}

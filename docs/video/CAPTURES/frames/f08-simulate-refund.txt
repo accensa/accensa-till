@@ -1,0 +1,13 @@
+$ docker compose exec -T api pnpm simulate refund
+
+SIMULATED run — PAYOUT_PROVIDER=mock, no network, no keys, 900s stuck window (DQ-2)
+
+refund: the swap failed and the deposit came back to the payer
+  route    mock-deposit-1 quote=mock-quote-1
+  states   refunded (terminal=true)
+  amounts  in=1000000 out=none refunded=1000000
+  origin   mock-tx-refund  raw.simulated=true
+  finding  PAYOUT_REFUNDED (high) The payout swap to the destination chain was refunded, so the money did not arrive where the seller asked for it.
+  result   as scripted
+
+all scripted outcomes reached their stated end

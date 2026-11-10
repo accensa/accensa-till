@@ -1,0 +1,6 @@
+Till
+
+Seller-side back-office for x402 payments on NEAR.
+
+Quoted from README.md line 3 — the product's own definition, not a slogan.
+Built at NEAR HACKATHON. Development ends 2026-11-14 23:59 UTC.

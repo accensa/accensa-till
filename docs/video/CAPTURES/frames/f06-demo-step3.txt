@@ -1,0 +1,14 @@
+$ docker compose exec -T api pnpm demo
+
+3. the money: booked once in, and not yet out
+  ok       exactly one payment_in
+  ok       for the price, in the token the payer sent, against this payment
+  ok       and no payout_out yet: the provider has not been asked about the deposit
+  ok       the route pays out on another chain than the payment came from
+  ok       the polled swap reached its scripted terminal state
+  ok       the poller matched it to the payment by transaction hash, and nothing else
+  ok       the row is marked simulated in the raw provider payload
+  ok       the payout books exactly one payout_out
+  ok       on the destination asset (eth/usdc)
+  ok       the two lines name two different tokens, which is the cross-chain part
+  ok       and the dashboard's payment read still shows the payment, settled

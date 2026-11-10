@@ -1,0 +1,22 @@
+$ grep -m1 "^PAYMENT-REQUIRED: " 02-curl-402-raw.txt | cut -d" " -f2 | base64 -d | python3 -m json.tool
+
+{
+    "x402Version": 2,
+    "error": "Payment required",
+    "resource": {
+        "url": "http://localhost:3000/r/demo",
+        "description": "Demo prices endpoint (seeded by scripts/seed.ts)",
+        "mimeType": "application/json"
+    },
+    "accepts": [
+        {
+            "scheme": "exact",
+            "network": "near:testnet",
+            "amount": "1000000",
+            "asset": "usdc.testnet",
+            "payTo": "mock-deposit-1",
+            "maxTimeoutSeconds": 60,
+            "extra": {}
+        }
+    ]
+}

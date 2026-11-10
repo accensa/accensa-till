@@ -1,0 +1,18 @@
+$ docker compose exec -T api pnpm demo
+
+SIMULATED run — the chain, the payout provider and the loopback upstream are scripted (DQ-2).
+The gateway, the payment verification, the guards, the ledger, the poll loop and the
+reconciliation rules are the shipped code, running for real against Postgres.
+
+gateway  http://127.0.0.1:34283
+chain    http://127.0.0.1:36887  (loopback JSON-RPC stub: no keys, no money moved)
+upstream http://127.0.0.1:32837/data  (the SSRF policy would refuse this address; the seam dials it)
+run      8ae02f1c  (labels this run's settlement hashes, and starts the chain at block 2453404721)
+
+  ·        payer   demo-agent-payer.testnet on near:testnet
+  ·        response 200
+  ok       scripts/demo-agent.ts paid and exited 0
+  ok       exactly one payment row is this run's
+  ok       it is settled
+  ok       it is the agent's account
+  ok       it carries the settlement hash the receipt carried

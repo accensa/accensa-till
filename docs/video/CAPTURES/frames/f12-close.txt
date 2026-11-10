@@ -1,0 +1,12 @@
+What is real, and what is not
+
+Quoted from README.md, "What is real, and what is not":
+
+  This is a running system with one unproven headline. The paywall, the payment
+  verification, the guards, the ledger, both loops, the reconciliation rules and
+  three dashboard pages are code with tests, and the Quickstart above walks the
+  money path on them. What is not proven is the one thing the design keeps saying:
+  that a chain accepted a payment.
+
+No wallet has paid a request in this build. No mainnet transaction has been sent.
+The payout provider is the mock: PAYOUT_PROVIDER=mock.

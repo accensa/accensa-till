@@ -1,0 +1,11 @@
+# ledger_entries for the demo run, read from the compose stack database
+# Command run on the host: docker compose exec -T postgres psql -U till -d till -c "select kind, amount, asset, created_at from ledger_entries order by created_at;"
+# Finished: 2026-11-10T09:57:27Z   Append-only table; the two strike payments book no line, which is the point of PRD 8.6.
+    kind    | amount  |    asset     |          created_at           
+------------+---------+--------------+-------------------------------
+ payment_in | 1000000 | usdc.testnet | 2026-11-10 09:57:04.292812+00
+ payout_out | 1000000 | usdc         | 2026-11-10 09:57:04.333157+00
+ payment_in | 1000000 | usdc.testnet | 2026-11-10 09:57:04.452377+00
+ refund_in  | 1000000 | usdc.testnet | 2026-11-10 09:57:04.462876+00
+(4 rows)
+

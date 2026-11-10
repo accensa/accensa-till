@@ -1,0 +1,7 @@
+$ docker compose exec -T api pnpm seed
+
+seeded   seller=01a1c4e3-6fe2-7000-9b80-7ddb3985cb08 endpoint=01a1c4e3-7020-7000-9cf7-f442af462b6b
+paywall  http://localhost:3000/r/demo
+price    1000000 base units of usdc.testnet
+deposit  mock-deposit-1 (made up by the mock provider; no swap will run)
+payout   eth/usdc -> 0x742d35cc662dd0c4f8e3f1b0a4b1e6a4d9d01f2c

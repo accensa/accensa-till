@@ -1,0 +1,16 @@
+$ docker compose exec -T api pnpm demo
+
+6. a buyer served without settling, and the block that follows
+  ·        a fresh payer for this run: strike-8ae02f1c.testnet
+  ok       both attempts are served with 200 even though settlement failed
+  ok       the seller was dialled for each of them
+  ok       the third is refused 403 payer_blocked, not another 402
+  ·        Two strikes in 24 hours block the third request (GW-7), and that is the number PRD 8.6 states: one strike would block a payer whose single failure was the gateway's own.
+  ok       both strikes are stored as served_unsettled
+  ok       and neither of them books revenue
+  ok       reconciliation opens SERVED_NOT_SETTLED for each of them
+  ·        explanation The buyer's request was answered but the payment never settled, so this call was served without revenue and the relayer paid the gas.
+  ·        action      Check whether settlement is still in flight. If it is not, decide whether to retry the settlement or write the request off.
+  ok       and the payer is on the seller's blocked list, with its strike count
+
+PRD section 8 ran and every assertion held.

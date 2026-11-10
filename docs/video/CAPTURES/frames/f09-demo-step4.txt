@@ -1,0 +1,11 @@
+$ docker compose exec -T api pnpm demo
+
+4. a refund, and the discrepancy reconciliation opens for it
+  ok       a second buyer is served, and its payment settled
+  ok       the swap reports refunded
+  ok       the deposit coming back books one refund_in
+  ok       in the token the deposit was made in, not the destination's
+  ok       reconciliation opens PAYOUT_REFUNDED for this swap
+  ok       with an explanation and a suggested action, not just a code
+  ·        explanation The payout swap to the destination chain was refunded, so the money did not arrive where the seller asked for it.
+  ·        action      Confirm the destination address and asset are supported, then re-route the payout or keep it on NEAR.
