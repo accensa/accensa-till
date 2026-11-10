@@ -125,7 +125,16 @@ export const endpointDtoSchema = z.object({
   id: uuidSchema,
   slug: z.string(),
   gatewayUrl: z.string().url(),
-  upstreamUrl: httpsUrlSchema,
+  /**
+   * Any absolute URL, including the http one `scripts/seed.ts` writes for the demo
+   * loopback. Not `httpsUrlSchema`: that is GW-8's rule for a string a seller is
+   * *submitting* (`endpointCreateSchema`, and PATCH through it), and re-enforcing it
+   * on read turned every seeded database into a `500` on the seller's own endpoint
+   * list. What the gateway will not dial is decided at dial time by
+   * `resolveUpstreamTarget`, which refuses loopback and private addresses whatever
+   * the scheme is.
+   */
+  upstreamUrl: z.string().url(),
   priceAmount: positiveBaseUnitAmountSchema,
   assetContract: z.string(),
   network: z.string(),

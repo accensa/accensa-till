@@ -186,6 +186,46 @@ describe("endpoint price is positive (G6 F1)", () => {
   });
 });
 
+describe("the read DTO carries an http upstream the create path refuses (G5 finding)", () => {
+  // Money is refused on the way out because a negative price cannot exist: a CHECK
+  // blocks the write, so seeing one is corruption. An http upstream is different in
+  // kind — `scripts/seed.ts` writes `http://127.0.0.1:4100/data` straight into the
+  // table, because that is the loopback `pnpm demo` dials through its own seam — so a
+  // non-https URL on read is a legitimate row, and validating it away answers 500 on
+  // the seller's own endpoint list. GW-8's refusal stays where the money decision is
+  // made: in `endpointCreateSchema` below and in the gateway's address check.
+  const loopback = "http://127.0.0.1:4100/data";
+
+  it("accepts the seeded row, so the list can be read", () => {
+    const parsed = endpointDtoSchema.safeParse({ ...validEndpointDto, upstreamUrl: loopback });
+    expect([parsed.success, parsed.success ? parsed.data.upstreamUrl : parsed.error]).toEqual([
+      true,
+      loopback,
+    ]);
+  });
+
+  it("still refuses a string that is not a URL at all", () => {
+    for (const upstreamUrl of ["not a url", "127.0.0.1:4100", ""]) {
+      expect([
+        upstreamUrl,
+        endpointDtoSchema.safeParse({ ...validEndpointDto, upstreamUrl }).success,
+      ]).toEqual([upstreamUrl, false]);
+    }
+  });
+
+  it("keeps refusing it on the way in, at creation and at the update", () => {
+    expect(
+      endpointCreateSchema.safeParse({ ...validEndpointCreate, upstreamUrl: loopback }).success,
+    ).toBe(false);
+    expect(
+      endpointCreateSchema.safeParse({
+        ...validEndpointCreate,
+        upstreamUrl: "https://data.seller.test/prices",
+      }).success,
+    ).toBe(true);
+  });
+});
+
 describe("payment amount is positive (G6 F1)", () => {
   it("accepts a real payment and refuses a negative or zero one", () => {
     expect(paymentDtoSchema.safeParse(validPaymentDto).success).toBe(true);

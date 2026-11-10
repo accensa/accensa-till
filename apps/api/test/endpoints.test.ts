@@ -695,6 +695,36 @@ suite("the endpoint routes (D4, UI-2)", () => {
     expect(cookieSeen.value).toBe("tok-value");
   });
 
+  it("lists the row the seed writes, whose upstream is not https", async () => {
+    // `scripts/seed.ts` puts `http://127.0.0.1:4100/data` in the table directly — it is
+    // the loopback `pnpm demo` dials through its own upstream seam — so every reviewer's
+    // database holds an endpoint `POST /api/endpoints` could never have written. GW-8's
+    // https rule belongs to the paths that accept a seller's string; re-enforcing it on
+    // the way out answers 500 on the first screen a seller opens.
+    const { sql } = need();
+    const endpointId = randomUUID();
+    const slug = `http-row-${run}`;
+    await sql`insert into endpoints (id, seller_id, slug, upstream_url, price_amount,
+        asset_contract, network, payout_mode, active)
+      values (${endpointId}, ${SELLER_R.id}, ${slug}, 'http://127.0.0.1:4100/data',
+        '1000000', 'usdc.testnet', 'near:testnet', 'direct', true)`;
+
+    try {
+      const response = await routeApp().request("/endpoints", {
+        headers: { cookie: "till_session=anything" },
+      });
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        endpoints: { id: string; upstreamUrl: string; payoutMode: string }[];
+      };
+      const listed = payload.endpoints.find((row) => row.id === endpointId);
+      expect(listed?.upstreamUrl).toBe("http://127.0.0.1:4100/data");
+      expect(listed?.payoutMode).toBe("direct");
+    } finally {
+      await sql`delete from endpoints where id = ${endpointId}`;
+    }
+  });
+
   it("refuses a destination the caller did not echo back, and writes nothing", async () => {
     const app = routeApp();
     const before = await listEndpoints(need().db, creationDeps(), SELLER_R.id);
