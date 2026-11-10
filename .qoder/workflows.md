@@ -1,0 +1,93 @@
+# Workflows
+
+Everything here was run on this repository. Two modes exist for a reason: the offline mode
+answers questions about the rules, and the database mode is the one an `Evidence:` line has
+to name.
+
+## Bring the machine up
+
+```sh
+export PATH="$HOME/.nvm/versions/node/v22.23.4/bin:$PATH"   # Node 22 + pnpm; the system node is not it
+pnpm install --frozen-lockfile
+```
+
+Nothing loads a `.env`, and creating one is forbidden (`AGENTS.md`), so configuration is
+exported per shell. `.env.example` is a menu, not a template. The working recipe:
+
+```sh
+set -a; . ./.env.example; set +a
+export SESSION_SECRET="$(openssl rand -hex 32)"    # deliberately blank in the menu: an empty value fails its own schema
+export DATABASE_URL="postgres://till:till@localhost:55432/till"
+```
+
+Two databases are in daily use: the throwaway one tests run against
+(`docker run -d --name till-pg-verify -p 55432:5432 -e POSTGRES_USER=till -e POSTGRES_PASSWORD=till -e POSTGRES_DB=till postgres:16`,
+then `pnpm db:migrate`), and the Compose stack's own on `:5432`.
+
+## The stack
+
+```sh
+docker compose up -d --build     # api :3000, web :3001, postgres :5432, migrations run on boot
+docker compose exec api pnpm seed
+docker compose exec api pnpm demo
+docker compose down -v
+```
+
+Needs Compose v2 (the machine's legacy `docker-compose` 1.29.2 cannot parse this file). The
+web container runs `next dev`, so it recompiles without a rebuild; the api container does not.
+
+## Gates (Definition of done — run them, never read them)
+
+```sh
+pnpm lint          # biome; a format diff fails the run: pnpm exec biome check --write <file>
+pnpm typecheck     # -r across the workspace + tsc -p tsconfig.scripts.json (scripts/ belongs to no package)
+pnpm test          # core, api, web; api skips its 18 database files without DATABASE_URL
+pnpm boundaries    # scripts/check-boundaries.sh
+pnpm roadmap:check # fails a change that leaves ROADMAP.md untouched or its progress block stale
+pnpm demo          # additionally, whenever gateway / payouts / ledger / reconciliation changed
+```
+
+Expected shape with `DATABASE_URL` set: core 220 passed | 6 todo, web 179, api 560.
+Without it the api suite reports passed | skipped — that is the design, so **state which
+mode you ran** when you report a green.
+
+`pnpm demo` needs `SESSION_SECRET` + `DATABASE_URL` and is rerun-safe: it runs the real
+gateway, x402 verification, guards, ledger writers, poll loop, reconcile rules and the
+dashboard's own reads, and scripts exactly three things (the chain, the payout provider, the
+loopback upstream). `pnpm simulate [succeed|refund|fail|stall]` is the offline payout half;
+`pnpm simulate empty-payer` exits 1 and says why.
+
+## Change loop
+
+1. Find the task in `ROADMAP.md` and its requirement id in `docs/PRD.md`; P0 before P1.
+2. Guard, rule or ledger code: the failing test first, then the fix, then **break it on
+   purpose** and record which tests failed (a mutation count is the evidence; an unmutated
+   test proves nothing).
+3. Schema: edit `apps/api/src/db/schema.ts`, then `pnpm db:generate`, then read the generated
+   SQL before you apply it. Triggers and CHECKs are part of the design, not extras.
+4. Config: `apps/api/src/env.ts` and `.env.example` in the same change.
+5. Docs that describe what you changed, in the same change.
+6. `pnpm roadmap` (never hand-edit the progress block), one changelog line, then the gates.
+7. Commit per task: `C6 GW-3: settle only on upstream 2xx`. Push to `main`, watch CI:
+   `gh run list --limit 3` / `gh run view <id> --json conclusion,jobs`. CI runs the demo twice
+   on one database, so a rerun defect is caught on the runner.
+
+## Reading the running product (for a live `Evidence:` line)
+
+`GET :3000/healthz` or `:3001/api/healthz`; `curl -i :3000/r/demo` for the `402` and its
+decodable header; `/api/*` needs the session cookie. Minting a cookie for a probe is a
+test-only act: the payload must carry `purpose: "session"` or `/api/status` answers `401`, and
+the secret lives in the container's env — never write it into a file, a URL or a commit.
+
+## Video and demo assets
+
+`docs/video/` (untracked working material: shot list, narration, `render.sh`, captures). Its
+`README.md` holds the recapture procedure. Two rules: shoot the dashboard against
+`next start` at 1920×1080, and never commit a minted session token or any build secret.
+
+## Stop and ask the human
+
+A hard rule that seems to need breaking · anything touching mainnet, a funded key or a paid
+API call · a new dependency (including the one Tailwind needs) · a real `.env` · two docs
+disagreeing (say which and where rather than picking) · any submit, publish, force-push or
+publicity action.

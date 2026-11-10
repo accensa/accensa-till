@@ -2,6 +2,8 @@
 
 Instructions for coding agents working in this repository (Till, working name). Read this file fully, then the progress block and your phase in `ROADMAP.md`, then `docs/ARCHITECTURE_ESSENTIALS.md`. Open the other docs only when a task needs them.
 
+Three files in `.qoder/` are the fast route into the codebase and they are kept in sync with it: `.qoder/modules.md` (what each directory owns and the rule that guards it), `.qoder/architecture.md` (the paid-call order, state machines, data model and the gaps), `.qoder/workflows.md` (setup, gates, test modes, the change loop). Read the relevant one before developing in an area; update it in the same change when your work moves what it describes.
+
 ## What this project is
 
 A hosted gateway that paywalls a seller's GET API with x402 on NEAR, routes payouts through NEAR Intents, and reconciles every payment against every payout in an append-only ledger. It is a hackathon project with a hard deadline: development ends 14 Nov 2026 23:59 UTC.
@@ -11,6 +13,9 @@ A hosted gateway that paywalls a seller's GET API with x402 on NEAR, routes payo
 | Need | Read |
 |---|---|
 | What is done, what is left, task IDs, gates, changelog | `ROADMAP.md` (repo root) |
+| Which module owns what, and the rule that guards it | `.qoder/modules.md` |
+| Paid-call order, state machines, data model, known gaps | `.qoder/architecture.md` |
+| Setup, gates, test modes, the change loop | `.qoder/workflows.md` |
 | Hard rules and key decisions (short) | `docs/ARCHITECTURE_ESSENTIALS.md` |
 | What to build, requirement IDs, acceptance criteria | `docs/PRD.md` |
 | Full design, data model, spikes, red-team notes | `docs/ARCHITECTURE.md` |
