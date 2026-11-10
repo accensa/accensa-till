@@ -61,7 +61,10 @@ Pure rules in `packages/core/src/reconcile/`, one file per code, driven by
 `apps/api/src/jobs/reconcile.ts` per seller. A rule reads rows shaped by the caller and
 returns findings; it cannot see the database, the network or the clock. P0 codes:
 `SERVED_NOT_SETTLED`, `PAYOUT_REFUNDED`, `PAYOUT_FAILED`, `PAYOUT_STUCK`,
-`PAYMENT_NOT_SWEPT`.
+`PAYMENT_NOT_SWEPT`, `PAYMENT_UNBOOKED`. The snapshot also carries `bookedPaymentIds`, read
+as an `exists()` column on the payments select (never a second capped read — the caps keep
+different rows) and indexed by `ledger_payment_idx`. A pass that could not see every row is
+`partial`: it opens findings and closes none.
 
 ## Polling
 

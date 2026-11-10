@@ -97,13 +97,38 @@ afterAll(async () => {
 let batches = 0;
 
 /**
- * Write `count` ledger rows with no id and read their ids back twice: once sorted
- * by id, once by `ctid`. Because the ledger is append-only (the trigger refuses
- * UPDATE, so no row is ever rewritten to a new page), `ctid` order is the
- * database's own record of insertion order — an independent yardstick for the
- * claim A20 makes, rather than a second way of reading the same column.
+ * Write `count` ledger rows with no id and read them back three ways: ids sorted by
+ * id, ids sorted by `xmin`, and how many distinct `xmin`s the batch spans. `xmin` is
+ * the transaction that inserted the row, so its order is the database's own record of
+ * insertion order — an independent yardstick for the claim A20 makes, rather than a
+ * second way of reading the same column.
+ *
+ * It used to be `ctid`, on the reasoning that an append-only table (the trigger
+ * refuses UPDATE, so no row is ever rewritten to a new page) cannot move rows
+ * around. That reasoning missed where the free space comes from: a long `note`
+ * leaves a hole in the page it did not fit into, `heap_insert` consults the free
+ * space map when the tail page is full, and the next row lands in that hole with an
+ * *earlier* `ctid` than rows written before it. Measured 2026-11-10 on a 100 k-row
+ * ledger in a scratch database: 2 of 50 batches read back in a `ctid` order that
+ * contradicted the order they were inserted in, while `xmin` matched all 50.
+ *
+ * The cast is not decoration either. `xid` has no ordering operator — a bare
+ * `order by xmin` is refused with `could not identify an ordering operator for type
+ * xid` — because its own comparison is deliberately wraparound-relative, so the
+ * decimal text this server prints is what sorts. A batch of eight cannot straddle
+ * the 2^32 wrap; if one ever did, this read would order it wrong and say so by
+ * failing, which is the honest shape of the assumption.
+ *
+ * `xminSpread` is that assumption checked rather than assumed: rows sharing a
+ * transaction get a shared `xmin`, and an `order by` over equal keys returns
+ * whatever the scan happens to emit, so a batch written inside one transaction
+ * would let the yardstick agree with the column under test by luck. One `xmin` per
+ * row is what makes the comparison mean anything, so the test that reads it asks
+ * for it.
  */
-async function writeBatch(count: number): Promise<{ byId: string[]; byInsertion: string[] }> {
+async function writeBatch(
+  count: number,
+): Promise<{ byId: string[]; byInsertion: string[]; xminSpread: number }> {
   const { db, sql } = need();
   batches += 1;
   const tag = `a20-${batches}`;
@@ -124,8 +149,14 @@ async function writeBatch(count: number): Promise<{ byId: string[]; byInsertion:
   const byId = await sql<{ id: string }[]>`select id from ledger_entries
     where seller_id = ${sellerId} and note like ${pattern} order by id asc`;
   const byInsertion = await sql<{ id: string }[]>`select id from ledger_entries
-    where seller_id = ${sellerId} and note like ${pattern} order by ctid asc`;
-  return { byId: byId.map((row) => row.id), byInsertion: byInsertion.map((row) => row.id) };
+    where seller_id = ${sellerId} and note like ${pattern} order by (xmin::text)::bigint asc`;
+  const [spread] = await sql<{ n: number }[]>`select count(distinct (xmin::text))::int as n
+    from ledger_entries where seller_id = ${sellerId} and note like ${pattern}`;
+  return {
+    byId: byId.map((row) => row.id),
+    byInsertion: byInsertion.map((row) => row.id),
+    xminSpread: spread?.n ?? -1,
+  };
 }
 
 function only(rows: string[]): string {
@@ -150,10 +181,20 @@ suite("row ids come from the column default (A20)", () => {
   });
 
   it("orders rows the way the database inserted them", async () => {
-    const { byId, byInsertion } = await writeBatch(8);
+    const { byId, byInsertion, xminSpread } = await writeBatch(8);
     expect(byId.length).toBe(8);
+    // One `xmin` per row, or the yardstick below is not one: rows sharing a
+    // transaction share an `xmin`, and an order over equal keys says nothing about
+    // who went first.
+    expect(xminSpread).toBe(8);
     expect(byId.every((id) => V7.test(id))).toBe(true);
     expect(byId).toEqual(byInsertion);
+    // The yardstick checked against something other than itself. `byId` is sorted by
+    // the very column under test, so on its own it would agree with any order the
+    // reader invented; the stamps of the insertion-ordered read have to rise, which
+    // is what says `xmin` really did record who went first.
+    const stamps = byInsertion.map(msOf);
+    expect(stamps.slice(1).every((ms, index) => (stamps[index] ?? 0) <= ms)).toBe(true);
   });
 
   it("stamps the id with the insert's own millisecond, not a constant", async () => {

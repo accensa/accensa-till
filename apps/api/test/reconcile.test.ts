@@ -24,6 +24,7 @@ import { type ReconcileDeps, allSellerIds, reconcileSellers } from "../src/jobs/
 import { pollTick, reconcileTick } from "../src/jobs/ticks.ts";
 import type { Logger } from "../src/lib/logger.ts";
 import type { NormalizedSwap } from "../src/payouts/provider.ts";
+import { recordSettlement } from "../src/services/ledger.ts";
 
 /**
  * E9's acceptance test (LR-2, LR-3): the reconcile loop is the only thing that puts
@@ -129,6 +130,8 @@ type Home = {
   readonly sellerId: string;
   readonly routeId: string;
   readonly endpointId: string;
+  /** What `newHome` was asked for, so a fixture can book its settlement the way D8 does. */
+  readonly modeDetail: "direct" | "standing";
 };
 
 async function newHome(label: string, modeDetail: "direct" | "standing"): Promise<Home> {
@@ -137,6 +140,7 @@ async function newHome(label: string, modeDetail: "direct" | "standing"): Promis
     sellerId: randomUUID(),
     routeId: randomUUID(),
     endpointId: randomUUID(),
+    modeDetail,
   };
   await db.insert(sellers).values({
     id: home.sellerId,
@@ -173,6 +177,11 @@ async function newHome(label: string, modeDetail: "direct" | "standing"): Promis
  * A payment this run owns. Every timestamp is written on the database clock
  * (`now() - the age the case asks for`), never from `Date.now()`, so a slow machine
  * cannot age a fixture past a window by being slow (hard rule 12).
+ *
+ * A settled payment is booked through `services/ledger.ts` unless the case asks
+ * otherwise, because that is what the gateway does (GW-2) and a fixture that skipped
+ * it would report G6·2's `PAYMENT_UNBOOKED` on every row in this file. `{ booked:
+ * false }` is how a case says "the settle happened and the line did not".
  */
 async function newPayment(
   home: Home,
@@ -183,20 +192,23 @@ async function newPayment(
     /** Seconds since settlement on the database clock; `null` leaves the column empty. */
     settledAgo?: number | null;
     routeId?: string | null;
+    booked?: boolean;
   },
 ): Promise<string> {
   const { db } = need();
   const settledAgo = fields.settledAgo ?? 400;
+  const state = fields.state ?? "settled";
+  const amount = fields.amount ?? "1000000";
   const [row] = await db
     .insert(payments)
     .values({
       endpointId: home.endpointId,
       routeId: fields.routeId === undefined ? home.routeId : fields.routeId,
       payerAccountId: "buyer.testnet",
-      amount: fields.amount ?? "1000000",
+      amount,
       assetContract: ASSET,
       replayKey: `e9-${randomUUID()}`,
-      state: fields.state ?? "settled",
+      state,
       nearTxHash: fields.hash === undefined ? `tx-${randomUUID()}` : fields.hash,
       verifiedAt: sql`now()`,
       settledAt:
@@ -205,6 +217,19 @@ async function newPayment(
     .returning({ id: payments.id });
   if (row === undefined) {
     throw new Error("fixture wrote no payment row");
+  }
+  if (state === "settled" && fields.booked !== false) {
+    await recordSettlement(
+      db,
+      {
+        sellerId: home.sellerId,
+        amount: BigInt(amount),
+        asset: ASSET,
+        paymentId: row.id,
+        note: "e9 fixture settlement",
+      },
+      home.modeDetail === "direct" ? "direct" : "intents",
+    );
   }
   return row.id;
 }
@@ -259,6 +284,7 @@ function age(paymentId: string, seconds: number): Promise<unknown> {
 const columns = {
   code: discrepancies.code,
   severity: discrepancies.severity,
+  explanation: discrepancies.explanation,
   paymentId: discrepancies.paymentId,
   swapId: discrepancies.swapId,
   dedupeKey: discrepancies.dedupeKey,
@@ -270,6 +296,7 @@ const columns = {
 type DiscrepancyRow = {
   readonly code: string;
   readonly severity: string;
+  readonly explanation: string;
   readonly paymentId: string | null;
   readonly swapId: string | null;
   readonly dedupeKey: string;
@@ -365,7 +392,8 @@ async function pass(
 }
 
 afterAll(async () => {
-  // No deletes and no deletes needed: this pass books no ledger rows, and every
+  // No deletes and no deletes needed: a settled fixture row books its settlement the
+  // way the gateway does (GW-2), the ledger refuses to delete it (A7), and every
   // assertion below is scoped to a seller id this run minted. The rows it leaves
   // behind cost disk, never a lying number.
   if (handle !== null) {
@@ -409,6 +437,67 @@ suite("the reconcile pass is idempotent and per seller (E9, LR-2, LR-3)", () => 
     // A third, for the sake of the claim being about a pass rather than a pair.
     expect(await openRows(home.sellerId)).toEqual(afterFirst);
     expect(await rowCount(home.sellerId)).toBe(1);
+  });
+
+  it("opens the missing ledger line as its own cause, and closes only that one (G6·2)", async () => {
+    // The shape `gateway/route.ts`'s `ledger_write_failed` catch leaves behind: the
+    // settle was written, the `payment_in` line was not, and a swap will never arrive
+    // to explain it either way. Two causes, one payment — an un-swept payout and an
+    // unbooked settlement are different problems with different fixes, and the pass
+    // that sees both has to name both.
+    const { db } = need();
+    const home = await newHome("unbooked", "standing");
+    const paymentId = await newPayment(home, { hash: "tx-unbooked", booked: false });
+
+    const opened = await pass([home.sellerId]);
+    expect(opened).toEqual({
+      sellers: 1,
+      skipped: 0,
+      findings: 2,
+      opened: 2,
+      closed: 0,
+      partial: 0,
+    });
+
+    const rows = await openRows(home.sellerId);
+    expect(rows.map((row) => row.code).sort()).toEqual(["PAYMENT_NOT_SWEPT", "PAYMENT_UNBOOKED"]);
+    const unbooked = rows.find((row) => row.code === "PAYMENT_UNBOOKED");
+    expect(unbooked?.dedupeKey).toBe(`PAYMENT_UNBOOKED:${paymentId}:none`);
+    expect(unbooked?.severity).toBe("critical");
+    // The copy the seller reads, from the rule rather than from a table of strings the
+    // dashboard keeps of its own (LR-4).
+    expect(unbooked?.explanation).toContain("ledger");
+
+    // Booking the line is what clears the cause — this writes it through
+    // `services/ledger.ts`, the only module allowed to, because the rule reads the
+    // ledger rather than a flag some caller could set.
+    await recordSettlement(
+      db,
+      {
+        sellerId: home.sellerId,
+        amount: 1_000_000n,
+        asset: ASSET,
+        paymentId,
+        note: "g6-2 fixture: the settlement the gateway failed to book",
+      },
+      "intents",
+    );
+
+    const cleared = await pass([home.sellerId]);
+    expect(cleared).toEqual({
+      sellers: 1,
+      skipped: 0,
+      findings: 1,
+      opened: 0,
+      closed: 1,
+      partial: 0,
+    });
+    const still = await openRows(home.sellerId);
+    expect(still.map((row) => row.code)).toEqual(["PAYMENT_NOT_SWEPT"]);
+    const history = await allRows(home.sellerId);
+    const resolved = history.find((row) => row.code === "PAYMENT_UNBOOKED");
+    expect(resolved?.resolution).toBe("auto");
+    expect(resolved?.resolvedAt).toBeInstanceOf(Date);
   });
 
   it("closes the cause with a complete pass once the sweep arrives", async () => {

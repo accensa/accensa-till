@@ -58,6 +58,10 @@ export function snapshot(
     now: NOW,
     payments: [],
     swaps: [],
+    // Empty by default, which reads as "nothing is booked" rather than "unknown": the
+    // settled payments most rule fixtures carry would then hide PAYMENT_UNBOOKED by
+    // accident, and a test that wants a payment booked says so (G6·2).
+    bookedPaymentIds: [],
     config: CONFIG,
     ...overrides,
   };

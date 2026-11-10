@@ -68,7 +68,7 @@ Version 2.1. Outline of decisions that must not be violated. Detail: `ARCHITECTU
 
 ## Reconciliation codes
 
-- P0: `SERVED_NOT_SETTLED`, `PAYOUT_REFUNDED`, `PAYOUT_FAILED`, `PAYOUT_STUCK`, `PAYMENT_NOT_SWEPT`
+- P0: `SERVED_NOT_SETTLED`, `PAYOUT_REFUNDED`, `PAYOUT_FAILED`, `PAYOUT_STUCK`, `PAYMENT_NOT_SWEPT`, `PAYMENT_UNBOOKED`
 - P1: `PAYOUT_SHORTFALL`, `INCOMPLETE_DEPOSIT`, `ORPHAN_DEPOSIT`
 
 Each needs a pure rule, a fixture test, a plain-language explanation and a suggested action.

@@ -71,6 +71,13 @@
       "when": 1794306671439,
       "tag": "0009_sharp_puppet_master",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794312499438,
+      "tag": "0010_abnormal_shocker",
+      "breakpoints": true
     }
   ]
 }

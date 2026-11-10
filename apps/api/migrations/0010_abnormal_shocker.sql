@@ -1,0 +1,1 @@
+CREATE INDEX "ledger_payment_idx" ON "ledger_entries" USING btree ("payment_id","kind");

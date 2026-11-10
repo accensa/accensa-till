@@ -118,7 +118,7 @@ P0 must ship. P1 ships if P0 is solid. Nothing below P1 is planned.
 |---|---|---|---|
 | LR-1 | P0 | Append-only per-asset event ledger | A database trigger rejects `UPDATE` and `DELETE` |
 | LR-2 | P0 | Reconciliation matches payments to swaps by transaction hash | No amount-and-time matching anywhere in the code |
-| LR-3 | P0 | The five P0 rules in section 7 | Each has a fixture test that produces the discrepancy |
+| LR-3 | P0 | The six P0 rules in section 7 | Each has a fixture test that produces the discrepancy |
 | LR-4 | P0 | Every discrepancy has a plain-language explanation and suggested action | Visible in the UI |
 | LR-5 | P0 | At most one open discrepancy per cause, including those without a payment or swap id | Test inserts the same cause twice with a null id and gets one row |
 | LR-6 | P1 | The three P1 rules in section 7 | Fixture tests |
@@ -154,6 +154,7 @@ P0 must ship. P1 ships if P0 is solid. Nothing below P1 is planned.
 | PAYOUT_FAILED | P0 | Swap ended in a failed state | High |
 | PAYOUT_STUCK | P0 | Swap in a processing state, or unknown state, beyond the window | Medium |
 | PAYMENT_NOT_SWEPT | P0 | Payment settled and no swap activity within the window | High |
+| PAYMENT_UNBOOKED | P0 | Payment settled but its `payment_in` ledger line is missing beyond the window | Critical |
 | PAYOUT_SHORTFALL | P1 | Output below input by more than the configured tolerance (basis points) | High |
 | INCOMPLETE_DEPOSIT | P1 | Deposit smaller than required | Medium |
 | ORPHAN_DEPOSIT | P1 | Funds arrived with no matching payment | Medium |

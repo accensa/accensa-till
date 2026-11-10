@@ -14,6 +14,15 @@ import { ledgerEntries } from "../db/schema.ts";
 
 export type LedgerKind = "payment_in" | "payout_out" | "refund_in" | "adjustment";
 
+/**
+ * The kind that says a settlement reached the ledger, named once because two files
+ * have to agree on it: this module writes it beside every settled payment, and
+ * `jobs/reconcile.ts` reads it back to decide whether a settled payment is booked
+ * (G6·2). A string that drifts between the writer and that reader silences
+ * `PAYMENT_UNBOOKED` for every payment in the seller's book.
+ */
+export const SETTLEMENT_LEDGER_KIND = "payment_in" satisfies LedgerKind;
+
 export type PayoutMode = "direct" | "intents";
 
 export type LedgerWrite = {
@@ -60,7 +69,7 @@ export async function recordSettlement(
   payoutMode: PayoutMode,
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    await insert(tx, { ...entry, kind: "payment_in" });
+    await insert(tx, { ...entry, kind: SETTLEMENT_LEDGER_KIND });
     if (payoutMode === "direct") {
       await insert(tx, {
         ...entry,

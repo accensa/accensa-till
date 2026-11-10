@@ -16,6 +16,7 @@ export const DISCREPANCY_CODES = [
   "PAYOUT_SHORTFALL",
   "INCOMPLETE_DEPOSIT",
   "ORPHAN_DEPOSIT",
+  "PAYMENT_UNBOOKED",
 ] as const;
 export type DiscrepancyCode = (typeof DISCREPANCY_CODES)[number];
 
@@ -25,6 +26,9 @@ export const P0_DISCREPANCY_CODES: readonly DiscrepancyCode[] = [
   "PAYOUT_FAILED",
   "PAYOUT_STUCK",
   "PAYMENT_NOT_SWEPT",
+  // G6·2: the seller was paid and the book of record does not say so, so every
+  // balance the dashboard shows for that payment is short by exactly its amount.
+  "PAYMENT_UNBOOKED",
 ];
 
 export const SEVERITIES = ["critical", "high", "medium", "low"] as const;
@@ -68,7 +72,15 @@ export type SwapRow = {
 };
 
 export type ReconcileConfig = {
-  /** PAYMENT_NOT_SWEPT window: settled payment with no swap activity after this. */
+  /**
+   * PAYMENT_NOT_SWEPT window: settled payment with no swap activity after this.
+   *
+   * PAYMENT_UNBOOKED (G6·2) ages on the same number rather than on a knob of its own.
+   * The two questions are different — "did anything move" and "was the money booked" —
+   * but both are "the settle happened long enough ago that the writer has had its
+   * turn", and the gateway books in the request that settles, so a window that is wide
+   * enough not to read a millisecond's race as a finding is wide enough for both.
+   */
   readonly sweepWindowSeconds: number;
   /** PAYOUT_STUCK window for a swap still processing or in an unknown state. */
   readonly stuckWindowSeconds: number;
@@ -82,6 +94,20 @@ export type ReconcileSnapshot = {
   readonly now: Date;
   readonly payments: readonly PaymentRow[];
   readonly swaps: readonly SwapRow[];
+  /**
+   * The payments of this seller that have their settlement booked — a `payment_in`
+   * row in `ledger_entries` naming them (G6·2). A list rather than a set of amounts
+   * because the rule judges existence, not the number: whether the amount on the line
+   * is right is the ledger's own CHECK constraints and A19's business, and a rule that
+   * re-derived balances would disagree with the balance read for a reason nobody could
+   * explain to a seller.
+   *
+   * Required, and empty means "nothing is booked" rather than "unknown": a reader that
+   * cannot answer the question has to say so by marking the pass partial, the way
+   * E9's row cap does, because the alternative default silences the finding for every
+   * settled payment in the snapshot.
+   */
+  readonly bookedPaymentIds: readonly string[];
   readonly config: ReconcileConfig;
 };
 

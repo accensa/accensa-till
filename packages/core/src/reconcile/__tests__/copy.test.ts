@@ -7,9 +7,14 @@ import { NOW, payment, snapshot, swap } from "./fixtures.ts";
 /**
  * E8, LR-4: the copy the dashboard shows comes from the finding, so a rule that
  * fires with an empty explanation or a missing suggested action has no other
- * layer to catch it. One snapshot triggers every P0 code at once — the five
- * rules are independent, and this test is about what all of them are required
- * to say, not about any one rule's condition.
+ * layer to catch it. One snapshot triggers every P0 code at once — the six rules
+ * are independent, and this test is about what all of them are required to say,
+ * not about any one rule's condition.
+ *
+ * The snapshot books nothing in its ledger read (`bookedPaymentIds` defaults to empty),
+ * which is what makes the settled payment below fire G6·2's rule as well as E7's: one
+ * payment, two true findings, because a swap that never happened and a line that never
+ * got written are different problems with different fixes.
  */
 const minutesAgo = (minutes: number): Date => new Date(NOW.getTime() - minutes * 60_000);
 
@@ -20,7 +25,8 @@ describe("LR-4 copy on every P0 finding (E8)", () => {
       payments: [
         // SERVED_NOT_SETTLED: answered, never settled.
         payment({ id: "pay-served", state: "served_unsettled" }),
-        // PAYMENT_NOT_SWEPT: settled past the window, and no swap carries this hash.
+        // PAYMENT_NOT_SWEPT and PAYMENT_UNBOOKED: settled past the window, no swap
+        // carries this hash, and the ledger read has no line for it either.
         payment({ id: "pay-un-swept" }),
       ],
       swaps: [

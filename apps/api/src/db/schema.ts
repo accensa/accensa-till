@@ -321,6 +321,12 @@ export const ledgerEntries = pgTable(
         or (${table.kind} = 'adjustment')`,
     ),
     index("ledger_seller_asset_idx").on(table.sellerId, table.asset),
+    /**
+     * G6·2: every reconcile pass asks, for each payment in the snapshot, whether a
+     * `payment_in` line exists. Without this the semi-join reads the whole ledger
+     * once per payment.
+     */
+    index("ledger_payment_idx").on(table.paymentId, table.kind),
   ],
 );
 

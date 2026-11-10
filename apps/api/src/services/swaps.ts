@@ -80,12 +80,20 @@ async function swapState(db: Writer, swapId: string): Promise<SwapState | null> 
   return rows[0] ?? null;
 }
 
+/**
+ * In id order, which is A20's creation order. Without an `order by` the two rows that
+ * share a hash come back in whatever order the join happened to read them, so the
+ * same ambiguity printed a different candidate list on two consecutive passes and the
+ * seller's evidence disagreed with itself (observed as an intermittently failing
+ * assertion on 2026-11-10).
+ */
 async function candidateIds(db: Writer, hash: string, sellerId: string): Promise<string[]> {
   const rows = await db
     .select({ id: payments.id })
     .from(payments)
     .innerJoin(endpoints, eq(endpoints.id, payments.endpointId))
-    .where(and(eq(payments.nearTxHash, hash), eq(endpoints.sellerId, sellerId)));
+    .where(and(eq(payments.nearTxHash, hash), eq(endpoints.sellerId, sellerId)))
+    .orderBy(payments.id);
   return rows.map((row) => row.id);
 }
 

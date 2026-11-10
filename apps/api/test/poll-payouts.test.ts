@@ -940,8 +940,8 @@ suite("the payout poller polls, refuses and reschedules (D6, PO-4)", () => {
     expect(row.originTxHash).toBe(hash);
     expect(codes(entries)).toContain("poll_link_ambiguous");
     const warning = entries.find((entry) => entry.code === "poll_link_ambiguous");
-    // Both ids, in whichever order the join read them: the names are the finding, and
-    // the order of two rows that share a hash is not a fact.
+    // Both ids, oldest first: `candidateIds` orders them, so the list a seller is
+    // shown does not change between two passes over the same two rows.
     expect(warning?.fields.candidates).toEqual([first, second].sort());
   });
 

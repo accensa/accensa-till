@@ -1,6 +1,7 @@
 import { incompleteDeposit } from "./incomplete-deposit.ts";
 import { orphanDeposit } from "./orphan-deposit.ts";
 import { paymentNotSwept } from "./payment-not-swept.ts";
+import { paymentUnbooked } from "./payment-unbooked.ts";
 import { payoutFailed } from "./payout-failed.ts";
 import { payoutRefunded } from "./payout-refunded.ts";
 import { payoutShortfall } from "./payout-shortfall.ts";
@@ -15,6 +16,7 @@ export const RULES: readonly ReconcileRule[] = [
   payoutFailed,
   payoutStuck,
   paymentNotSwept,
+  paymentUnbooked,
   payoutShortfall,
   incompleteDeposit,
   orphanDeposit,
@@ -34,6 +36,7 @@ export {
   payoutFailed,
   payoutStuck,
   paymentNotSwept,
+  paymentUnbooked,
   payoutShortfall,
   incompleteDeposit,
   orphanDeposit,

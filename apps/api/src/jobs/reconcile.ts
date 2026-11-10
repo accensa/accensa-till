@@ -10,16 +10,18 @@ import {
   normalizeSwapState,
   runAllRules,
 } from "@till/core";
-import { asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, exists, sql } from "drizzle-orm";
 
 import type { Db } from "../db/client.ts";
-import { endpoints, payments, payoutRoutes, sellers, swaps } from "../db/schema.ts";
+import { endpoints, ledgerEntries, payments, payoutRoutes, sellers, swaps } from "../db/schema.ts";
 import type { Logger } from "../lib/logger.ts";
 import { writeFindings } from "../services/discrepancies.ts";
+import { SETTLEMENT_LEDGER_KIND } from "../services/ledger.ts";
 
 /**
  * The reconcile loop (E9, LR-2, LR-3): the seam between the pure rules and the
- * database. It loads one seller's payments, swaps and the database clock into a
+ * database. It loads one seller's payments, swaps, the ids of the payments whose
+ * settlement reached the ledger, and the database clock into a
  * `ReconcileSnapshot`, calls `runAllRules`, and hands the findings to
  * `services/discrepancies.ts`. No rule logic lives here, and no I/O lives in a
  * rule (hard rule 6).
@@ -44,9 +46,9 @@ import { writeFindings } from "../services/discrepancies.ts";
  * - **A snapshot that cannot see everything is `partial`, and a partial pass opens
  *   findings and closes none.** Auto-resolution reads the findings list as
  *   exhaustive: a cause that is absent has cleared. That is only true if every row
- *   the seller has was in the snapshot, so the two ways it can fail — more rows than
- *   the read cap, and rows this build cannot interpret — both turn off auto-close
- *   instead of being truncated or defaulted. The alternative was to refuse the
+ *   the seller has was in the snapshot, so the ways it can fail — more rows than
+ *   the read cap on either read, and rows this build cannot interpret —
+ *   turn off auto-close instead of being truncated or defaulted. The alternative was to refuse the
  *   seller's pass outright, which makes one unreadable row an outage for that
  *   seller's whole reconciliation, and to auto-close on a partial list, which
  *   silently shuts live findings. A stale row lingering until a complete pass is the
@@ -329,6 +331,27 @@ async function readSnapshot(
       verifiedAt: payments.verifiedAt,
       routeMode: payoutRoutes.modeDetail,
       endpointMode: endpoints.payoutMode,
+      // G6·2: did this payment's settlement reach the ledger. A column of the payments
+      // read rather than a read of its own, because a second capped read cannot be
+      // aligned with this one: it keeps the newest `maxRows` payments while a booked-id
+      // read capped at the same number keeps a different `maxRows` (the first test of it
+      // printed a false `PAYMENT_UNBOOKED` for the newest payment, which is exactly the
+      // wrong answer to give a seller). As a column, the flag belongs to the row the
+      // rule judges and no cap can misalign them.
+      //
+      // The semi-join is per payment, so `ledger_payment_idx` (migration 0010) is what
+      // keeps a pass over a full cap cheap rather than quadratic in the ledger.
+      booked: exists(
+        tx
+          .select({ one: sql`1` })
+          .from(ledgerEntries)
+          .where(
+            and(
+              eq(ledgerEntries.paymentId, payments.id),
+              eq(ledgerEntries.kind, SETTLEMENT_LEDGER_KIND),
+            ),
+          ),
+      ),
     })
     .from(payments)
     .innerJoin(endpoints, eq(endpoints.id, payments.endpointId))
@@ -363,6 +386,7 @@ async function readSnapshot(
   const swapsTruncated = swapRows.length > maxRows;
 
   const snapshotPayments: PaymentRow[] = [];
+  const bookedPaymentIds: string[] = [];
   let unusablePayments = 0;
   let paymentsWithoutRoute = 0;
   for (const row of paymentRows.slice(0, maxRows)) {
@@ -382,6 +406,11 @@ async function readSnapshot(
     const mode = payoutModeOf(row.routeMode, row.endpointMode);
     if (mode.fromEndpoint) {
       paymentsWithoutRoute += 1;
+    }
+    // Paired with the row that follows it, so the booked list is exactly the
+    // snapshot's booked payments and nothing this pass could not judge.
+    if (row.booked) {
+      bookedPaymentIds.push(row.id);
     }
     snapshotPayments.push({
       id: row.id,
@@ -427,7 +456,14 @@ async function readSnapshot(
   const partial = paymentsTruncated || swapsTruncated || unusablePayments > 0 || unusableSwaps > 0;
 
   return {
-    snapshot: { sellerId, now: clock, payments: snapshotPayments, swaps: snapshotSwaps, config },
+    snapshot: {
+      sellerId,
+      now: clock,
+      payments: snapshotPayments,
+      swaps: snapshotSwaps,
+      bookedPaymentIds,
+      config,
+    },
     partial,
     detail: {
       paymentsTruncated: paymentsTruncated ? 1 : 0,

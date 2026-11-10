@@ -245,6 +245,10 @@ export async function driveScenario(
     now,
     payments: [paymentRow],
     swaps: [swapRow],
+    // Every scenario starts from a sale that was booked: what they exercise is the
+    // payout leg, and `PAYMENT_UNBOOKED` (G6·2) would answer all of them with a
+    // missing ledger line they never set out to model.
+    bookedPaymentIds: [paymentRow.id],
     config,
   });
 
