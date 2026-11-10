@@ -33,7 +33,7 @@ Owner: nobody but core. Core may not import `drizzle-orm`, `hono`, `postgres`, `
 | `src/services/{endpoints,payments,sellers,access-keys,status,strikes}.ts` | everything else server-side | `strikes.ts` holds the block predicate **and** the clear watermark the gateway enforces |
 | `src/jobs/{loop,ticks,poll-payouts,reconcile,sweep-stale}.ts` | the three loops and the boot sweep | assertable bodies live in `ticks.ts`; `server.ts` only starts them |
 | `src/routes/*.ts` | dashboard HTTP, all session-gated except `/auth/*` | thin: validate, call a service, map errors. `swaps.ts` and `export.ts` are one-line unmounted stubs; `/assets` has no file |
-| `src/payouts/` | `PayoutProvider` interface, `mock/`, `oneclick/` placeholders | `createProvider` throws `not implemented (D3)` unless `PAYOUT_PROVIDER=mock` |
+| `src/payouts/` | `PayoutProvider` interface, `mock/`, `oneclick/` (client + status map) | `createProvider` returns the real client when `PAYOUT_PROVIDER=oneclick`; only its `prepareRoute` refuses, because `originAsset`, `depositType` and `slippageTolerance` are undecided (D3, S2/B8) — the live-money boundary |
 | `src/db/{schema,client}.ts`, `src/db/queries/`, `migrations/` | Drizzle schema, one pool, hand-written reads | every money column `numeric(78,0)` with a CHECK |
 | `src/lib/{session,logger}.ts`, `src/env.ts`, `src/app.ts`, `src/server.ts` | HKDF+JWS cookie codec, buffered logger, the whole env schema, route mounting, boot | `env.ts` is the only place env is read; `app.ts` takes `AppDeps` seams for tests |
 

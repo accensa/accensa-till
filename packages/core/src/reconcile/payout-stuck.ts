@@ -4,7 +4,14 @@ import { type Finding, type ReconcileRule, dedupeKeyFor } from "./types.ts";
 /**
  * PAYOUT_STUCK (LR-3, Medium): a swap is still pending or processing, or the
  * provider reported a status we do not recognise (which normalizes to
- * `processing`), beyond the configured window without a poll changing anything.
+ * `processing`), beyond the configured window without anything changing.
+ *
+ * The clock is the provider's own `updatedAt` when the swap has one, and
+ * `lastPolledAt` otherwise (S5, consequence 2). That order is the difference
+ * between a rule and a dead letter: `lastPolledAt` moves on every poll, so a
+ * provider that keeps answering `PENDING_DEPOSIT` for a swap it has not touched
+ * in hours looks freshly polled and never looks stuck. `providerUpdatedAt` says
+ * when the provider's record of the money last moved, which is the question.
  *
  * Window comes from config, never hardcoded (AGENTS.md hard rule 12: the caller
  * supplies database time in `snapshot.now`).
@@ -16,11 +23,13 @@ export const payoutStuck: ReconcileRule = (snapshot) => {
     if (isTerminalSwapState(swap.state)) {
       continue;
     }
-    // A swap we have never polled cannot be judged stale yet.
-    if (swap.lastPolledAt === null) {
+    // A swap neither side has a clock for cannot be judged stale yet: it has never
+    // been polled, so there is no "nothing has changed" to measure against.
+    const agedOn = swap.providerUpdatedAt ?? swap.lastPolledAt;
+    if (agedOn === null) {
       continue;
     }
-    if (snapshot.now.getTime() - swap.lastPolledAt.getTime() < stuckMs) {
+    if (snapshot.now.getTime() - agedOn.getTime() < stuckMs) {
       continue;
     }
     findings.push({

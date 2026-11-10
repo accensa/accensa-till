@@ -169,4 +169,56 @@ describe("PAYOUT_STUCK (E6, LR-3)", () => {
       ),
     ).toHaveLength(1);
   });
+
+  it("ages on the provider's clock when it reports one, so a repeating status is still stuck (S5, consequence 2)", () => {
+    // The failure this closes is the one a polling loop creates for itself: every
+    // pass moves `lastPolledAt`, so a provider that keeps answering
+    // `PENDING_DEPOSIT` for money that has not moved in a day looked freshly looked
+    // at and never looked stuck. With the provider's own time-in-state, the age is
+    // the provider's, and the rule fires.
+    const polledAgain = swap({
+      id: "swap-repeat",
+      paymentId: "pay-9",
+      state: "pending",
+      lastPolledAt: ago(60_000),
+      providerUpdatedAt: ago(STUCK_MS + 3_600_000),
+    });
+    expect(payoutStuck(snapshot({ sellerId: "seller-1", swaps: [polledAgain] }))).toHaveLength(1);
+
+    // And the other direction, which is the part that could be a false alarm: a
+    // swap polled long ago whose provider says the money moved a moment ago is not
+    // stuck, it is only unwatched.
+    const recentlyMoved = swap({
+      id: "swap-alive",
+      state: "processing",
+      lastPolledAt: ago(STUCK_MS + 3_600_000),
+      providerUpdatedAt: ago(30_000),
+    });
+    expect(payoutStuck(snapshot({ sellerId: "seller-1", swaps: [recentlyMoved] }))).toHaveLength(0);
+  });
+
+  it("falls back to the poll clock for a provider that reports no clock of its own (D3)", () => {
+    // The mock, and any provider that omits `updatedAt`, leaves the column null; a
+    // rule that then found nothing would make the stuck check depend on which
+    // provider is configured. Same fixture, two clocks' worth of the same answer.
+    const noProviderClock = swap({
+      id: "swap-mock",
+      state: "processing",
+      lastPolledAt: ago(STUCK_MS + 60_000),
+      providerUpdatedAt: null,
+    });
+    expect(payoutStuck(snapshot({ sellerId: "seller-1", swaps: [noProviderClock] }))).toHaveLength(
+      1,
+    );
+
+    // Still new when neither clock exists, which is the case that must not open a
+    // finding for a swap the gateway has only just written.
+    const unwitnessed = swap({
+      id: "swap-blind",
+      state: "pending",
+      lastPolledAt: null,
+      providerUpdatedAt: null,
+    });
+    expect(payoutStuck(snapshot({ sellerId: "seller-1", swaps: [unwitnessed] }))).toHaveLength(0);
+  });
 });

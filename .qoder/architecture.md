@@ -73,10 +73,20 @@ window by reading the chain once, leaving a row alone when the chain is unproven
 
 ## Provider
 
-Everything payout-side goes through `PayoutProvider`. Only `mock` exists: `oneclick/` is two
-eight-line placeholders and `createProvider` throws `not implemented (D3)` on the first poll
-tick, not at boot. The mock refuses a route it has no script for, refuses a reference it
-never issued, and marks every payload `simulated: true`. Defaults stay
+Everything payout-side goes through `PayoutProvider`. `mock` is what every test, the demo
+and CI use. `oneclick` is real code with one deliberate refusal (D3, 2026-11-10):
+`getStatus` and `listAssets` read the recorded OpenAPI contract — one `GET /v0/status` per
+deposit address, spaced by `ONECLICK_MIN_CALL_GAP_MS` and capped per pass by
+`ONECLICK_STATUS_CALLS_PER_PASS`, which `poll-payouts.ts` takes as
+`min(batchSize, statusCallsPerPass)` so a pass never locks rows it will not ask about — and
+`prepareRoute` **throws**, because `originAsset`, `depositType` and `slippageTolerance` are
+undecided (S2/B8). Nothing in the tree can therefore mint a deposit address or move mainnet
+money. Status names go through `oneclick/map-status.ts`, an explicit switch over the seven
+`SCREAMING_SNAKE_CASE` values, never `normalizeSwapState`: `INCOMPLETE_DEPOSIT` is
+`incomplete` and stays visible to `PAYOUT_STUCK`. The provider's `updatedAt` is persisted as
+`swaps.provider_updated_at` and `payout-stuck.ts` ages on it in preference to
+`last_polled_at`, which every pass resets. The mock refuses a route it has no script for,
+refuses a reference it never issued, and marks every payload `simulated: true`. Defaults stay
 `PAYOUT_PROVIDER=mock`, `NEAR_NETWORK=near:testnet`; NEAR Intents has no testnet, so the
 payout leg has never moved real money.
 

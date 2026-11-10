@@ -61,7 +61,8 @@ import { linkSwapByHash } from "../services/swaps.ts";
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-export type PollStatusSource = Pick<PayoutProvider, "getStatus">;
+export type PollStatusSource = Pick<PayoutProvider, "getStatus"> &
+  Partial<Pick<PayoutProvider, "statusCallsPerPass">>;
 
 export type PollDeps = {
   readonly db: Db;
@@ -120,6 +121,8 @@ type Answer = {
   readonly refundedAmount: BaseUnitAmount | null;
   readonly originTxHash: string | null;
   readonly destinationTxHash: string | null;
+  /** The provider's own time-in-state, when it reports one (S5, consequence 2). */
+  readonly providerUpdatedAt: Date | null;
   readonly raw: unknown;
 };
 
@@ -130,6 +133,8 @@ type Claimed = {
   readonly originTxHash: string | null;
   readonly terminalAt: Date | null;
   readonly pollAttempts: number;
+  /** The last provider-reported time-in-state, kept until a report replaces it. */
+  readonly providerUpdatedAt: Date | null;
   readonly sellerId: string;
   readonly destinationAsset: string;
 };
@@ -188,13 +193,39 @@ function readAnswer(reported: NormalizedSwap): Read {
       refundedAmount,
       originTxHash: hashOf(reported.originTxHash),
       destinationTxHash: hashOf(reported.destinationTxHash),
+      providerUpdatedAt: reported.providerUpdatedAt ?? null,
       raw: reported.raw,
     },
   };
 }
 
-/** The next look at a row that answered: one interval, retries cleared. */
-function nextGap(pollSeconds: number) {
+/**
+ * What a report says the ledger should do, read once.
+ *
+ * A terminal `succeeded` or `refunded` is an event with an amount, and `E1` says one
+ * ledger line per event -- so an amount that is missing is not a zero booking, it is a
+ * report that cannot be booked at all. `failed` moves no money and is a rule's
+ * business (E5), not the ledger's, which is why it is `nothing` by design rather than
+ * by absence.
+ */
+type Bookable =
+  | { readonly kind: "payout"; readonly amount: BaseUnitAmount }
+  | { readonly kind: "refund"; readonly amount: BaseUnitAmount }
+  | { readonly kind: "nothing" };
+
+function bookableOf(to: SwapState, fields: Answer): Bookable {
+  if (to === "succeeded" && fields.amountOut !== null) {
+    return { kind: "payout", amount: fields.amountOut };
+  }
+  if (to === "refunded" && fields.refundedAmount !== null) {
+    return { kind: "refund", amount: fields.refundedAmount };
+  }
+  return { kind: "nothing" };
+}
+
+/** The next look at a row that answered: one interval, retries cleared. */ function nextGap(
+  pollSeconds: number,
+) {
   return sql`now() + make_interval(secs => ${pollSeconds}::int)`;
 }
 
@@ -246,7 +277,14 @@ async function refundAssetOf(tx: Tx, paymentId: string | null): Promise<string |
 
 export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
   const { db, log } = deps;
-  const batchSize = deps.batchSize ?? DEFAULT_POLL_BATCH_SIZE;
+  // D3/S5 consequence 5: a provider whose status endpoint takes one deposit
+  // address per call publishes how many calls one pass may make, and claiming more
+  // rows than that would hold locks on refs this pass never asks about. `min` and
+  // not `??` because a caller's smaller batch stays smaller.
+  const batchSize = Math.min(
+    deps.batchSize ?? DEFAULT_POLL_BATCH_SIZE,
+    deps.provider.statusCallsPerPass ?? DEFAULT_POLL_BATCH_SIZE,
+  );
   // The public shape publishes these as read-only; the pass fills them in as it goes.
   const counts: Counts = { claimed: 0, moved: 0, terminal: 0, booked: 0, ignored: 0, retried: 0 };
   // Distinct, because one seller with three swaps that all moved is one seller for
@@ -264,6 +302,7 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
         originTxHash: swaps.originTxHash,
         terminalAt: swaps.terminalAt,
         pollAttempts: swaps.pollAttempts,
+        providerUpdatedAt: swaps.providerUpdatedAt,
         sellerId: payoutRoutes.sellerId,
         destinationAsset: payoutRoutes.destinationAsset,
       })
@@ -429,6 +468,37 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
       }
 
       const becameTerminal = to !== from && isTerminalSwapState(to);
+      const bookable = bookableOf(to, fields);
+
+      // G6 (2026-11-10): a report that finishes a swap with no amount to book is
+      // refused rather than written and stamped. `payout_out` and `refund_in` are one
+      // ledger line for one event (E1), so a `succeeded` with a null `amountOut` books
+      // nothing -- and the terminal stamp used to be written in the same pass, which
+      // took the row out of the claim query forever: never booked, never asked again,
+      // and named by no rule either (`payout-shortfall.ts` skips a null amount). Left
+      // where it was, the row stays visible: a later report may still carry the
+      // amount, and `PAYOUT_STUCK` fires on it if none ever does.
+      //
+      // `becameTerminal` already narrows `to` to the three terminal states, and a
+      // `failed` is terminal with nothing to book by design, so this is exactly the
+      // two reports that finish a swap and carry no amount.
+      if (becameTerminal && bookable.kind === "nothing" && to !== "failed") {
+        await tx
+          .update(swaps)
+          .set({ ...schedule, lastPolledAt: sql`now()` })
+          .where(eq(swaps.id, row.id));
+        log?.error(
+          {
+            code: "poll_payout_unbooked",
+            swapId: row.id,
+            providerRef: row.providerRef,
+            reported: to,
+          },
+          "a terminal payout report carried no amount, so the swap kept its state and will be asked again",
+        );
+        continue;
+      }
+
       const writes = {
         amountIn: fields.amountIn?.toString() ?? null,
         amountOut: fields.amountOut?.toString() ?? null,
@@ -439,6 +509,10 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
         // built from would unlink a swap that is already matched.
         originTxHash: fields.originTxHash ?? row.originTxHash,
         destinationTxHash: fields.destinationTxHash,
+        // A provider that stops reporting its update time does not reset the swap's
+        // age: the last one it gave is still the best statement of time-in-state, and
+        // dropping it would make PAYOUT_STUCK judge the row on the poll stamp again.
+        providerUpdatedAt: fields.providerUpdatedAt ?? row.providerUpdatedAt,
         raw: fields.raw,
         ...schedule,
         lastPolledAt: sql`now()`,
@@ -476,26 +550,24 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
         continue;
       }
 
-      if (to === "succeeded") {
-        if (fields.amountOut === null) {
-          log?.error(
-            { code: "poll_payout_unbooked", swapId: row.id, providerRef: row.providerRef },
-            "a succeeded swap reported no payout amount, so no ledger line was written",
-          );
-        } else {
-          await recordPayoutOut(tx, {
-            sellerId: row.sellerId,
-            amount: fields.amountOut,
-            asset: row.destinationAsset,
-            paymentId,
-            swapId: row.id,
-            note: `intents payout for swap ${row.providerRef}`,
-          });
-          counts.booked += 1;
-        }
-      } else if (to === "refunded") {
+      // The guard above is what makes a terminal `succeeded`/`refunded` reach here
+      // carrying its amount, so the amount is read once rather than tested twice.
+      if (bookable.kind === "payout") {
+        await recordPayoutOut(tx, {
+          sellerId: row.sellerId,
+          amount: bookable.amount,
+          asset: row.destinationAsset,
+          paymentId,
+          swapId: row.id,
+          note: `intents payout for swap ${row.providerRef}`,
+        });
+        counts.booked += 1;
+      } else if (bookable.kind === "refund") {
+        // The asset a refund came back in is a fact about the payment, not about the
+        // destination chain, so it is read off the link (E4) and a missing link is a
+        // refusal rather than a guess.
         const asset = await refundAssetOf(tx, paymentId);
-        if (fields.refundedAmount === null || asset === null) {
+        if (asset === null) {
           log?.error(
             {
               code: "poll_refund_unbooked",
@@ -503,12 +575,12 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
               providerRef: row.providerRef,
               paymentId,
             },
-            "a refunded swap gave no amount or no link to name its asset, so no ledger line was written",
+            "a refunded swap gave no link to name its asset, so no ledger line was written",
           );
         } else {
           await recordRefundIn(tx, {
             sellerId: row.sellerId,
-            amount: fields.refundedAmount,
+            amount: bookable.amount,
             asset,
             paymentId,
             swapId: row.id,

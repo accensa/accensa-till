@@ -2263,4 +2263,63 @@ suite("paid response cache (C12, GW-9)", () => {
     expect(second.status).toBe(409);
     expect(decodeReceipt(second).transaction).toBe(hash);
   });
+
+  /**
+   * A second endpoint belonging to the same seller as `owner`: same price, same
+   * asset, same payout account, different upstream path so the two answers are
+   * distinguishable by body. This is the shape one signed authorization is
+   * genuinely valid at both, because `x402/near.ts` cross-checks scheme, network,
+   * asset, payTo and amount and nothing per endpoint (the `resource` field is
+   * optional in the payment schema).
+   */
+  async function insertTwinOf(owner: Fixture): Promise<Fixture> {
+    const { sql } = need();
+    const short = randomUUID().slice(0, 8);
+    const endpointId = randomUUID();
+    await sql`insert into endpoints (id, seller_id, slug, upstream_url, price_amount,
+        asset_contract, network, description, payout_mode, route_id, active)
+      values (${endpointId}, ${owner.sellerId}, ${`c4-twin-${short}`},
+        ${`http://127.0.0.1:${upstreamPort}${UPSTREAM.flaky}`}, ${PRICE}, ${TOKEN},
+        'near:testnet', ${"the same seller, priced the same"}, 'direct', ${owner.routeId}, true)`;
+    return { ...owner, endpointId, slug: `c4-twin-${short}` };
+  }
+
+  it("never replays one endpoint's cached answer at another endpoint of the same seller", async () => {
+    // G6 (2026-11-10). `replay_key` is sha256(signedDelegateAction) and is unique
+    // across the whole table, so an authorization paid at endpoint A is *found* by
+    // endpoint B's request, and GW-9's cache is keyed by that same authorization
+    // alone. Without an endpoint in the key, B answers with A's body: a second
+    // delivery for one payment, with no row and no ledger line for B, and the `409
+    // payment_replay` refusal the cross-endpoint test proves never runs.
+    const twin = await insertTwinOf(fixture("cache"));
+    flakyFails = false;
+    const replayKey = randomUUID();
+    const hash = `tx-cross-${randomUUID().slice(0, 8)}`;
+    const calls: Call[] = [];
+    const built = buildRoute({
+      x402: scriptedX402({ payer: CACHE_PAYER, settle: "ok", replayKey, hash }, calls),
+      guards: guardsPendingC8,
+      responses: createResponseCache(),
+    });
+    const headers = new Headers({
+      [PAYMENT_SIGNATURE_HEADER]: paymentHeaderValue(payloadFor(twin.sellerAccount)),
+    });
+
+    const first = await built.route.request(`/r/${twin.slug}`, { headers });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({ path: UPSTREAM.flaky });
+    const hits = sellerHits.length;
+
+    const other = await built.route.request(`/r/${fixture("cache").slug}`, { headers });
+    expect(other.status).toBe(409);
+    expect(await other.json()).toMatchObject({ error: "payment_replay" });
+    // B's upstream is never dialed, so no body of A's crossed over, and the one
+    // authorization still owns exactly one payment row -- the first endpoint's.
+    expect(sellerHits).toHaveLength(hits);
+    expect(calls).toEqual(["verify", "settle", "verify"]);
+    expect(await paymentCountByReplayKey(replayKey)).toBe(1);
+    const [row] = await need().sql<{ endpoint_id: string }[]>`
+      select endpoint_id from payments where replay_key = ${replayKey}`;
+    expect(row?.endpoint_id).toBe(twin.endpointId);
+  });
 });

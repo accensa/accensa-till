@@ -39,6 +39,14 @@ export type NormalizedSwap = {
   /** The match key for reconciliation; absent until S2 says deposits carry it (LR-2). */
   readonly originTxHash: string | null;
   readonly destinationTxHash: string | null;
+  /**
+   * The provider's own "last time the state was updated" (S5, consequence 2), which is
+   * time-in-state. `swaps.last_polled_at` is Till's stamp and moves on every answer, so
+   * a swap the provider keeps re-reporting the same way would never age against it and
+   * `PAYOUT_STUCK` could not fire. A provider that reports no such time leaves this
+   * absent, and the stuck window keeps using the poll stamp rather than a guess.
+   */
+  readonly providerUpdatedAt?: Date | null;
   /** Raw provider payload, persisted into swaps.raw for diagnosis. */
   readonly raw: unknown;
 };
@@ -55,6 +63,13 @@ export interface PayoutProvider {
   prepareRoute(input: PrepareRouteInput): Promise<PreparedRoute>;
   getStatus(input: StatusInput): Promise<readonly NormalizedSwap[]>;
   listAssets(): Promise<readonly SupportedAsset[]>;
+  /**
+   * The most refs one pass may ask about, when the provider's status endpoint
+   * answers one deposit address per call and is rate-limited per call (S5,
+   * consequence 5). `poll-payouts.ts` takes the minimum of this and its own batch
+   * size, so the mock, which serves a whole batch from one script, is left alone.
+   */
+  readonly statusCallsPerPass?: number;
 }
 
 /**

@@ -238,6 +238,7 @@ type SwapRow = {
   readonly paymentId: string | null;
   readonly raw: unknown;
   readonly lastPolledAt: Date | null;
+  readonly providerUpdatedAt: Date | null;
   readonly terminalAt: Date | null;
   readonly pollAttempts: number;
 };
@@ -803,17 +804,97 @@ suite("the payout poller polls, refuses and reschedules (D6, PO-4)", () => {
     expect(codes(entries)).toEqual(["poll_refund_unbooked"]);
   });
 
-  it("refuses to book a succeeded swap that reports no payout amount", async () => {
+  it("refuses to book a succeeded swap that reports no payout amount, and asks again", async () => {
+    // G6 (2026-11-10), the HIGH half: the amount and the terminal stamp used to be
+    // decided in the same breath, so a `succeeded` with no amount was stamped terminal
+    // without a ledger line -- unbookable, unclaimable from then on, and named by no
+    // rule (`payout-shortfall.ts` skips a null amount). The refusal now leaves the row
+    // exactly as it was, so a later report carrying the amount is still reachable and
+    // `PAYOUT_STUCK` is the rule that reports it if none ever arrives.
     const { log, entries } = recordingLog();
     const { id } = await newSwap({ state: "pending" });
     const provider = fakeProvider(always({ state: "succeeded", amountOut: null }));
 
     const polled = await poll({ provider: provider.source, log });
 
-    expect(polled).toMatchObject({ terminal: 1, booked: 0 });
-    expect((await swapRow(id)).state).toBe("succeeded");
+    expect(polled).toMatchObject({ terminal: 0, moved: 0, booked: 0 });
+    const row = await swapRow(id);
+    expect(row.state).toBe("pending");
+    expect(row.terminalAt).toBeNull();
     expect(await bookedLines(id)).toEqual([]);
     expect(codes(entries)).toEqual(["poll_payout_unbooked"]);
+    // Still in the claim set: unstamped and due again on the plain interval.
+    expect(await gapSeconds(id)).toBeLessThanOrEqual(POLL_SECONDS + 1);
+  });
+
+  it("refuses a refunded report that carries no amount the same way", async () => {
+    // The guard names both money states, so the second one is tested rather than
+    // assumed: a `refunded` with `refundedAmount: null` is a report Till cannot book
+    // and a swap it must not mark finished.
+    const { log, entries } = recordingLog();
+    const { id } = await newSwap({ state: "processing" });
+    const provider = fakeProvider(always({ state: "refunded", refundedAmount: null }));
+
+    const polled = await poll({ provider: provider.source, log });
+
+    expect(polled).toMatchObject({ terminal: 0, moved: 0, booked: 0 });
+    const row = await swapRow(id);
+    expect(row.state).toBe("processing");
+    expect(row.terminalAt).toBeNull();
+    expect(codes(entries)).toEqual(["poll_payout_unbooked"]);
+  });
+
+  it("keeps the provider's own clock, and does not drop it when a later report omits one (S5, consequence 2)", async () => {
+    // `last_polled_at` moves on every pass, so a rule that ages a payout on it can
+    // never see a provider that keeps repeating itself. `provider_updated_at` is the
+    // provider's statement of when the money last moved, and a report that stops
+    // carrying one leaves the last known value alone rather than resetting the age.
+    const first = new Date("2026-11-05T09:00:00.000Z");
+    const second = new Date("2026-11-05T10:00:00.000Z");
+    let reported: Date | undefined = first;
+    const provider = fakeProvider(async (refs) =>
+      refs.map((ref) => ({
+        ...answer(ref, { state: "processing" }),
+        ...(reported === undefined ? {} : { providerUpdatedAt: reported }),
+      })),
+    );
+    const { id } = await newSwap({ state: "processing" });
+    // Three passes on one row need the row's own gap pushed back each time; the
+    // poller schedules it forward, which is the point of the gap.
+    const dueAgain = () =>
+      need().sql`update swaps set next_poll_at = now() - interval '1 second' where id = ${id}`;
+
+    await poll({ provider: provider.source });
+    expect((await swapRow(id)).providerUpdatedAt).toEqual(first);
+
+    reported = second;
+    await dueAgain();
+    await poll({ provider: provider.source });
+    expect((await swapRow(id)).providerUpdatedAt).toEqual(second);
+
+    reported = undefined;
+    await dueAgain();
+    await poll({ provider: provider.source });
+    expect((await swapRow(id)).providerUpdatedAt).toEqual(second);
+  });
+
+  it("claims no more refs than the provider is willing to answer for in one pass (S5, consequence 5)", async () => {
+    // `/v0/status` takes one deposit address per call and is rate-limited per call, so
+    // the provider publishes the bound and the poller obeys it: claiming rows this
+    // pass will not ask about only holds their locks longer.
+    const provider = fakeProvider(always({ state: "processing" }));
+    const source: PollStatusSource = {
+      getStatus: provider.source.getStatus,
+      statusCallsPerPass: 2,
+    };
+    for (let index = 0; index < 4; index += 1) {
+      await newSwap({});
+    }
+
+    const polled = await poll({ provider: source, batchSize: 25 });
+
+    expect(polled.claimed).toBe(2);
+    expect(provider.asked[0]?.length).toBe(2);
   });
 
   it("books nothing for a failure, which is a rule's business and not the ledger's", async () => {

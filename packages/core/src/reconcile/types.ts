@@ -57,6 +57,13 @@ export type SwapRow = {
   readonly refundedAmount: BaseUnitAmount | null;
   readonly originTxHash: string | null;
   readonly lastPolledAt: Date | null;
+  /**
+   * S5, consequence 2: the provider's own clock for this swap, read off its status
+   * payload, so a stuck payout is aged on when the money last moved rather than on
+   * when Till last asked. Null for a provider that does not report one — the mock
+   * among them (D3) — and every reader falls back to `lastPolledAt` for those.
+   */
+  readonly providerUpdatedAt: Date | null;
   readonly terminalAt: Date | null;
 };
 

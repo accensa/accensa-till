@@ -238,6 +238,14 @@ export const swaps = pgTable(
      * answer (D6).
      */
     lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+    /**
+     * The provider's "last time the state was updated" (D3, spike S5 consequence 2):
+     * time-in-state, which is what PO-4 asks the stuck window to age against.
+     * `last_polled_at` is Till's own stamp and moves on every answer, so a swap the
+     * provider keeps reporting the same way never ages against it. Null means this
+     * provider reports no such time, and the window falls back to the poll stamp.
+     */
+    providerUpdatedAt: timestamp("provider_updated_at", { withTimezone: true }),
     terminalAt: timestamp("terminal_at", { withTimezone: true }),
     /**
      * D6's schedule, per ref rather than per pass, which is what spike S5 asked D3 to

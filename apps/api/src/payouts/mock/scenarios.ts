@@ -235,6 +235,8 @@ export async function driveScenario(
     refundedAmount: lastStatus.refundedAmount,
     originTxHash: lastStatus.originTxHash,
     lastPolledAt,
+    // The mock reports no clock of its own, so these scenarios age on the poll.
+    providerUpdatedAt: null,
     terminalAt: terminal ? lastPolledAt : null,
   };
 

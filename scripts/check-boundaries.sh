@@ -74,7 +74,13 @@ hits=$(violations_in 'from "(drizzle-orm|postgres|hono|next|react|@till/api)' 'n
 hits=$(violations_in '@fastnear' 'x402/near\.ts' apps/api/src)
 [ -z "$hits" ] || report "only x402/near.ts may import @fastnear (hard rule 1)" "$hits"
 
-hits=$(violations_in '1Click|ONECLICK_' 'payouts/oneclick/(client|map-status)\.ts|env\.ts' apps/api/src)
+# `payouts/index.ts` is on this list because D3 made it the place that *builds* the
+# client (D3, 2026-11-10): it names `ONECLICK_BASE_URL`, `ONECLICK_JWT`,
+# `ONECLICK_MIN_CALL_GAP_MS` and `ONECLICK_STATUS_CALLS_PER_PASS` to pass them to the
+# constructor, and that is the whole of its 1Click knowledge — no path, no field of the
+# response, no call. The rule guards against the API being *talked to* from elsewhere,
+# which is why `client.ts` still owns every URL and every `fetch`.
+hits=$(violations_in '1Click|ONECLICK_' 'payouts/oneclick/(client|map-status)\.ts|payouts/index\.ts|env\.ts' apps/api/src)
 [ -z "$hits" ] || report "1Click may only be touched from payouts/oneclick (hard rule 5)" "$hits"
 
 hits=$(violations_in 'insert\(ledgerEntries\)|into ledger_entries' 'services/ledger\.ts' apps/api/src)

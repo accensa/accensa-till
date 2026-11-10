@@ -43,6 +43,9 @@ export function swap(overrides: Partial<SwapRow> & { id: string }): SwapRow {
     refundedAmount: null,
     originTxHash: null,
     lastPolledAt: minutesAgo(1),
+    // Null by default so the suite below keeps exercising the fallback clock; the
+    // provider's own clock has its own tests rather than a changed default.
+    providerUpdatedAt: null,
     terminalAt: minutesAgo(2),
     ...overrides,
   };

@@ -8,6 +8,7 @@ import {
   MockProvider,
   type MockScript,
 } from "../src/payouts/mock/provider.ts";
+import { OneClickClient } from "../src/payouts/oneclick/client.ts";
 import type { PayoutProvider, PrepareRouteInput, PreparedRoute } from "../src/payouts/provider.ts";
 
 /**
@@ -277,9 +278,35 @@ describe("provider selection", () => {
     expect(provider).toBeInstanceOf(MockProvider);
   });
 
-  it("refuses to select the real provider until D3 exists", () => {
+  it("selects the real provider, which can poll and read assets but cannot mint a deposit address (D3)", async () => {
     const env = loadEnv({ ...process.env, ...required, PAYOUT_PROVIDER: "oneclick" });
-    expect(() => createProvider(env, [])).toThrow(/not implemented \(D3\)/);
+    const provider = createProvider(env, []);
+    expect(provider).toBeInstanceOf(OneClickClient);
+    // The live-money boundary, in the test that names it: the quote's originAsset,
+    // depositType and slippageTolerance are undecided (S2/B8), so no address may be
+    // issued and no mainnet movement can be advertised by a poller that is otherwise
+    // wired up. A passing getStatus half must never come with a working prepareRoute.
+    await expect(
+      provider.prepareRoute({
+        destinationChain: "near",
+        destinationAsset: "usdc.testnet",
+        destinationAddress: "seller.near",
+        refundAddress: "refund.near",
+        amount: null,
+      }),
+    ).rejects.toThrow(/undecided \(S2\/B8\)/);
+  });
+
+  it("publishes the real provider's per-pass call bound so the poller can size its claim (S5)", () => {
+    const env = loadEnv({ ...process.env, ...required, PAYOUT_PROVIDER: "oneclick" });
+    const provider = createProvider(env, []);
+    expect(provider.statusCallsPerPass).toBe(env.ONECLICK_STATUS_CALLS_PER_PASS);
+    // The mock answers a whole batch from one script, so it publishes nothing and
+    // the poller keeps its own default rather than a rate limit it does not have.
+    // Read through the interface: the bound is `PayoutProvider`'s optional member,
+    // and a mock that does not have it is still a `PayoutProvider`.
+    const scriptless: PayoutProvider = new MockProvider([]);
+    expect(scriptless.statusCallsPerPass).toBeUndefined();
   });
 
   it("leaves a mock with no script unusable rather than cheerful", async () => {

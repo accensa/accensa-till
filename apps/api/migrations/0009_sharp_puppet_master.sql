@@ -1,0 +1,1 @@
+ALTER TABLE "swaps" ADD COLUMN "provider_updated_at" timestamp with time zone;

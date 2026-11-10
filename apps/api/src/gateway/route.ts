@@ -229,6 +229,20 @@ function describeUpstreamError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * GW-9's cache key (C12, corrected by G6 on 2026-11-10): an authorization *at an
+ * endpoint*. The replay key x402 gives Till is `sha256` of the payer's signed
+ * delegate action, which names the payer, the token, the amount and the pay-to and
+ * never the URL being paid for -- `resource` is optional in the scheme and
+ * `verify` does not judge it -- so the same signature is valid at every endpoint the
+ * seller owns. The payments table keeps that straight by owning one row per
+ * endpoint; a cache keyed on the bare hash did not, and would hand one endpoint's
+ * paid body to a request paid for at another.
+ */
+function cacheKey(endpointId: string, replayKey: string): string {
+  return `${endpointId}:${replayKey}`;
+}
+
 export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
   const { env, log, db, x402 } = deps;
   const guards =
@@ -531,8 +545,22 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
       // -- and the receipt is rebuilt from the row rather than stored with the body,
       // so the hash a replayed answer names is the one the ledger holds. A miss,
       // including one after the TTL, falls through to the 409 and receipt below.
-      if (stored.state === "settled" && stored.nearTxHash !== null) {
-        const cached = responses.get(authorization.replayKey);
+      //
+      // G6 (2026-11-10), the HIGH half: the lookup names the *endpoint* as well as
+      // the authorization, and the row read for the state is checked to agree.
+      // x402's replay key is the hash of the payer's signed delegate action, which
+      // covers what the payer authorized and never the URL Till is paying for at
+      // (`resource` is optional in the scheme and `verify` does not judge it), so one
+      // signed payment is replayable at every endpoint that seller owns. Keyed on the
+      // bare replay key, this branch answered the second request with the *first*
+      // endpoint's paid body -- 200 where 409 was the only honest answer, for content
+      // that was paid for at another address.
+      if (
+        stored.endpointId === row.endpointId &&
+        stored.state === "settled" &&
+        stored.nearTxHash !== null
+      ) {
+        const cached = responses.get(cacheKey(row.endpointId, authorization.replayKey));
         if (cached !== null) {
           requestLog.info(
             {
@@ -751,8 +779,18 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
         row.payoutMode,
       );
     } catch (error) {
-      // The money is in and the answer is on its way. A missing line is ours to
-      // chase, and the sweep and reconcile rows will see the payment without it.
+      // The money is in and the answer is on its way, so the buyer is not charged
+      // twice for a line that failed here. What this does NOT do, stated because the
+      // sentence that used to sit here claimed the opposite (G6·2, 2026-11-10): no
+      // rule finds the gap. The boot sweep asks the *chain* about a `verified` row and
+      // this row is already `settled`; the reconcile snapshot reads payments, swaps
+      // and per-seller ledger balances, never this payment's own `ledger_entries`
+      // row, and `payment-not-swept.ts` asks whether a *swap* carries the hash rather
+      // than whether the money was booked. So a settled payment with no `payment_in`
+      // leaves the seller's balance short and unnamed, and this log line is the only
+      // record of it. The dated fix is the rule that read would need
+      // (`PAYMENT_UNBOOKED`: settled, hash on the row, no ledger line) and it belongs
+      // before G7 carries real money. Grep for `ledger_write_failed`.
       requestLog.error(
         { code: "ledger_write_failed", paymentId: payment.id, error: String(error) },
         "settled payment not booked",
@@ -761,9 +799,12 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
 
     // C12, GW-9: keep the answer for five minutes, keyed by the authorization, so a
     // buyer whose connection dropped before this `Response` reached it can retry.
-    // `set` owns the bounds and returns false only for a body over 256 KB; that is
-    // the documented fallback to the `409` + receipt, so it is logged, not silent.
-    if (!responses.set(authorization.replayKey, served)) {
+    // G6's key correction: the endpoint is in the key, because the authorization a
+    // replay is matched on says nothing about which endpoint it was spent at (see the
+    // read side). `set` owns the bounds and returns false only for a body over 256 KB;
+    // that is the documented fallback to the `409` + receipt, so it is logged, not
+    // silent.
+    if (!responses.set(cacheKey(row.endpointId, authorization.replayKey), served)) {
       requestLog.info(
         { code: "response_not_cached", paymentId: payment.id, bytes: served.body.byteLength },
         "a paid response was too large to cache for a retry",

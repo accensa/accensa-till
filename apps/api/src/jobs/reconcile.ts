@@ -350,6 +350,7 @@ async function readSnapshot(
       refundedAmount: swaps.refundedAmount,
       originTxHash: swaps.originTxHash,
       lastPolledAt: swaps.lastPolledAt,
+      providerUpdatedAt: swaps.providerUpdatedAt,
       terminalAt: swaps.terminalAt,
     })
     .from(swaps)
@@ -418,6 +419,7 @@ async function readSnapshot(
       refundedAmount,
       originTxHash: row.originTxHash,
       lastPolledAt: row.lastPolledAt,
+      providerUpdatedAt: row.providerUpdatedAt,
       terminalAt: row.terminalAt,
     });
   }

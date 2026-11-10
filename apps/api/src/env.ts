@@ -167,6 +167,18 @@ export const envSchema = z
      * that is down is asked about less while it is down rather than more.
      */
     POLL_MAX_BACKOFF_SECONDS: positiveInt(900),
+    /**
+     * D3's rate shape for the real provider. `/v0/status` answers one deposit address
+     * per call, so a pass that claims N swaps makes N calls, and the only spacing the
+     * provider publishes is "1 request every 5 seconds per partner ID" -- from the
+     * Explorer API, not the swap API, which is why S5 left the number unverified
+     * (consequence 5, open question 3). The gap is what Till obeys; the per-pass cap
+     * is what keeps one pass inside one interval at that gap. `poll-payouts.ts` reads
+     * the cap from the provider rather than from a batch size of its own, so the mock
+     * keeps claiming everything it has.
+     */
+    ONECLICK_MIN_CALL_GAP_MS: positiveInt(5_000),
+    ONECLICK_STATUS_CALLS_PER_PASS: positiveInt(4),
     RECONCILE_INTERVAL_SECONDS: positiveInt(60),
     /**
      * E9's `PAYMENT_NOT_SWEPT` window: a settled `intents` payment with no swap
