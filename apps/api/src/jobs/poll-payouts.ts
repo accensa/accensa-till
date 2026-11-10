@@ -330,9 +330,28 @@ export async function pollPayouts(deps: PollDeps): Promise<PollResult> {
 
       const answer = byRef.get(row.providerRef);
       if (answer === undefined) {
-        // The provider was asked and did not answer for this ref. Nothing about the
-        // swap is now known, so nothing is written and the next pass asks again.
-        await tx.update(swaps).set(schedule).where(eq(swaps.id, row.id));
+        if (row.terminalAt === null && isTerminalSwapState(normalizeSwapState(row.state))) {
+          // D10, PO-4: a row already terminal but unstamped has no answer left to
+          // wait for, and A7's trigger forbids deleting it, so the pass that
+          // claimed it converges the stamp itself instead of rescheduling a poll
+          // that can never change anything. Stamping is not a transition: state,
+          // amounts and payload stay, and an existing stamp is never rewritten.
+          await tx.update(swaps).set({ terminalAt: sql`now()` }).where(eq(swaps.id, row.id));
+        } else {
+          // The provider was asked and did not answer for this ref. Nothing about
+          // the swap's story is now known, but the row backs off on the same
+          // attempt-based gap a thrown call does (D10): rescheduled on the plain
+          // interval it is due again next pass, older than everything newer than
+          // it, and the batch never moves on.
+          const attempts = row.pollAttempts + 1;
+          await tx
+            .update(swaps)
+            .set({
+              pollAttempts: attempts,
+              nextPollAt: retryGap(deps.pollSeconds, attempts, deps.maxBackoffSeconds),
+            })
+            .where(eq(swaps.id, row.id));
+        }
         log?.warn(
           { code: "poll_ref_unanswered", swapId: row.id, providerRef: row.providerRef },
           "payout provider did not answer for a swap it was asked about",

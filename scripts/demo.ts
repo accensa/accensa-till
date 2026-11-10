@@ -14,7 +14,7 @@ import { pollTick, reconcileTick } from "../apps/api/src/jobs/ticks.ts";
 import type { Logger } from "../apps/api/src/lib/logger.ts";
 import { createProvider } from "../apps/api/src/payouts/index.ts";
 import type { MockOutcome, MockScript } from "../apps/api/src/payouts/mock/provider.ts";
-import type { NormalizedSwap } from "../apps/api/src/payouts/provider.ts";
+import { type NormalizedSwap, TERMINAL_STATES } from "../apps/api/src/payouts/provider.ts";
 import { listOpenDiscrepanciesForSeller } from "../apps/api/src/services/discrepancies.ts";
 import { listPaymentsForSeller } from "../apps/api/src/services/payments.ts";
 import { routeById } from "../apps/api/src/services/payout-routes.ts";
@@ -259,12 +259,12 @@ const RESOLVED: Record<MockOutcome, NormalizedSwap["state"]> = {
  * the demo is waiting for — D2's refusal is right for `pnpm simulate`, where one
  * provider answers one script, and wrong for a shared table.
  *
- * What silence costs, measured on 2026-11-09 rather than assumed: an unanswered row
- * is rescheduled on the plain poll interval, so it is due again on the next pass and
- * stays older than this run's swap. With more than `DEFAULT_POLL_BATCH_SIZE` of them
- * in the table the batch is full before this run's ref is reached and step 3 fails on
- * `state pending` — which is why the count is printed above the assertion, and why
- * D10 exists.
+ * What silence cost before D10, measured on 2026-11-09 rather than assumed: an
+ * unanswered row was rescheduled on the plain poll interval, so it was due again on
+ * the next pass and stayed older than this run's swap. With more than
+ * `DEFAULT_POLL_BATCH_SIZE` of them in the table the batch filled before this run's
+ * ref was reached and step 3 failed on `state pending` — which is why the count is
+ * printed above the assertion, and why D10 exists.
  *
  * The ref is the demo's own and not the mock's `mock-quote-N` because
  * `swaps.provider_ref` is globally unique and a rerun would collide. Everything else
@@ -749,7 +749,7 @@ export async function runDemo(): Promise<number> {
         );
       }
       const swapRef = await writeSwap(db, seeded, statuses, first.nearTxHash, "succeed");
-      await drive(db, statuses, env);
+      await drive(db, statuses, env, swapRef);
       const swap = await swapByRef(db, swapRef);
       check(
         "the polled swap reached its scripted terminal state",
@@ -808,7 +808,7 @@ export async function runDemo(): Promise<number> {
     if (refundHash !== null && refund.row !== null) {
       const refundRow = refund.row;
       const refundRef = await writeSwap(db, seeded, statuses, refundHash, "refund");
-      await drive(db, statuses, env);
+      await drive(db, statuses, env, refundRef);
       const refunded = await swapByRef(db, refundRef);
       check(
         "the swap reports refunded",
@@ -1106,25 +1106,53 @@ async function writeSwap(
 }
 
 /**
- * One tick of the shipped loop: poll every due swap, then reconcile the sellers whose
- * status moved. That second half is E9's wiring, and the demo asserting a discrepancy
- * right after it is the proof the two loops are connected rather than merely both
- * present.
+ * The shipped loop, run until this step's swap has been answered, then reconciled.
+ *
+ * That second half is E9's wiring, and the demo asserting a discrepancy right after
+ * it is the proof the two loops are connected rather than merely both present.
+ *
+ * The loop is why this drives more than one pass. A pass claims the 25 oldest *due*
+ * swaps, so on a database the suites have written to — every `swaps` row they leave
+ * behind is a row A7's trigger forbids deleting — a single pass spends its whole
+ * budget on rows this run did not create, and step 3 would fail on `state pending`
+ * for a swap nobody polled. D10 makes each pass move that wall: an unanswered row is
+ * rescheduled on the attempt-based gap rather than left due forever, so the backlog
+ * drains 25 rows a pass and this run's swap is reached. The cap is the honest half:
+ * past `MAX_DRIVE_PASSES` the assertions still fail, because a demo that polls
+ * forever would hide a poller that never answers.
  */
-async function drive(db: Db, statuses: DemoStatusSource, env: ReturnType<typeof loadEnv>) {
+const MAX_DRIVE_PASSES = 20;
+
+async function drive(
+  db: Db,
+  statuses: DemoStatusSource,
+  env: ReturnType<typeof loadEnv>,
+  swapRef: string,
+) {
   const config = reconcileConfigOf(env);
-  await pollTick({
-    db,
-    statusSource: statuses,
-    pollSeconds: env.POLL_INTERVAL_SECONDS,
-    maxBackoffSeconds: env.POLL_MAX_BACKOFF_SECONDS,
-    config,
-    log: gatewayLog.logger,
-  });
-  // `pollTick` reconciles the sellers whose statuses moved, which is E9's wiring; the
-  // steps below read the open list back from the dashboard's own service rather than
-  // trusting that pass, so a missing reconciliation is a failed check and not a
-  // comment.
+  let passes = 0;
+  for (;;) {
+    passes += 1;
+    await pollTick({
+      db,
+      statusSource: statuses,
+      pollSeconds: env.POLL_INTERVAL_SECONDS,
+      maxBackoffSeconds: env.POLL_MAX_BACKOFF_SECONDS,
+      config,
+      log: gatewayLog.logger,
+    });
+    const row = await swapByRef(db, swapRef);
+    if (row !== null && TERMINAL_STATES.some((state) => state === row.state)) {
+      detail(`polled to a terminal state in ${String(passes)} ${passes === 1 ? "pass" : "passes"}`);
+      return;
+    }
+    if (passes >= MAX_DRIVE_PASSES) {
+      detail(
+        `still unanswered after ${String(MAX_DRIVE_PASSES)} passes — the backlog ahead of this run is longer than ${String(MAX_DRIVE_PASSES * 25)} swaps`,
+      );
+      return;
+    }
+  }
 }
 
 function reconcileConfigOf(env: ReturnType<typeof loadEnv>) {

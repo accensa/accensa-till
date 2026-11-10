@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -942,6 +942,109 @@ suite("the payout poller polls, refuses and reschedules (D6, PO-4)", () => {
     expect(row.raw).toEqual({ simulated: true, kept: true });
     expect(row.lastPolledAt).toBeNull();
     expect(codes(entries)).toEqual(["poll_ref_unanswered"]);
+  });
+
+  it("backs off an unanswered ref like a thrown call, and clears it on an answer (D10, PO-4)", async () => {
+    // D10's first half: the reschedule for "no answer" is the attempt-based gap the
+    // catch branch already writes, so a silent ref stops being due on the very next
+    // pass. A ref is unanswered for reasons the row's own history cannot tell apart
+    // from a call that threw — a cancelled swap, an aged-out quote — and both mean
+    // the same thing to the batch: asking again next pass buys nothing.
+    const { id } = await newSwap({ state: "pending" });
+    const silent = fakeProvider(async () => []);
+
+    await poll({ provider: silent.source });
+    expect((await swapRow(id)).pollAttempts).toBe(1);
+    expect(await gapSeconds(id)).toBeGreaterThanOrEqual(POLL_SECONDS * 2 - 1);
+
+    await need().sql`update swaps set next_poll_at = now() - interval '1 hour' where id = ${id}`;
+    await poll({ provider: silent.source });
+    expect((await swapRow(id)).pollAttempts).toBe(2);
+    expect(await gapSeconds(id)).toBeGreaterThanOrEqual(POLL_SECONDS * 4 - 1);
+
+    await need().sql`update swaps set next_poll_at = now() - interval '1 hour' where id = ${id}`;
+    await poll({ provider: fakeProvider(always({ state: "processing" })).source });
+    const row = await swapRow(id);
+    expect(row.pollAttempts).toBe(0);
+    const gap = await gapSeconds(id);
+    expect(gap).toBeGreaterThanOrEqual(POLL_SECONDS - 1);
+    expect(gap).toBeLessThanOrEqual(POLL_SECONDS);
+  });
+
+  it("converges terminal_at for a claimed terminal row the provider never answers (D10, PO-4)", async () => {
+    // D10's second half: a row whose state is terminal and whose stamp is missing is
+    // claimable forever (D6's decision 3 lets rows arrive in that shape, and A7's
+    // trigger forbids deleting them), and a provider that stopped answering for its
+    // ref will never hand over the answer that would stamp it. The pass that claims
+    // it converges the stamp itself. Stamping is not a transition: state, payload
+    // and amounts stay exactly as they were, and an existing stamp is never
+    // rewritten — which the last assertion shows by forcing the rows due again.
+    const { log, entries } = recordingLog();
+    const done = await newSwap({ state: "succeeded", terminalAt: null });
+    const broken = await newSwap({ state: "failed", terminalAt: null, raw: { kept: true } });
+
+    const polled = await poll({ provider: fakeProvider(async () => []).source, log });
+    expect(polled.claimed).toBe(2);
+    expect(codes(entries)).toEqual(["poll_ref_unanswered", "poll_ref_unanswered"]);
+
+    const first = await swapRow(done.id);
+    expect(first.state).toBe("succeeded");
+    expect(first.terminalAt).not.toBeNull();
+    const second = await swapRow(broken.id);
+    expect(second.state).toBe("failed");
+    expect(second.raw).toEqual({ kept: true });
+    expect(second.terminalAt).not.toBeNull();
+
+    await need()
+      .db.update(swaps)
+      .set({ nextPollAt: null })
+      .where(inArray(swaps.id, [done.id, broken.id]));
+    const again = await poll({ provider: fakeProvider(async () => []).source });
+    expect(again.claimed).toBe(0);
+    expect(await swapRow(done.id)).toMatchObject({ terminalAt: first.terminalAt });
+  });
+
+  it("does not let permanently unanswered swaps hold the batch forever (D10, PO-4)", async () => {
+    // The Done-when, on real Postgres: 26 refs the provider never answers, all older
+    // than the one swap that has an answer waiting. The claim is the 25 oldest due
+    // rows, so whether the answered swap is ever reached depends entirely on the
+    // unanswered ones leaving the due set between passes — which is what the retry
+    // gap is for.
+    const silent = await Promise.all(
+      Array.from({ length: 26 }, () => newSwap({ state: "pending" })),
+    );
+    const live = await newSwap({ state: "pending" });
+    const silentIds = silent.map((row) => row.id);
+    await need()
+      .db.update(swaps)
+      .set({ createdAt: sql`now() - interval '1 hour'` })
+      .where(inArray(swaps.id, silentIds));
+
+    const provider = fakeProvider(async (refs) =>
+      refs.includes(live.providerRef)
+        ? [answer(live.providerRef, { state: "succeeded", amountOut: "900000" })]
+        : [],
+    );
+
+    const first = await poll({ provider: provider.source });
+    expect(first.claimed).toBe(25);
+    expect(provider.asked[0]).not.toContain(live.providerRef);
+
+    // Advance the clock by exactly one healthy loop interval without waiting for it:
+    // pulling every stamped due time back by the interval is the same comparison the
+    // claim makes when the database's `now()` has moved on by it (hard rule 12), and
+    // it keeps the two passes deterministic instead of sleep-shaped.
+    await need()
+      .db.update(swaps)
+      .set({ nextPollAt: sql`next_poll_at - make_interval(secs => ${POLL_SECONDS}::int)` })
+      .where(and(inArray(swaps.id, silentIds), isNotNull(swaps.nextPollAt)));
+
+    const second = await poll({ provider: provider.source });
+    expect(provider.asked[1]).toContain(live.providerRef);
+    expect(second.claimed).toBe(2);
+    const row = await swapRow(live.id);
+    expect(row.state).toBe("succeeded");
+    expect(row.terminalAt).not.toBeNull();
   });
 
   it("refuses an amount that is not an integer of base units", async () => {

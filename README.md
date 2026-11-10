@@ -132,29 +132,30 @@ own schema (`env.ts` explains this per variable).
 `GATEWAY_PUBLIC_URL` is what the advertisement puts in the `resource.url` a payer
 signs against, so it has to be the origin you are about to call.
 
-One caveat on step 4 (`pnpm demo`) for this path: it wants a `swaps` table that is
-not already full of work. The poller claims the 25 oldest rows still waiting for an
-answer (`DEFAULT_POLL_BATCH_SIZE`, `apps/api/src/jobs/poll-payouts.ts`), and a row
-is waiting when `terminal_at` is null. The suites leave rows like that on purpose —
-they delete nothing, because the ledger's trigger forbids it — and this machine's
-`DATABASE_URL` had 2,638 swap rows of which 26 carried a terminal state and no
-stamp (`e1-ref-…`, `e2-ref-…`, `a19-swap-…`). Twenty-six older rows in a batch of 25
-means this run's swap is never claimed, and the demo's status source answers only
-for refs the demo scripted, so those 26 are re-scheduled on the plain poll interval
-and come back due on the next pass. The demo prints how many it found before it
-asserts, so the failure names its own cause rather than hiding it: `FAILED the
-polled swap reached its scripted terminal state — state pending`, with
-`poll_ref_unanswered` lines under it. What was seen here on 2026-11-09, three runs
-on one database: the first failed, the second immediately after passed (the backlog
-was inside the interval gap the first run had just given it), and a third twenty
-minutes later failed exactly like the first — so the failure is the reschedule
-rhythm, not luck. Two consecutive runs against a freshly migrated database
-(`createdb` + `pnpm db:migrate`) both printed `PRD section 8 ran and every assertion
-held.` and exited `0`. The Docker path does not hit this,
-because `docker compose down -v` removes the volume with it, and CI never reuses a
-database. The code half — an unanswered ref should back off like a call that threw,
-and a claimed row already in a terminal state should get its stamp converged instead
-of holding its place in the queue — is `ROADMAP.md` D10.
+`pnpm demo` on this path runs against whatever the suites left behind, which is worth
+knowing because it reaches the poller. The loop claims the 25 oldest rows still
+waiting for an answer (`DEFAULT_POLL_BATCH_SIZE`,
+`apps/api/src/jobs/poll-payouts.ts`), and a row is waiting when `terminal_at` is null.
+The suites leave rows like that on purpose — they delete nothing, because the ledger's
+trigger forbids it — so this machine's `DATABASE_URL` was carrying 26 rows with a
+terminal state and no stamp (`e1-ref-…`, `e2-ref-…`, `a19-swap-…`), and 26 older rows
+in a batch of 25 is enough to keep this run's own swap out of the first pass. D10
+closed that from both ends: an unanswered ref is now rescheduled on the same
+attempt-based gap a provider call that throws gets, so it stops coming back due every
+pass and holding the queue, and a claimed row already in a terminal state gets its
+`terminal_at` converged by the pass that claims it rather than staying claimable
+forever. The demo then drives the loop until the swap it is waiting on has been
+answered — `drive()` in `scripts/demo.ts`, capped at 20 passes, printing how many it
+took — instead of assuming one pass will reach it. Measured here on 2026-11-10: with
+27 due rows in the table, the pre-D10 demo failed five assertions, every one of them
+`state pending` for a swap nobody polled; after D10 the same table ran clean
+(`PRD section 8 ran and every assertion held.`, exit `0`), step 3 reaching its swap on
+the second pass and step 4 on the first. The queue behaviour itself is what
+`apps/api/test/poll-payouts.test.ts` pins: 26 refs the provider never answers plus one
+it does, the clock advanced by exactly one loop interval between passes, and the
+answered swap reached on pass 2 — three of those tests fail when run against the
+pre-D10 poller. The Docker path never hit this, because `docker compose down -v`
+removes the volume with it, and CI never reuses a database.
 
 ### The payout half on its own, with no database at all
 
