@@ -28,7 +28,7 @@ Version 2.1. Outline of decisions that must not be violated. Detail: `ARCHITECTU
 ## Stack
 
 - TypeScript 5 strict, Node 22, pnpm workspaces
-- Hono (API and gateway), Next.js App Router with hand-written domain components (no component library: `shadcn` and `radix` appear in no manifest and nowhere in `pnpm-lock.yaml`; the Tailwind utility classes are written but nothing compiles them — see `ARCHITECTURE.md` §3)
+- Hono (API and gateway), Next.js App Router with hand-written domain components (no component library: `shadcn` and `radix` appear in no manifest and nowhere in `pnpm-lock.yaml`; Tailwind v4 compiles through `apps/web/postcss.config.mjs` and its `@tailwindcss/postcss` dev dependency, which the human approved 2026-11-10 — see `ARCHITECTURE.md` §3)
 - Postgres 16, Drizzle, Zod, `jose` for signed cookies
 - `@fastnear/x402` 2.5.0, the only `@fastnear/*` package a production file imports (all four imports sit in `apps/api/src/x402/near.ts`); it resolves `@x402/near` 2.18.0. `@fastnear/wallet` 2.5.0 is declared in `apps/api/package.json` and installed, but imported by no production file, and it brings `@fastnear/near-connect` 0.14.1. `@fastnear/api` appears zero times in `pnpm-lock.yaml`
 - Vitest, Biome, GitHub Actions, a grep script for import boundaries

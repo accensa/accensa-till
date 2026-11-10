@@ -100,6 +100,7 @@ till/
 │   │
 │   └── web/                       # Next 15 App Router, single origin (A5)
 │       ├── next.config.ts        # rewrites /api/* to the API, baked at build time from API_ORIGIN
+│       ├── postcss.config.mjs    # loads @tailwindcss/postcss; without this file Next compiles no Tailwind at all
 │       ├── vitest.config.ts      # JSX through esbuild; the suite runs in Node, no browser
 │       ├── test/                 # the form and edit rules, the client against a fetch stub, rendered markup
 │       ├── app/
@@ -263,7 +264,7 @@ db                     ──►  lib
 - Money fields end in `Amount` in code and hold `bigint` base units.
 - Reconciliation codes are `SCREAMING_SNAKE_CASE`, identical in code, database and UI copy keys.
 - Tests sit beside the code or in a package-level `test/` folder; rule tests live in `__tests__/`.
-- No default exports except Next.js pages and layouts.
+- No default exports except Next.js pages and layouts and the `*.config.ts` / `*.config.mjs` files the frameworks read (biome's `noDefaultExport` is off for exactly those paths, and PostCSS reads only a default export from an ESM config).
 
 ## Root scripts
 

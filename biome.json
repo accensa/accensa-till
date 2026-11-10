@@ -26,7 +26,7 @@
   },
   "overrides": [
     {
-      "include": ["apps/web/app/**/*.tsx", "**/*.config.ts"],
+      "include": ["apps/web/app/**/*.tsx", "**/*.config.ts", "**/*.config.mjs"],
       "linter": {
         "rules": {
           "style": {

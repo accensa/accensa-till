@@ -534,6 +534,7 @@ versions are the resolved ones rather than the manifest ranges.
 | `next` | 15.5.28 | the dashboard, `apps/web` |
 | `react`, `react-dom` | 19.3.1 | the dashboard's components |
 | `tailwindcss` | 4.3.3 | the dashboard's styling, via `@import "tailwindcss"` in `apps/web/app/globals.css` |
+| `@tailwindcss/postcss` | 4.3.5 | the PostCSS plugin that actually compiles it, loaded by `apps/web/postcss.config.mjs` (without that file Next ships the import verbatim and no utility class reaches the browser) |
 | `typescript` | 5.9.3 | the language, `strict`, no `any` |
 | `@biomejs/biome` | 1.9.4 | `pnpm lint` |
 | `vitest` | 2.1.9 | every test in `packages/core`, `apps/api` and `apps/web` |

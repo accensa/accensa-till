@@ -105,7 +105,7 @@ These are decisions, not suggestions. If a task seems to require breaking one, s
 - TypeScript strict. No `any`; use `unknown` and narrow. No non-null assertions without a comment saying why.
 - Validate every external input with Zod at the boundary: HTTP bodies, env, provider responses, upstream headers.
 - Shared schemas live in `packages/core/src/schemas/` and are imported by both apps.
-- Files `kebab-case.ts`, components `PascalCase.tsx`, DB columns `snake_case`, TS fields `camelCase`. No default exports except Next.js pages and layouts.
+- Files `kebab-case.ts`, components `PascalCase.tsx`, DB columns `snake_case`, TS fields `camelCase`. No default exports except Next.js pages and layouts and the framework-read `*.config.ts` / `*.config.mjs` files.
 - Errors: throw typed errors from services, map them to HTTP responses in routes. Never swallow an error silently; log it with the request id.
 - Comments explain why, not what. Reference a requirement or decision id when the reason is a project rule (for example `// D14: one in flight per payer`).
 - Follow the import rules in `docs/PROJECT_STRUCTURE.md`. `pnpm boundaries` enforces them.
