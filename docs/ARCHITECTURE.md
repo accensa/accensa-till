@@ -32,7 +32,7 @@ One backend process, one web app, one database.
 |                                                                  |
 |  Dashboard API  <----- Next.js rewrites <------ apps/web         |
 |                                                                  |
-|  Loops: poll-payouts (15s), reconcile (60s)                      |
+|  Loops: poll-payouts (20s), reconcile (60s)                      |
 |     \--> PayoutProvider (1Click or mock)                         |
 +------------------------------------------------------------------+
 ```
@@ -41,7 +41,7 @@ One backend process, one web app, one database.
 
 | # | Decision | Alternatives rejected | Why |
 |---|---|---|---|
-| D1 | Hosted gateway that proxies to the seller's API, GET only in v1 | Middleware SDK; POST and streaming support | Zero seller code; GET only removes body replay, streaming and non-idempotency problems |
+| D1 | Hosted gateway that proxies to the seller's API, GET only in v1 | Middleware SDK; POST and streaming support | Zero seller code; GET only removes body replay, streaming and non-idempotency problems. Since C20 the restriction is enforced rather than planned: a non-`GET` on `/r/:slug` answers `405` with `Allow: GET` and no challenge, before the endpoint read, before the limiter, before `verify` and before any settle (`gateway/route.ts`'s `refuseMethod`, code `method_not_allowed`). Hono dispatches a HEAD onto its GET handler and empties the answer afterwards, so that one method is caught inside the handler by reading `c.req.method`; the rest reach the separate registration |
 | D2 | Reuse the NEAR x402 packages in process; build no protocol code | Own facilitator; standalone facilitator service | Protocol layer exists; value is the seller operations layer. Verified 2026-11-03 from the shipped types: `createNearFacilitator` and `createNearResourceServer` run in our process and the server takes an `InProcessFacilitator`, so "in process" is what the packages are built for, not a stretch. It does mean our own relayer account sponsors the gas (see 13) |
 | D3 | No custom smart contracts | Escrow or payments contract | NEP-141 transfers with NEP-366 delegates cover the flow |
 | D4 | Payouts behind a `PayoutProvider` interface with a mock | Direct 1Click calls everywhere | Offline demo, keyless screening, and a fallback if the API misbehaves |
@@ -63,17 +63,17 @@ One backend process, one web app, one database.
 | Language | TypeScript 5.x strict, Node 22 LTS | |
 | Monorepo | pnpm workspaces | `apps/api`, `apps/web`, `packages/core` |
 | API | Hono with `@hono/node-server` | |
-| NEAR x402 | `@fastnear/x402` 2.5.0 (`./server`, `./facilitator`, `./node`) over `@x402/near` 2.29.0 | Verified from npm 2026-11-03: framework-agnostic, no express, ships a self-hostable facilitator and a reference relayer signer. See 13 |
+| NEAR x402 | `@fastnear/x402` 2.5.0 (`./server`, `./facilitator`, `./node`) over `@x402/near` 2.18.0 | Verified from npm 2026-11-03: framework-agnostic, no express, ships a self-hostable facilitator and a reference relayer signer. `@x402/near` is not in any manifest — the lockfile resolves it at 2.18.0 as a dependency of `@fastnear/x402` (`pnpm-lock.yaml`). See 13 |
 | NEAR RPC reads | JSON-RPC over `fetch`, and `node:crypto` for ed25519 | Sign-in needs a public read (`view_access_key_list`) and a signature check, not a signer; hard rule 1 keeps every `@fastnear/*` import in `x402/near.ts`. The browser wallet prompt is F8, and the package it needs is that task's open question |
-| Payouts | NEAR Intents 1Click Swap REST API | Base URL `https://1click.chaindefuser.com`, paths under `/v0` (S5: the OpenAPI `servers.url`). Still **[VERIFY]**: the host answers `521` to this machine, so no call has been made from here |
+| Payouts | NEAR Intents 1Click Swap REST API | Base URL `https://1click.chaindefuser.com`, paths under `/v0` (S5: the OpenAPI `servers.url`). **Measured from this host 2026-11-10**, plain HTTPS, no credentials: `GET /docs/v0/openapi.yaml` → 200, 1,900,990 bytes, sha256 starting `9a2e6766`; `GET /v0/tokens` → 200, 54,920 bytes; `GET /v0/status` with no parameters → 400 `Deposit address should be not empty`. The live spec's `GetExecutionStatusResponse.status` re-diffed against `docs/spikes/S5.md` field for field: the same seven values (`KNOWN_DEPOSIT_TX`, `PENDING_DEPOSIT`, `INCOMPLETE_DEPOSIT`, `PROCESSING`, `SUCCESS`, `REFUNDED`, `FAILED`). The limit that remains: those values and the hash arrays are confirmed at spec level only — nothing has been seen on a real swap, and no key exists (D3 open) |
 | Database | PostgreSQL 16 | `NULLS NOT DISTINCT` available (15+) |
 | ORM | Drizzle with the `postgres` driver | SQL migrations committed |
 | Sessions | Signed cookie via `jose` | No sessions table |
 | Validation | Zod | Schemas in `packages/core` |
-| Web | Next.js App Router, Tailwind, shadcn/ui | Rewrites `/api/*` to the API |
+| Web | Next.js App Router, hand-written domain components, Tailwind classes | Rewrites `/api/*` to the API. No component library: `shadcn` and `radix` appear zero times in the manifests and `pnpm-lock.yaml`, `apps/web/components/ui/` holds only a `.gitkeep` that nothing imports, and all twelve components are hand-written in `apps/web/components/domain/` (`CreateEndpointForm.tsx` to `SwapTimeline.tsx`). Tailwind v4 is a dependency that nothing compiles: `app/globals.css` is the single line `@import "tailwindcss"`, and with no `postcss.config.*` in `apps/web` and `@tailwindcss/postcss` in no manifest, Next resolves that import to `node_modules/tailwindcss/index.css` and ships it verbatim — measured on the running app 2026-11-10: `/_next/static/css/app/layout.css` is 33,847 bytes of preflight and `@theme` variables with `@tailwind utilities` still unparsed and no `.flex` or `.text-sm` rule anywhere in it, so every utility class those twelve components carry is inert on screen. Compiling it means a new dependency, which AGENTS.md makes a human ask |
 | Tests | Vitest; `pnpm demo` doubles as the end-to-end test | No browser test framework |
 | Lint and format | Biome | One tool |
-| Boundaries | A 15-line grep script in CI | Enforces the rules in `PROJECT_STRUCTURE.md` |
+| Boundaries | `scripts/check-boundaries.sh`, a grep script in CI | Enforces the rules in `PROJECT_STRUCTURE.md`: one writer per table (`ledger_entries`, `payout_routes`, `discrepancies`), the payment-to-swap link only in `services/swaps.ts`, `@fastnear` only in `x402/near.ts`, 1Click only in `payouts/oneclick/` and `env.ts`, `packages/core` free of database, HTTP and framework imports, and no `@till/core` barrel in `apps/web` — where the string rule is backed by running `next build`, because only the bundler can see a subtree that re-exports `node:crypto` |
 | Roadmap upkeep | `scripts/roadmap-progress.ts` and `scripts/check-roadmap.sh` in CI | Fails any change that leaves `ROADMAP.md` untouched or its progress block stale |
 | Hosting | One platform for API and Postgres (Fly.io or Railway); web on the same platform or Vercel with rewrites | Choose by accounts you already have |
 | CI | GitHub Actions | Lint, typecheck, unit tests, boundaries, `pnpm roadmap:check`, `pnpm demo` against mock |
@@ -113,7 +113,7 @@ A strike is a payment in state `served_unsettled`: an answer went out and the mo
 
 A seller's clear is a row in `payer_clears`, not an update: `payments` is append-only evidence (PO-7), so a clear that deleted or re-stated a strike would lose the record that the loss happened. The query compares each strike's `verified_at` against `max(payer_clears.created_at)` for that pair, which makes the latest clear a **watermark**: strikes before it stop counting, strikes after it count again, and every clear stays visible with `cleared_by` and an optional note. The window remains a second exit — a block ages out when both strikes leave 24 hours — but the documented exit is the clear, which is why the refusal carries no `Retry-After`: a date would be a promise Till does not intend to keep.
 
-The refusal is `403`, not `402`: the payer already holds a valid authorization, and signing another one cannot lift a seller's block. The seller-facing HTTP route belongs to F4 (the session UI that would carry the operator's identity is UI-1), so until then the action ships as `clearPayerBlock` in `services/strikes.ts` — the write exists and is tested; an unauthenticated endpoint in front of it would be the security hole, not the feature.
+The refusal is `403`, not `402`: the payer already holds a valid authorization, and signing another one cannot lift a seller's block. The seller-facing HTTP route is F4's and has shipped: `GET /payer-blocks` and `POST /payer-blocks/:payerAccountId/clear` in `routes/discrepancies.ts` (9.2), both behind the session cookie and answering `401` without one, because an unauthenticated clear would be the security hole rather than the feature. Both call `clearPayerBlock` in `services/strikes.ts`, C9's write, which is where the watermark rule actually lives.
 
 What C8 added next door is worth keeping distinct, because the two queries look alike and answer different questions: `inFlightPayment` asks whether this payer has a row in state `verified` newer than the window, which is a rate limit that expires by itself, whereas this section asks whether the payer has twice been served without settling, which is a judgement that ends by a seller's clear or by the window. The first is enforced at the insert as well as at the read (4.2 step 5); this one needs no insert-time twin, because Guard 3 already permits one in-flight payment per payer, so two strikes cannot be minted concurrently.
 
@@ -160,7 +160,7 @@ Rules:
 - Terminal states are sticky. A later status that appears to move a swap out of a terminal state is logged and ignored.
 - Terminal means exactly `succeeded`, `refunded` and `failed` (D1, closing S5's first consequence). `incomplete` is not one: the provider does not declare `INCOMPLETE_DEPOSIT` terminal and it is the one status where money arrives short, so an incomplete swap stays visible to `PAYOUT_STUCK` instead of being filed as finished. There is one list, `TERMINAL_SWAP_STATES` in `@till/core`, and `payouts/provider.ts` re-exports it rather than keeping its own copy.
 - Unknown provider statuses map to `processing` and trigger a `PAYOUT_STUCK` check after the stuck window.
-- `OneClickProvider` stores the raw payload in `swaps.raw`. `MockProvider` supports scripted outcomes (`succeed`, `refund`, `fail`, `stall`).
+- There is no `OneClickProvider`. `payouts/oneclick/client.ts` is a comment plus `ONECLICK_TIMEOUT_MS = 10_000`, `map-status.ts` is a comment plus `STATUS_MAP_PLACEHOLDER = true`, and `createProvider` (`payouts/index.ts`) throws `not implemented (D3)` for anything but `mock` — on the first poll tick, not at boot (`server.ts`), so a mis-set `PAYOUT_PROVIDER` costs a poll rather than the paywall. So `swaps.raw` is written by the poll loop from the `raw` field each `NormalizedSwap` carries (`jobs/poll-payouts.ts`), and the mock is the only provider that has ever filled it. `MockProvider` supports scripted outcomes (`succeed`, `refund`, `fail`, `stall`).
 - The mock's script is an argument, never an environment default (D2, DQ-2). It refuses a route it has no script for and a status request for a reference it never issued, instead of filling either in with `succeeded`, and every payload it hands back carries `simulated: true` so a mocked row stays marked in `swaps.raw`. `payouts/mock/scenarios.ts` drives one outcome as far as the reconciliation rules, on a clock the caller supplies, which is what makes `pnpm simulate` reproducible offline.
 - Selected by `PAYOUT_PROVIDER=oneclick|mock`. Default in `.env.example` is `mock`.
 
@@ -188,6 +188,7 @@ endpoints
   payout_mode       text not null             -- 'direct' | 'intents'
   route_id          uuid fk payout_routes null
   active            boolean not null default true
+  creation_warnings jsonb not null default '[]'  -- D4: why creation left the endpoint inactive (11.3)
 
 payout_routes   -- immutable; a change creates a new row
   id                  uuid pk
@@ -222,6 +223,14 @@ payments
   verified_at         timestamptz
   settled_at          timestamptz
 
+payer_clears   -- a seller's clear of a blocked payer, appended, never updated
+  id                  uuid pk
+  payer_account_id    text not null
+  seller_id           uuid fk sellers not null    -- the block is per payer per seller
+  cleared_by          text not null               -- the session account that cleared
+  note                text
+  -- 4.3: the newest row for this pair is a watermark; strikes before it stop counting
+
 swaps
   id                  uuid pk
   route_id            uuid fk payout_routes
@@ -236,6 +245,8 @@ swaps
   refunded_amount     numeric(78,0)            -- CHECK null or <= amount_in
   last_polled_at      timestamptz
   terminal_at         timestamptz
+  poll_attempts       int not null default 0  -- D6's retry count, reset by an answer
+  next_poll_at        timestamptz             -- D10: when this row may be asked again
   raw                 jsonb not null
 
 ledger_entries   -- append only, enforced by trigger
@@ -269,7 +280,12 @@ discrepancies
   create unique index discrepancies_open_dedupe
     on discrepancies (seller_id, dedupe_key) where resolved_at is null;
 
-response_cache   -- P1, see 4.4
+response_cache   -- dead schema. It is created by migration
+                 -- `0000_luxuriant_greymalkin.sql`, and outside that migration and the
+                 -- generated `migrations/meta/` snapshots the name appears in exactly
+                 -- one place: its own `pgTable` declaration in `db/schema.ts`. No code
+                 -- reads or writes a row. C12's shipped replay cache is in memory
+                 -- (4.4, `gateway/response-cache.ts`)
   replay_key          text pk
   status              int not null
   headers             jsonb not null
@@ -317,7 +333,7 @@ Full-access key required by the underlying package. Mitigations:
 - Dedicated relayer account holding a small balance.
 - Key only in server environment; never logged; never in the web app.
 - A global sponsored-gas budget and a process-wide request limiter, both in memory and reset on restart (C13, GW-10); the one-in-flight rule (D14) also bounds a payer's burn rate.
-- Dashboard header shows relayer balance and warns below a threshold.
+- Dashboard header shows relayer balance and warns below a threshold. **Shipped (F5, UI-5):** `GET /api/status` reads the relayer account's own `view_account` and the header compares it with `RELAYER_BALANCE_ALERT_BASE_UNITS` — and a chain that does not answer is reported as `unknown`, never as a balance of zero, which 11.2 explains.
 
 ### 8.2 Seller authentication
 
@@ -368,8 +384,9 @@ What `GET /r/:slug` answers, since the status is the payer's whole interface (4.
 - **402** no payment header, a header this process cannot decode, or a payment the scheme refused. All three are challenges; the refused ones carry `error` and are otherwise byte-identical to the advertisement.
 - **403** the payer is blocked at this seller: two `served_unsettled` payments inside 24 hours and no clear since (4.3). The payment verified, so a fresh challenge would be dishonest; the body says `payer_blocked` and there is no `Retry-After`, because the exit is the seller's clear rather than a clock.
 - **404** unknown slug, or an endpoint whose `active` is false — read from the row rather than from a `where` clause, so the two are not distinguishable to a stranger.
+- **405** any method other than `GET` on `/r/:slug`, with `Allow: GET` and no `PAYMENT-REQUIRED` header, answered before the endpoint row is read, before the limiter, before `verify` and before any settle (GW-2, C20). A method this product does not serve is a method nobody can pay for, so it gets no price. `HEAD` needs its own half of the guard inside the GET handler, because Hono dispatches it there and empties the answer afterwards.
 - **409** this authorization already produced a payment row **that will not be served again**: `settled`, `served_unsettled`, or an `abandoned` row that carries a settlement hash or a `settled_at` (8.3, 4.4). The stored hash travels in the receipt header only when that row is `settled`. An ordinary `abandoned` row is not here since C7 — it is retried, served if the seller answers, and lands on `200`/`502`/`4xx` like any first attempt.
-- **429** a guard said not yet, with `Retry-After` set to the in-flight window (`UPSTREAM_TIMEOUT_MS` + the settlement margin). Two paths produce it and a payer cannot tell them apart, which is intended: the guard's read, and the claim at the insert when two authorizations arrive together (4.2 step 5). A replayed authorization whose row is still `verified` lands here rather than on the `409`, because there is nothing to replay yet.
+- **429** not yet, or not on this process's budget. Four producers, and they do not all carry `Retry-After`: the fixed-window request limiter (`gateway/route.ts`, code `rate_limited`, `Retry-After` the window left); Guard 3's in-flight read (`gateway/guards.ts`, code `payer_in_flight`, `Retry-After` the in-flight window `UPSTREAM_TIMEOUT_MS` + the settlement margin); `openPayment`'s claim when two authorizations arrive together (route code `payer_in_flight`, the same `Retry-After`); and the sponsored-gas budget (code `sponsored_gas_exhausted`), checked before the row is inserted and reserved again immediately before `settle`, with **no** `Retry-After` because the budget is a process lifetime, not a window, and only resets on restart. A payer cannot tell the first three apart, which is intended. A replayed authorization whose row is still `verified` lands here rather than on the `409`, because there is nothing to replay yet.
 - **502** the upstream failed or answered 5xx; the payment is abandoned and never charged.
 - **503** Till could not decide — an endpoint it cannot advertise, a payout mode this build does not run, or a facilitator that could not run. A 503 challenges nobody.
 
@@ -382,11 +399,14 @@ Stripping is by name list, in `gateway/proxy.ts`: hop-by-hop headers (RFC 9110 7
 | `POST /auth/nonce`, `POST /auth/verify` | Wallet sign-in (F1, 8.2). The only routes under `/api` that answer without a session — they are what issues one. Refusals are named: `invalid_json`, `invalid_request` (400); `sign_in_challenge`, `key_type_unsupported`, `signature_invalid`, `account_not_found`, `key_not_found` (401); `access_keys_unavailable` (503) |
 | `GET /endpoints`, `POST /endpoints`, `PATCH /endpoints/:id` | Manage endpoints (session required); price changes apply to new payments only |
 | `GET /payments` | Paginated, joined with swap state |
-| `GET /swaps/:id` | Detail including raw provider payload |
-| `GET /discrepancies`, `POST /discrepancies/:id/resolve` | List and manual resolution |
-| `POST /payers/:accountId/clear` | Lift this seller's block for a payer. **F4's route to define**; the append-only write ships as `clearPayerBlock` (C9) |
-| `GET /ledger.csv` | Export (P1) |
-| `GET /assets` | Supported payout assets |
+| `GET /swaps/:id` | Detail including raw provider payload. **Not mounted**: `routes/swaps.ts` is one doc comment and nothing else, and `app.ts`'s mount list says "(open)" |
+| `GET /discrepancies`, `POST /discrepancies/:id/resolve` | List and manual resolution (F4, `routes/discrepancies.ts`) |
+| `GET /payer-blocks`, `POST /payer-blocks/:payerAccountId/clear` | The payers this seller is holding, listed by the same predicate the gateway enforces, and the clear that appends a `payer_clears` row with `clearedBy` taken from the session rather than the body (F4, `routes/discrepancies.ts`; the write is C9's `clearPayerBlock`). An account id that does not parse, or a body beyond a 200-character note, is `422` |
+| `GET /status` | The dashboard header's two facts (UI-5, F5): the relayer account's chain balance and the newest provider answer among this seller's swaps, each with the threshold it is judged against. Half the contract is that an unread value has no number to carry — see 11.2 |
+| `GET /ledger.csv` | Export (P1). **Not mounted**: `routes/export.ts` is one doc comment, "(open)" in `app.ts`'s list |
+| `GET /assets` | Supported payout assets. **Not mounted, and there is no stub file for it**: `routes/` has no assets route, and the provider method it would answer from (`listAssets` in `payouts/provider.ts`) exists with only the mock implementing it |
+
+`app.ts` answers 9.1's liveness probe on **both** `/healthz` and `/api/healthz` from one handler (`app.on("get", ["/healthz", "/api/healthz"], …)`): the container healthcheck in `docker-compose.yml` and the CI probe use the first, and the browser only ever speaks `/api/*` (A5).
 
 Schemas live once in `packages/core` and are imported by both apps.
 
@@ -399,9 +419,9 @@ Schemas live once in `packages/core` and are imported by both apps.
 | Delegate expires too soon | Rejected before the upstream call |
 | Payer balance too low | Rejected before the upstream call |
 | Second concurrent request from a payer | 429 with `Retry-After` |
-| Provider API down | Payments continue; polling backs off; dashboard shows provider degraded |
+| Provider API down | Payments continue; polling backs off (D6, D10); dashboard shows provider degraded — **shipped (F5)** as the header's poll line going `warn` past five intervals without an answer, and `never_polled` saying so when nothing ever has |
 | Database down | 503 before verifying anything |
-| Relayer out of gas | 503 with a reason; dashboard alert |
+| Relayer out of gas | 503 with a reason; dashboard alert — **shipped (F5)** as the header's balance line, `warn` under `RELAYER_BALANCE_ALERT_BASE_UNITS` and `unknown` when the chain read itself failed, which is deliberately not the same sentence as zero |
 | Process restart | **C10 shipped the boot sweep.** Before `serve`, `sweepStaleOnBoot` takes `verified` rows older than Guard 3's in-flight window (`UPSTREAM_TIMEOUT_MS` + `AUTHORIZATION_EXPIRY_MARGIN_MS`), oldest first, and settles each by what the row and the chain say: no `near_tx_hash` → `abandoned` (no settle was submitted); hash present → one NEAR JSON-RPC `tx` read — chain settled → `settled` plus best-effort `payment_in`, chain failed → `abandoned` keeping the hash, unknown (RPC error, timeout, no relayer account) → left `verified` and counted `unproven`, because a guess either books a payment that never landed or abandons one that did. Every move is a compare-and-set, so a row another writer is advancing is skipped rather than overwritten. **The honest limit:** a crash between submitting the settle and stamping the hash leaves an unmovable `abandoned` row even though the money may have moved; the delegate's nonce then refuses the retry (`nonce_already_used`), so nothing is served twice, and the unbooked settle is reconciliation's problem, not the payer's. Loops resume and reconciliation is idempotent; in-process counters (the guards' read, the settlement cache) reset, and the insert-time claim is what makes a brief reset harmless |
 | Duplicate submission | Unique `replay_key`; settled duplicates get 409 with receipt |
 
@@ -414,6 +434,8 @@ Structured JSON logs with a request id also stored on `payments`. Provider calls
 ### 11.2 Health
 
 Relayer balance and last successful poll time shown in the dashboard header. No separate admin page.
+
+**Shipped (F5, UI-5).** `GET /api/status` answers both facts for the session's seller and `app/layout.tsx` renders them in the header, so the warning is in the first paint rather than behind a page nobody navigates to. Three states, and the third is the reason the DTO has its shape: `ok` states the fact, `warn` states it past a threshold the seller can act on, and `unknown` states that Till could not look. The previous shape carried a required balance, so an RPC that did not answer reached the screen as `0` yoctoNEAR — the one sentence that sends a seller to top up a relayer that may be full. Now `relayerBalanceDtoSchema` binds its amount to its state (`ok` carries one, `account_missing` and `unreadable` carry none) and `payoutPollDtoSchema` binds `no_swaps` / `never_polled` / `polled` to the swap count and answer time they were derived from, so a header cannot print a number it did not read. Each half also travels with the threshold it is judged against — `RELAYER_BALANCE_ALERT_BASE_UNITS` for the balance, `POLL_INTERVAL_SECONDS * 5` for the poll — because the arithmetic is the API's and only the wording is the dashboard's (`apps/web/lib/header-status.ts`, a pure function, which is what makes the sentences assertable without a browser). The poll time is `swaps.last_polled_at`, which D6 stamps only on a pass that *got an answer*, scoped by the `swaps → payout_routes.seller_id` join so one seller's busy provider cannot age or refresh another's header, and aged by `now() - max(last_polled_at)` inside Postgres (hard rule 12).
 
 ### 11.3 Input validation at creation
 
@@ -435,7 +457,7 @@ Relayer balance and last successful poll time shown in the dashboard header. No 
 | S6 | NEP-366 behavior: do concurrent delegates from one payer fail on nonce ordering, and what is the default expiry? | **Half measured 2026-11-03**, `docs/spikes/S6.md`: the nonce rule refuses only a payment whose nonce has already *executed*, so concurrent delegates both verify — the hazard is a settlement failure, not a protection. There is no library default expiry: the payer's client sets `maxBlockHeight = height + ceil(maxTimeoutSeconds / 1)`, so the window is *our* advertised timeout, bounded on both sides | Keep D14 (one in flight), and enforce it in C8 rather than assuming the scheme does |
 | S7 | Minimum deposit and fee for a real $0.01 to $1 payment into each sub-design | Measured numbers, `MIN_PRICE_BASE_UNITS` set | Raise the price floor or fall back to `direct` |
 
-Record each result in `docs/spikes/Sx.md` with date, what was tried and the decision.
+Record each result in `docs/spikes/Sx.md` with date, what was tried and the decision. Four files exist: `prior-art.md` (B1), `S1.md`, `S5.md`, `S6.md`. The others have no file for two different reasons. S3 and S4 were answered from organizer statements rather than experiments — Q-006 (a partner JWT is optional, the no-key fee is 0.2%) and Q-007 (no Intents testnet exists or is planned) — so the answer is in the table above and no result file was written. S2 and S7 are `[!]` in `ROADMAP.md` section 6 because they cannot be measured from this build at all: each needs a real quote and a real deposit listing, which is mainnet-only per Q-007, and A17 answered (c) so the payout leg runs on the mock. The open question behind both is S1's last one — whether registering a token at a `payTo` costs the payer or the recipient, and so whether a bad destination costs anything before it is discovered (`docs/spikes/S1.md` "What would verify the measured answer", and S5's open question 6, which records Q-007).
 
 ## 13. Assumptions about third parties
 
@@ -443,7 +465,7 @@ Record each result in `docs/spikes/Sx.md` with date, what was tried and the deci
 |---|---|---|
 | NEAR Intents can settle x402 payments in the asset and chain a seller chooses | Certain (stated by NEAR) | near.org agentic payments page |
 | Sellers route x402 payouts by setting a 1Click deposit address as the payment destination | Certain (stated by NEAR) | same page |
-| FastNear x402 supports v2 `exact` on `near:mainnet` and `near:testnet` with NEP-141 tokens | Certain (read from the shipped code) | `@x402/near` 2.29.0: `NEAR_NETWORKS = ["near:mainnet","near:testnet"]`, `DEFAULT_ASSETS` lists one USDC contract per network, all six decimals |
+| FastNear x402 supports v2 `exact` on `near:mainnet` and `near:testnet` with NEP-141 tokens | Certain (read from the shipped code) | `@x402/near` 2.18.0: `NEAR_NETWORKS = ["near:mainnet","near:testnet"]`, `DEFAULT_ASSETS` lists one USDC contract per network, all six decimals |
 | A payment is one `ft_transfer` authorized by a `SignedDelegate`, with the facilitator paying gas; native NEAR is not a payment asset and recipients need NEP-145 storage registration | Certain (documented; the transfer shape is also in the shipped code) | js.fastnear.com x402 page, and `exact/facilitator/index.mjs`, which rejects a delegate unless the single function call is `ft_transfer` with `deposit === 1n` and `receiver_id === payTo`; `storageBalanceOf` distinguishes "token has no NEP-145" from "account not registered" |
 | Till can be its own facilitator, in process, with no third-party x402 service and no `X-API-Key` | Certain (read from the shipped types) | `@fastnear/x402` 2.5.0 `./facilitator` exports `createNearFacilitator({registrations})`; `./server` exports `createNearResourceServer({facilitators})`, and `NearFacilitatorClient` is `FacilitatorClient \| InProcessFacilitator` — an in-process object satisfies it. Read 2026-11-03 from the npm tarball |
 | The gateway needs no web framework adapter for x402 | Certain (read from the shipped types) | same `server.d.ts`: it returns a bare `x402ResourceServer`; the package has no express or other framework dependency |
@@ -455,7 +477,7 @@ Record each result in `docs/spikes/Sx.md` with date, what was tried and the deci
 | Swap status is polled by deposit address | Certain (documented) | NEAR Intents docs; S5 confirms there is no webhook on the partner REST API |
 | Standing `ANY_INPUT` addresses suit repeated payments | Guessing | Spike S2 |
 | Deposit listings include origin transaction hashes | Guessing | Spike S2 |
-| The 1Click `/v0/status` response carries the destination-chain and origin-chain hashes Till matches on | Likely (required in the spec, never seen live) | S5: `SwapDetails` requires `destinationChainTxHashes`, `intentHashes`, `nearTxHashes`, `originChainTxHashes`, each `{hash, explorerUrl}`. Empty arrays are legal, so a hash is only guaranteed once settled. Since 2026-10-27 swaps are confidential-only and `nearTxHashes` has no swap hash |
+| The 1Click `/v0/status` response carries the destination-chain and origin-chain hashes Till matches on | Likely (required in the spec). Confirmed against the **live** spec fetched 2026-11-10 (section 3), and still never observed on a real settlement | S5: `SwapDetails` requires `destinationChainTxHashes`, `intentHashes`, `nearTxHashes`, `originChainTxHashes`, each `{hash, explorerUrl}`. Empty arrays are legal, so a hash is only guaranteed once settled. Since 2026-10-27 swaps are confidential-only and `nearTxHashes` has no swap hash |
 | Delegates from one access key must execute in nonce order | **Certain for the rule, and the rule is weaker than it sounds** (was Likely; spike S6) | S6 read it out of the shipped verifier and ran it: the check is `delegate.nonce <= accessKey.nonce` (`exact/facilitator/index.js:375`) and an access key's nonce moves only when a transaction executes, so two concurrent delegates from one payer **both verify and both submit** — measured in `apps/api/test/x402.test.ts`. The ordering hazard is real but it lands as a settlement failure after the seller has served, which is why D14/Guard 3 cannot be delegated to the scheme (`docs/spikes/S6.md`) |
 | The payout leg has no testnet | Certain (organizer answer, was Guessing) | `HACKATHON.md` Q-007, read 2026-11-03: "None exists or is planned. Mainnet, separate dev accounts, tiny amounts, dry: true quotes". The Intents introduction page says the same to S5 |
 | A deposit address on NEAR accepts NEP-141 transfers without prior registration | **No, for any token that implements storage management** (was Guessing, spike S1) | S1 read the rule out of the shipped counterparty code rather than measuring a chain: `@x402/near` 2.18.0 `exact/facilitator/index.mjs:238` calls `storage_balance_of` on `requirements.payTo` and returns `invalid_exact_near_recipient_not_registered_for_storage` when the token supports storage and the account is not registered, and `storage_deposit` appears zero times in that dist. A token without the method reports `supported: false` and the check is skipped, which is why this is "no, for tokens with storage" and not a flat no |

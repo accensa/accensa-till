@@ -6,21 +6,20 @@ import {
   type EndpointDto,
   type EndpointUpdateRequest,
   type EndpointUpdateResponse,
-  type HealthDto,
   type PayerBlockDto,
   type PaymentDto,
+  type StatusDto,
   dashboardErrorSchema,
   discrepancyListResponseSchema,
   discrepancyResolveResponseSchema,
   endpointCreateResponseSchema,
   endpointListResponseSchema,
   endpointUpdateResponseSchema,
-  healthDtoSchema,
   payerBlockClearResponseSchema,
   payerBlockListResponseSchema,
   paymentListResponseSchema,
+  statusResponseSchema,
 } from "@till/core/schemas";
-import type { z } from "zod";
 
 /**
  * Typed fetch for the dashboard (PROJECT_STRUCTURE.md: web never imports from
@@ -53,17 +52,6 @@ function fetchOptions(cookie: string | undefined): RequestInit {
       ...(cookie === undefined ? {} : { cookie }),
     },
   };
-}
-
-async function get<S extends z.ZodTypeAny>(path: string, schema: S): Promise<z.infer<S>> {
-  const response = await fetch(requestUrl(path), fetchOptions(undefined));
-  if (response.status === 401) {
-    throw new Error("session missing or expired — sign in again (UI-1)");
-  }
-  if (!response.ok) {
-    throw new Error(`${path} returned ${response.status}`);
-  }
-  return schema.parse(await response.json());
 }
 
 /**
@@ -150,6 +138,17 @@ export type EndpointUpdateResult =
   | { readonly kind: "rejected"; readonly error: DashboardError }
   | Unreachable;
 
+/**
+ * Till's own two header facts (UI-5, F5), with the same three answers. `unreachable`
+ * rather than a half-status because a header that shows one fact and drops the other
+ * reads as a dropped fact that is fine; `signed_out` is separate from it because the
+ * sign-in screen shares the layout and must not be shown as a broken read.
+ */
+export type StatusResult =
+  | { readonly kind: "ok"; readonly status: StatusDto }
+  | { readonly kind: "signed_out" }
+  | Unreachable;
+
 async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -159,7 +158,38 @@ async function readJson(response: Response): Promise<unknown> {
 }
 
 export const api = {
-  health: (): Promise<HealthDto> => get("/api/health", healthDtoSchema),
+  /**
+   * The relayer balance and the last successful provider poll, both with the
+   * threshold the header judges them against. Read with the page's session, since
+   * the poll half is scoped to the seller the cookie names.
+   */
+  status: async (cookie?: string): Promise<StatusResult> => {
+    let response: Response;
+    try {
+      response = await fetch(requestUrl("/api/status"), fetchOptions(cookie));
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+    if (response.status === 401) {
+      return { kind: "signed_out" };
+    }
+    if (!response.ok) {
+      const refusal = dashboardErrorSchema.safeParse(await readJson(response));
+      return {
+        kind: "unreachable",
+        detail: refusal.success
+          ? refusal.data.message
+          : `/api/status returned ${response.status} with no readable reason`,
+      };
+    }
+    const parsed = statusResponseSchema.safeParse(await readJson(response));
+    return parsed.success
+      ? { kind: "ok", status: parsed.data.status }
+      : { kind: "unreachable", detail: "/api/status answered a body Till's own schema refuses" };
+  },
 
   /**
    * The seller's own endpoints, newest first. Absent, expired or forged — the API

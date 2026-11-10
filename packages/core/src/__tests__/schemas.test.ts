@@ -15,7 +15,12 @@ import {
   endpointUpdateSchema,
 } from "../schemas/endpoint.ts";
 import { ledgerEntryDtoSchema } from "../schemas/ledger.ts";
-import { overviewDtoSchema } from "../schemas/overview.ts";
+import {
+  overviewDtoSchema,
+  payoutPollDtoSchema,
+  relayerBalanceDtoSchema,
+  statusResponseSchema,
+} from "../schemas/overview.ts";
 import {
   paymentDtoSchema,
   paymentPayloadSchema,
@@ -594,5 +599,134 @@ describe("arrays are bounded (C15)", () => {
     if (!notAnArray.success) {
       expect(notAnArray.error.issues[0]?.message).toContain("Expected array, received string");
     }
+  });
+});
+
+/**
+ * UI-5 (F5): the two header facts and the two thresholds they are judged against.
+ *
+ * The contract's job here is to make "we do not know" impossible to print as a
+ * number. A header that shows `0` yoctoNEAR when the RPC timed out tells a seller
+ * their relayer is broke, and a header that shows a poll time it never read tells
+ * them the payouts below are fresh. So each half carries a state, and the state
+ * decides whether the value may be there at all.
+ */
+describe("the header status contract (UI-5)", () => {
+  const threshold = "1000000000000000000000000";
+
+  const balance = (over: Record<string, unknown> = {}) =>
+    relayerBalanceDtoSchema.safeParse({
+      accountId: "relayer.testnet",
+      network: "near:testnet",
+      state: "ok",
+      amount: "1500000000000000000000000",
+      alertBelow: threshold,
+      ...over,
+    });
+
+  const poll = (over: Record<string, unknown> = {}) =>
+    payoutPollDtoSchema.safeParse({
+      provider: "mock",
+      state: "polled",
+      swaps: 3,
+      lastPolledAt: "2026-11-05T10:00:00.000Z",
+      ageSeconds: 12,
+      staleAfterSeconds: 100,
+      ...over,
+    });
+
+  it("accepts the two healthy halves, and the whole response around them", () => {
+    expect(balance().success).toBe(true);
+    expect(poll().success).toBe(true);
+    const ok = statusResponseSchema.safeParse({
+      status: {
+        relayer: {
+          accountId: "relayer.testnet",
+          network: "near:testnet",
+          state: "ok",
+          amount: "1500000000000000000000000",
+          alertBelow: threshold,
+        },
+        payouts: {
+          provider: "mock",
+          state: "polled",
+          swaps: 3,
+          lastPolledAt: "2026-11-05T10:00:00.000Z",
+          ageSeconds: 12,
+          staleAfterSeconds: 100,
+        },
+      },
+    });
+    expect(ok.success).toBe(true);
+  });
+
+  it("refuses a read that claims success without carrying the balance", () => {
+    // The reassuring zero this closes: `state: "ok"` with no amount would render as
+    // an empty field a seller reads as "nothing to report", not as "we could not look".
+    expect(balance({ amount: null }).success).toBe(false);
+  });
+
+  it("refuses an unknown balance that smuggles a number anyway", () => {
+    for (const state of ["account_missing", "unreadable"]) {
+      expect(balance({ state, amount: "0" }).success).toBe(false);
+      expect([state, balance({ state, amount: null }).success]).toEqual([state, true]);
+    }
+  });
+
+  it("accepts a zero balance as the fact it is, and refuses a negative one", () => {
+    // Zero yoctoNEAR is a real account state and the header must be able to say it;
+    // a negative is a node lying about money, which is not a header value (hard rule 3).
+    expect(balance({ amount: "0" }).success).toBe(true);
+    expect(balance({ amount: "-1" }).success).toBe(false);
+    expect(balance({ amount: "1.5" }).success).toBe(false);
+    // zod v3 still runs the refinement after the amount check beneath it has failed,
+    // so a bare number must be refused rather than thrown out of `safeParse`.
+    expect(balance({ amount: 123 }).success).toBe(false);
+  });
+
+  it("names the threshold beside the balance, so the reader judges it", () => {
+    // The warning is the dashboard's decision, and it needs the configured ceiling to
+    // make it. Absent here it would have to be guessed from a copy string.
+    expect(balance({ alertBelow: null }).success).toBe(false);
+  });
+
+  it("separates 'no payouts tracked yet' from 'never polled'", () => {
+    const none = { state: "no_swaps", lastPolledAt: null, ageSeconds: null };
+    const unanswered = { state: "never_polled", lastPolledAt: null, ageSeconds: null };
+    expect(poll({ ...none, swaps: 0 }).success).toBe(true);
+    expect(poll({ ...unanswered, swaps: 2 }).success).toBe(true);
+    // The two states are different sentences for a seller, so they cannot share a
+    // payload: swaps that exist and have never been answered is the alarming pair.
+    // One field at a time, with the other half of the state fixed, so an assertion
+    // can only fail on the field it names.
+    expect(poll({ ...none, swaps: 2 }).success).toBe(false);
+    expect(poll({ ...unanswered, swaps: 0 }).success).toBe(false);
+  });
+
+  it("refuses an answer carried by a half that has none", () => {
+    const never = { state: "never_polled", swaps: 2, ageSeconds: null };
+    expect(poll({ ...never, lastPolledAt: null }).success).toBe(true);
+    expect(poll({ ...never, lastPolledAt: "2026-11-05T10:00:00.000Z" }).success).toBe(false);
+    expect(poll({ state: "no_swaps", swaps: 0, lastPolledAt: null, ageSeconds: 12 }).success).toBe(
+      false,
+    );
+  });
+
+  it("refuses a 'polled' half with no answer time or no age", () => {
+    expect(poll({ lastPolledAt: null }).success).toBe(false);
+    expect(poll({ ageSeconds: null }).success).toBe(false);
+    expect(poll({ ageSeconds: -1 }).success).toBe(false);
+  });
+
+  it("keeps a derived staleness window positive", () => {
+    // `POLL_INTERVAL_SECONDS * 5` is the window; a zero or fractional one would make
+    // every poll look stale, which is a warning nobody configured.
+    expect(poll({ staleAfterSeconds: 0 }).success).toBe(false);
+    expect(poll({ staleAfterSeconds: 2.5 }).success).toBe(false);
+  });
+
+  it("refuses a provider name Till does not have", () => {
+    expect(poll({ provider: "one-click" }).success).toBe(false);
+    expect(poll({ provider: "oneclick" }).success).toBe(true);
   });
 });

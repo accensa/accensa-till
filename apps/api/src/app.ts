@@ -8,6 +8,7 @@ import { type AuthRouteDeps, createAuthRoutes } from "./routes/auth.ts";
 import { type DiscrepancyRouteDeps, createDiscrepancyRoutes } from "./routes/discrepancies.ts";
 import { type EndpointRouteDeps, createEndpointRoutes } from "./routes/endpoints.ts";
 import { type PaymentRouteDeps, createPaymentRoutes } from "./routes/payments.ts";
+import { type StatusRouteDeps, createStatusRoutes } from "./routes/status.ts";
 import type { X402Near } from "./x402/types.ts";
 
 /**
@@ -62,6 +63,12 @@ export type AppDeps = {
    */
   readonly payments?: Partial<Pick<PaymentRouteDeps, "session">>;
   readonly discrepancies?: Partial<Pick<DiscrepancyRouteDeps, "session">>;
+  /**
+   * UI-5's header reads the chain as well as the database, and the suite runs
+   * offline, so the balance read is a seam the way F1's access-key read is. The
+   * session seam is the one every other dashboard route already has.
+   */
+  readonly status?: Partial<Pick<StatusRouteDeps, "session" | "balance">>;
 };
 
 export type Variables = { requestId: string };
@@ -82,7 +89,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
   });
 
   // 11.2: health reports liveness only. The relayer balance and last-poll checks
-  // belong to UI-5, which needs the provider, so they are not faked here.
+  // are UI-5's, they are scoped to a seller, and they belong on the dashboard
+  // header rather than on a probe a container runs without a session.
   // Two paths, one handler: the container healthcheck in docker-compose.yml and
   // ci.yml probe `/healthz`, while the browser only ever speaks `/api/*` (A5).
   app.on("get", ["/healthz", "/api/healthz"], (c) =>
@@ -97,6 +105,7 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    *   routes/endpoints.ts     D4 / PO-1   creation checks           (mounted, F2)
    *   routes/payments.ts      UI-3        the seller's ledger       (mounted, F3)
    *   routes/discrepancies.ts E2 / UI-4   worklist, resolve, blocks (mounted, F4)
+   *   routes/status.ts        UI-5        header balance and last poll (mounted, F5)
    *   routes/swaps.ts         D6 / UI-3   payout leg                (open)
    *   routes/export.ts        LR-7        CSV export (P1)           (open)
    */
@@ -113,6 +122,10 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
   // endpoints: one identity for both halves of the dashboard.
   app.route("/api", createPaymentRoutes({ db, env, log, ...deps.payments }));
   app.route("/api", createDiscrepancyRoutes({ db, env, log, ...deps.discrepancies }));
+
+  // UI-5, F5. The header's two facts, one from the chain and one from the
+  // database, answered for the session's seller and for nobody else.
+  app.route("/api", createStatusRoutes({ db, env, log, ...deps.status }));
 
   // C4, GW-1/GW-2. Mounted last and outside `/api` on purpose: a payer is not a
   // session, and `app.route` keeps the request middleware above it (the id the

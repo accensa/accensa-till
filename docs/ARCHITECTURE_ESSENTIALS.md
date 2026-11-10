@@ -28,9 +28,9 @@ Version 2.1. Outline of decisions that must not be violated. Detail: `ARCHITECTU
 ## Stack
 
 - TypeScript 5 strict, Node 22, pnpm workspaces
-- Hono (API and gateway), Next.js App Router with Tailwind and shadcn/ui
+- Hono (API and gateway), Next.js App Router with hand-written domain components (no component library: `shadcn` and `radix` appear in no manifest and nowhere in `pnpm-lock.yaml`; the Tailwind utility classes are written but nothing compiles them — see `ARCHITECTURE.md` §3)
 - Postgres 16, Drizzle, Zod, `jose` for signed cookies
-- `@fastnear/x402`, `@fastnear/api`, `@fastnear/wallet`
+- `@fastnear/x402` 2.5.0, the only `@fastnear/*` package a production file imports (all four imports sit in `apps/api/src/x402/near.ts`); it resolves `@x402/near` 2.18.0. `@fastnear/wallet` 2.5.0 is declared in `apps/api/package.json` and installed, but imported by no production file, and it brings `@fastnear/near-connect` 0.14.1. `@fastnear/api` appears zero times in `pnpm-lock.yaml`
 - Vitest, Biome, GitHub Actions, a grep script for import boundaries
 
 ## Layout
@@ -64,7 +64,7 @@ Version 2.1. Outline of decisions that must not be violated. Detail: `ARCHITECTU
 
 ## Tables
 
-`sellers`, `endpoints`, `payout_routes` (immutable), `payments` (snapshot route and amount), `swaps`, `ledger_entries`, `discrepancies` (dedupe key, partial unique index on open rows), `response_cache` (P1)
+`sellers`, `endpoints`, `payout_routes` (immutable), `payments` (snapshot route and amount), `payer_clears` (C9's block watermark, append-only), `swaps`, `ledger_entries`, `discrepancies` (dedupe key, partial unique index on open rows). `response_cache` is created by the migration and written by nothing: GW-9's cache lives in `apps/api/src/gateway/response-cache.ts`, in memory, so a restart loses it and the table is unused.
 
 ## Reconciliation codes
 

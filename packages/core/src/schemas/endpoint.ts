@@ -243,6 +243,10 @@ export const dashboardErrorSchema = z.object({
     "discrepancy_unreadable",
     "discrepancy_not_found",
     "payer_block_unreadable",
+    // UI-5, same rule again: a header whose own facts the contract will not take is
+    // a refusal with a code, not a header that dropped a line. A seller who reads a
+    // missing balance as a balance of nothing is reading an absence as a fact.
+    "status_unreadable",
     // D9, UI-2's edit step: an id that is not this seller's endpoint. Deliberately
     // one answer for "not there" and "somebody else's", for the same reason
     // `discrepancy_not_found` is: distinguishing them says which rows another

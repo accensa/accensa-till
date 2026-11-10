@@ -53,7 +53,7 @@ Today the seller finds out by checking a block explorer, the Intents explorer an
   product does not serve is a method nobody can pay for. `HEAD` counts as a non-`GET`
   exactly because the proxy would otherwise dial the seller with `method: "GET"`,
   settle real money and drop the body.
-- Payout assets other than 6-decimal stablecoins.
+- Payout assets other than 6-decimal stablecoins. That is the scope, not a gate: `STABLECOIN_DECIMALS = 6` in `packages/core/src/money.ts` is only the default `parseAmount` and `formatAmount` use when the caller passes no decimals, and nobody ever passes a different number (`displayAmount` in `apps/web/lib/format.ts` defaults to 6 and no call site overrides it). No schema and no creation check (`checkEndpointCreation`) refuses an asset with a different count, so an 18-decimal asset is accepted and priced 10^12 off rather than refused.
 - Native NEAR as a payment asset (not supported by the underlying scheme).
 - Revenue splits, invoicing, tax reporting, fiat ramps and multi-user teams.
 - More than one in-flight paid request per payer (see GW-6).
@@ -167,7 +167,7 @@ Severities are starting guesses. Windows and tolerance are environment config.
 3. The dashboard shows the payment, then the payout arriving on another chain as a stablecoin.
 4. A simulated refund, labelled as simulated on screen and in the README.
 5. Reconciliation raises `PAYOUT_REFUNDED` with its explanation and suggested action.
-6. A second simulated case: a buyer with an empty account is served once, then blocked, and `SERVED_NOT_SETTLED` is shown.
+6. A second simulated case: a buyer with an empty account is served twice without settling, and those two strikes are what blocks the third attempt, with `SERVED_NOT_SETTLED` shown.
 
 Step 6 is the most distinctive moment in the demo because it shows a failure mode other tooling does not surface.
 

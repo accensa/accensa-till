@@ -1,3 +1,4 @@
-/* Tailwind v4 entry point. shadcn/ui primitives land in components/ui with A5;
-   the CLI writes them, so none are hand-drafted here. */
+/* Tailwind v4 entry point. Nothing compiles it yet: apps/web has no
+   postcss.config.* and @tailwindcss/postcss is in no manifest, so the utilities
+   the domain components carry do not reach the browser (ARCHITECTURE.md §3). */
 @import "tailwindcss";

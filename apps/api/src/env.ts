@@ -150,6 +150,16 @@ export const envSchema = z
      */
     MIN_PRICE_BASE_UNITS: baseUnits("10000"),
 
+    /**
+     * UI-5's balance ceiling: below this the header warns that sponsored gas may
+     * stop. YoctoNEAR, so the comparison against the chain's own `amount` is one
+     * `bigint` against another. 1 NEAR is not a measured number — a settle costs
+     * the facilitator one `ft_transfer` of gas, and the relayer's own balance was
+     * unreadable until A10 names an account — so it is a stated default rather
+     * than an observation, the same way MIN_PRICE_BASE_UNITS is.
+     */
+    RELAYER_BALANCE_ALERT_BASE_UNITS: baseUnits("1000000000000000000000000"),
+
     POLL_INTERVAL_SECONDS: positiveInt(20),
     /**
      * D6's retry ceiling. A provider call that throws pushes each row it was asking

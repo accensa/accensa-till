@@ -909,7 +909,7 @@ export async function runDemo(): Promise<number> {
       `got ${third.status}${third.threw === null ? "" : ` (threw ${third.threw})`}: ${third.body.slice(0, 120)}`,
     );
     detail(
-      "PRD 8.6 words this as served once, then blocked. The shipped threshold is two strikes in 24 hours (GW-7), so the demo shows two: one would block a payer whose single failure was the gateway's own.",
+      "Two strikes in 24 hours block the third request (GW-7), and that is the number PRD 8.6 states: one strike would block a payer whose single failure was the gateway's own.",
     );
 
     check(

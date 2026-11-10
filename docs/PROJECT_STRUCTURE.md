@@ -30,7 +30,11 @@ till/
 │   ├── ARCHITECTURE.md
 │   ├── ARCHITECTURE_ESSENTIALS.md
 │   ├── PROJECT_STRUCTURE.md
-│   └── spikes/                   # S1.md to S7.md, one result file each
+│   └── spikes/                   # result files as they exist: prior-art.md, S1.md,
+│                                 #   S5.md, S6.md. S2, S3, S4 and S7 have none:
+│                                 #   S3 and S4 were answered from organizer
+│                                 #   statements, S2 and S7 cannot be measured
+│                                 #   from this build (ARCHITECTURE.md 12)
 │
 ├── apps/
 │   ├── api/
@@ -73,13 +77,15 @@ till/
 │   │   │   │   ├── access-keys.ts # the chain read sign-in needs: is this key full access on that account (F1)
 │   │   │   │   ├── sellers.ts    # the only place a seller row is created, keyed by account name (F1)
 │   │   │   │   ├── discrepancies.ts  # the only writer of discrepancies; dedupe, auto-resolve, manual close (E8), the severity-ordered open worklist (UI-4)
-│   │   │   │   └── swaps.ts      # the only writer of the payment↔swap link; joins by transaction hash and nothing else, and reports what it cannot join (E2)
+│   │   │   │   ├── swaps.ts      # the only writer of the payment↔swap link; joins by transaction hash and nothing else, and reports what it cannot join (E2)
+│   │   │   │   └── status.ts     # the header's two reads: a public `view_account` of the relayer as an answer or a refusal, and this seller's newest provider answer aged by Postgres (F5)
 │   │   │   ├── routes/           # dashboard API
 │   │   │   │   ├── auth.ts       # nonce + verify, the only routes that answer without a session (F1)
 │   │   │   │   ├── endpoints.ts  # GET list / POST create with confirmation (D4); PATCH one endpoint's terms on the same checks and the same echo (D9)
 │   │   │   │   ├── payments.ts  # GET /payments, scoped by the endpoint join, 500 on an unreadable row (UI-3)
 │   │   │   │   ├── swaps.ts
 │   │   │   │   ├── discrepancies.ts # GET the worklist and the holds, POST a resolve and a clear, every one scoped by the session (UI-4)
+│   │   │   │   ├── status.ts     # GET /status: the relayer balance and the last provider answer, each with its threshold, for the session's seller only (F5)
 │   │   │   │   └── export.ts     # ledger CSV (P1)
 │   │   │   ├── jobs/
 │   │   │   │   ├── loop.ts       # timer helper with SKIP LOCKED claiming
@@ -103,20 +109,24 @@ till/
 │       │   │   ├── endpoints/            # page.tsx is UI-2: lists and creates, server component
 │       │   │   ├── payments/             # page.tsx is UI-3: the seller's ledger, server component
 │       │   │   └── reconciliation/       # page.tsx is UI-4: the open items and the holds, server component
-│       │   └── layout.tsx                # nav; F5's header status (balance, last poll) is still to come
+│       │   └── layout.tsx                # nav plus F5's header status: reads GET /api/status with the
+│       │                                 #   session cookie and renders the balance and poll lines
 │       ├── components/
-│       │   ├── ui/                       # shadcn components
+│       │   ├── ui/                       # empty by decision: one .gitkeep, and no
+│       │   │                             #   file anywhere imports from it
 │       │   └── domain/                   # EndpointCard, CreateEndpointForm, CreationCheckResults,
 │       │                                 #   SessionNotice, PaymentTable, PaymentRow, SwapTimeline,
 │       │                                 #   DiscrepancyCard + PayerBlockTable (UI-4, presentational),
 │       │                                 #   ReconcileActions (UI-4: the screen's one "use client" boundary),
-│       │                                 #   EndpointEditor (F9: D9's PATCH, view + container)
+│       │                                 #   EndpointEditor (F9: D9's PATCH, view + container),
+│       │                                 #   HeaderStatus (F5: the two header lines, marking only a warned one role="alert")
 │       └── lib/
 │           ├── api-client.ts             # every fetch, each response parsed or answered `unreachable`
 │           ├── endpoint-form.ts          # the form's rules as plain functions, no React
 │           ├── endpoint-edit.ts          # the edit's rules: the diff, the echo, the pause body
 │           ├── payments.ts                 # explorer link per row, the four state words, the copy
 │           ├── reconcile.ts              # severity words, an age against a passed-in clock, the empty and held copy
+│           ├── header-status.ts          # the header's two sentences as a pure function: the thresholds compared, ok/warn/unknown, the copy (F5)
 │           └── format.ts                 # base units to display amounts
 │
 ├── packages/
@@ -151,7 +161,9 @@ till/
 │   ├── check-boundaries.sh       # grep-based import rules, run in CI
 │   ├── roadmap-progress.ts       # regenerates the ROADMAP.md progress block; --check mode for CI
 │   ├── check-roadmap.sh          # fails if a change leaves ROADMAP.md untouched
-│   └── spikes/                   # throwaway scripts for S1 to S7, kept as evidence
+│   └── spikes/                   # empty but for its .gitkeep: no S1–S7 script lives
+│                                 #   here. Every spike was measured ad hoc and recorded
+│                                 #   in docs/spikes/ instead (see the docs tree above)
 ```
 
 ## apps/web
@@ -238,7 +250,7 @@ db                     ──►  lib
 | A background loop | File in `apps/api/src/jobs/`, its body in `ticks.ts`, and start it from `server.ts` — a test cannot import `server.ts` without binding a port, so nothing that must be asserted on belongs in the `startLoop` call |
 | A guard on paid requests | `apps/api/src/gateway/guards.ts` with a test in `apps/api/test/` |
 | An env var | `env.ts` schema and `.env.example` in the same change — except a variable only `apps/web` reads (`API_ORIGIN`), which has no `env.ts` and is documented in `.env.example` and the apps/web section above |
-| A UI primitive | `apps/web/components/ui/` |
+| A UI primitive | There is no primitive library to add to: `apps/web/components/ui/` holds a `.gitkeep` and nothing imports from it, and `shadcn`/`radix` appear in no manifest or lockfile. Hand-write it in `apps/web/components/domain/`, the way all twelve components there were |
 | A domain UI component | `apps/web/components/domain/` |
 | A rule the dashboard enforces before sending | A pure function in `apps/web/lib/`, beside `endpoint-form.ts`, with its own test — a component cannot be asserted on without a browser |
 | A screen a seller reaches with no session, or with one the API refuses | `apps/web/components/domain/SessionNotice.tsx`; the route's server component chooses which of the three kinds to show |
@@ -271,6 +283,7 @@ db                     ──►  lib
 
 ## Environment variables (names only; see `.env.example`)
 
+- `NODE_ENV`, `PORT`
 - `DATABASE_URL`
 - `NEAR_NETWORK`, `NEAR_RPC_URL`
 - `RELAYER_ACCOUNT_ID`, `RELAYER_SECRET_KEY`
@@ -279,14 +292,20 @@ db                     ──►  lib
 - `SESSION_SECRET`
 - `GATEWAY_PUBLIC_URL`
 - `UPSTREAM_TIMEOUT_MS`, `UPSTREAM_MAX_BYTES`, `AUTHORIZATION_EXPIRY_MARGIN_MS`
-- `MAX_SPONSORED_GAS`, `MIN_PRICE_BASE_UNITS`
+- `MAX_SPONSORED_GAS`, `SPONSORED_GAS_BUDGET`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_MS`
+- `MIN_PRICE_BASE_UNITS`, `RELAYER_BALANCE_ALERT_BASE_UNITS`
 - `POLL_INTERVAL_SECONDS`, `POLL_MAX_BACKOFF_SECONDS`, `RECONCILE_INTERVAL_SECONDS`
 - `STUCK_WINDOW_SECONDS`, `SWEEP_WINDOW_SECONDS`, `SHORTFALL_TOLERANCE_BPS`
+- `ALLOW_INSECURE_UPSTREAM`
 
 `C10`'s boot sweep has no window variable of its own: it uses Guard 3's derived
 in-flight window (`UPSTREAM_TIMEOUT_MS + AUTHORIZATION_EXPIRY_MARGIN_MS`), because
 that is the rule that decides when a `verified` row stopped meaning "being served
 right now". A second knob could drift from it.
+
+`UI-5`'s header staleness has none either, for the same reason: `GET /api/status`
+returns `POLL_INTERVAL_SECONDS * 5` as the window beside the age it judges, so the
+header cannot disagree with the loop it is describing.
 
 ## AGENTS.md (suggested content, under 30 lines)
 

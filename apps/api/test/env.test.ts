@@ -99,6 +99,29 @@ describe("environment refusals (G6 F1, F4)", () => {
     ).toBe(9999);
   });
 
+  it("defaults the relayer balance alert to 1 NEAR and refuses a non-integer", () => {
+    // UI-5 compares this against the chain's yoctoNEAR `amount` as two bigints, so
+    // the one way it must not arrive is a float or a negative that warns on anything.
+    expect(loadEnv({ ...process.env, ...required }).RELAYER_BALANCE_ALERT_BASE_UNITS).toBe(
+      1_000_000_000_000_000_000_000_000n,
+    );
+    for (const value of ["-1", "0", "1.5e24", "abc", ""]) {
+      expect(
+        () => loadEnv({ ...process.env, ...required, RELAYER_BALANCE_ALERT_BASE_UNITS: value }),
+        value,
+      ).toThrow(/RELAYER_BALANCE_ALERT_BASE_UNITS/);
+    }
+    // An absent name takes the default; an empty one is a value and fails its own
+    // schema, which is why `.env.example` comments optional names out.
+    expect(
+      loadEnv({
+        ...process.env,
+        ...required,
+        RELAYER_BALANCE_ALERT_BASE_UNITS: "2500000000000000000000000",
+      }).RELAYER_BALANCE_ALERT_BASE_UNITS,
+    ).toBe(2_500_000_000_000_000_000_000_000n);
+  });
+
   it("names the key that failed and never the value that failed it (A4)", () => {
     // `loadEnv` documents that values are not echoed, because this object holds
     // RELAYER_SECRET_KEY and ONECLICK_JWT. A transform that throws rather than
@@ -106,6 +129,10 @@ describe("environment refusals (G6 F1, F4)", () => {
     const money = bootError({ MIN_PRICE_BASE_UNITS: SECRET_IN_VALUE });
     expect(money).toContain("MIN_PRICE_BASE_UNITS");
     expect(money).not.toContain(SECRET_IN_VALUE);
+
+    const balance = bootError({ RELAYER_BALANCE_ALERT_BASE_UNITS: SECRET_IN_VALUE });
+    expect(balance).toContain("RELAYER_BALANCE_ALERT_BASE_UNITS");
+    expect(balance).not.toContain(SECRET_IN_VALUE);
 
     const port = bootError({ PORT: "not-a-port" });
     expect(port).toContain("PORT");

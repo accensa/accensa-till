@@ -320,11 +320,10 @@ in checks against a response or the database:
   per-payer advisory lock, not in a read, because S6 measured that two concurrent
   delegates from one payer both verify and both submit. C9's history is per payer
   **and** seller: two `served_unsettled` rows in 24 hours answer that payer's next
-  paid request with `403 payer_blocked`, at that seller only. PRD 8.6 words this as
-  "served once, then blocked"; the shipped, tested, mutation-proved threshold is
-  two, because one strike would block a payer whose single failure was the
-  gateway's own, and `pnpm demo` step 6 prints the disagreement rather than moving
-  the number (G5 owns the doc half). The seller's clear ships —
+  paid request with `403 payer_blocked`, at that seller only. The number is two and
+  not one because a single strike would block a payer whose one failure was the
+  gateway's own; PRD 8.6 says the same and `pnpm demo` step 6 proves it by serving
+  twice and refusing the third. The seller's clear ships —
   `POST /api/payer-blocks/:payerAccountId/clear` (F4) — and appends a `payer_clears`
   watermark instead of rewriting history; a block also ages out when both strikes
   leave the window, and the `403` carries no `Retry-After`, because no timer is the
