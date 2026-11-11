@@ -573,7 +573,8 @@ describe("proxy limits (C5, GW-8)", () => {
   it("isForwardableHeader keeps the ordinary and drops the two forbidden families", () => {
     expect(isForwardableHeader("Accept")).toBe(true);
     expect(isForwardableHeader("if-none-match")).toBe(true);
-    expect(isForwardableHeader("Cookie")).toBe(true);
+    expect(isForwardableHeader("Cookie")).toBe(false);
+    expect(isForwardableHeader("Authorization")).toBe(false);
     expect(isForwardableHeader("Upgrade-Insecure-Requests")).toBe(true);
     expect(isForwardableHeader("Connection")).toBe(false);
     expect(isForwardableHeader("Keep-Alive")).toBe(false);

@@ -58,7 +58,13 @@ function isPaymentHeader(name: string): boolean {
 
 export function isForwardableHeader(rawName: string): boolean {
   const name = rawName.toLowerCase();
-  return !HOP_BY_HOP.has(name) && !isPaymentHeader(name) && !name.startsWith("proxy-");
+  return (
+    !HOP_BY_HOP.has(name) &&
+    !isPaymentHeader(name) &&
+    !name.startsWith("proxy-") &&
+    name !== "cookie" &&
+    name !== "authorization"
+  );
 }
 
 /**

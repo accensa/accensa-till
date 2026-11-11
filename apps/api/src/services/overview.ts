@@ -82,6 +82,8 @@ const ZERO_ROW = (asset: string): TotalsRow => ({
 });
 export async function readSellerOverview(db: Db, sellerId: string): Promise<OverviewDto> {
   const totals = await db.transaction(async (tx) => {
+    await tx.execute(sql`set transaction isolation level repeatable read read only`);
+
     const ledgerRows = await tx
       .select({
         asset: ledgerEntries.asset,
@@ -113,7 +115,14 @@ export async function readSellerOverview(db: Db, sellerId: string): Promise<Over
             tx
               .select({ one: sql`1` })
               .from(swaps)
-              .where(and(eq(swaps.originTxHash, payments.nearTxHash), isNotNull(swaps.terminalAt))),
+              .innerJoin(payoutRoutes, eq(payoutRoutes.id, swaps.routeId))
+              .where(
+                and(
+                  eq(payoutRoutes.sellerId, sellerId),
+                  eq(swaps.originTxHash, payments.nearTxHash),
+                  isNotNull(swaps.terminalAt),
+                ),
+              ),
           ),
         ),
       )

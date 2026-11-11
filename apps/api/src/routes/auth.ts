@@ -246,7 +246,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
     // used, and that five-minute window is stated as a limitation rather than
     // fixed by a store — but deleting it keeps the browser from sending a stale
     // cookie on every later request.
-    deleteCookie(c, SIGN_IN_COOKIE, { path: "/api", secure });
+    deleteCookie(c, SIGN_IN_COOKIE, { path: "/", secure });
 
     log.info({ code: "signed_in", accountId: seller.nearAccountId }, "wallet sign-in");
     return c.json(signInResultSchema.parse({ seller }));

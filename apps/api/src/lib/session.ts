@@ -190,18 +190,17 @@ export function createSessionCodec(
 }
 
 /**
- * Both cookies are scoped to `/api`, which is both the whole dashboard surface and
- * strictly narrower than the origin: a buyer's request hits `/r/:slug`, so with
- * this path the session cookie is never sent to the gateway at all (G6 F2's class
- * of problem, removed rather than filtered). `secure` follows NODE_ENV so a local
- * http dashboard can still set the cookie, while a production deploy cannot serve
- * it over plain http.
+ * Both cookies are scoped to `/`, ensuring that Next.js Server Components on dashboard
+ * pages (`/endpoints`, `/payments`, etc.) receive the session cookie. Upstream credential
+ * leakage at `/r/:slug` is blocked by proxy header filtering in `gateway/proxy.ts`.
+ * `secure` follows NODE_ENV so a local http dashboard can still set the cookie, while
+ * a production deploy cannot serve it over plain http.
  */
 export function cookieOptions(maxAgeSeconds: number, secure: boolean) {
   return {
     httpOnly: true,
     sameSite: "Strict" as const,
-    path: "/api",
+    path: "/",
     maxAge: maxAgeSeconds,
     secure,
   };

@@ -35,7 +35,16 @@ export default async function PaymentsPage() {
   if (listed.kind === "ok") {
     return (
       <section>
-        <h1>Payments</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1>Payments</h1>
+          <a
+            className="text-sm underline hover:text-blue-600"
+            download="ledger.csv"
+            href="/api/export/ledger.csv"
+          >
+            Export Ledger (CSV)
+          </a>
+        </div>
         <PaymentTable payments={listed.payments} />
       </section>
     );

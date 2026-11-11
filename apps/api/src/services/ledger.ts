@@ -1,4 +1,5 @@
 import type { BaseUnitAmount } from "@till/core";
+import { desc, eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { ledgerEntries } from "../db/schema.ts";
 
@@ -107,4 +108,37 @@ export function recordAdjustment(
   note: string,
 ): Promise<void> {
   return insert(db, { ...entry, kind: "adjustment", note });
+}
+
+export type LedgerExportRow = {
+  readonly id: string;
+  readonly createdAt: Date;
+  readonly kind: LedgerKind;
+  readonly amount: string;
+  readonly asset: string;
+  readonly paymentId: string | null;
+  readonly swapId: string | null;
+  readonly note: string | null;
+};
+
+/**
+ * LR-7 (F7): read ledger entries for a seller, ordered newest-first, for CSV export.
+ */
+export async function listLedgerForExport(db: Db, sellerId: string): Promise<LedgerExportRow[]> {
+  const rows = await db
+    .select({
+      id: ledgerEntries.id,
+      createdAt: ledgerEntries.createdAt,
+      kind: ledgerEntries.kind,
+      amount: ledgerEntries.amount,
+      asset: ledgerEntries.asset,
+      paymentId: ledgerEntries.paymentId,
+      swapId: ledgerEntries.swapId,
+      note: ledgerEntries.note,
+    })
+    .from(ledgerEntries)
+    .where(eq(ledgerEntries.sellerId, sellerId))
+    .orderBy(desc(ledgerEntries.createdAt), desc(ledgerEntries.id));
+
+  return rows as LedgerExportRow[];
 }

@@ -38,7 +38,16 @@ export default async function OverviewPage() {
   if (listed.kind === "ok") {
     return (
       <section>
-        <h1>Overview</h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1>Overview</h1>
+          <a
+            className="text-sm underline hover:text-blue-600"
+            download="ledger.csv"
+            href="/api/export/ledger.csv"
+          >
+            Export Ledger (CSV)
+          </a>
+        </div>
         <OverviewTotals result={listed} />
       </section>
     );

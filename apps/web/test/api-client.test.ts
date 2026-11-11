@@ -775,12 +775,10 @@ describe("reading the overview totals", () => {
     );
     const refused = await api.overview("till_session=token-value");
     expect(refused.kind).toBe("unreachable");
-    // `overview_unreadable` is not in `dashboardErrorSchema`'s codes yet, so the API's
-    // sentence cannot be parsed here and the fallback line is what the seller reads.
-    // The screen is still honest — an unreadable total is a failure, not an empty book —
-    // but the code belongs in core's enum for the same reason `status_unreadable` is.
+    // `overview_unreadable` is parsed by `dashboardErrorSchema`, so the API's
+    // sentence is returned directly as the error detail.
     expect(refused.kind === "unreachable" ? refused.detail : "").toContain(
-      "/api/overview returned 500",
+      "An overview on record is not one Till can read, so none is shown.",
     );
     expect(calls).toHaveLength(1);
 

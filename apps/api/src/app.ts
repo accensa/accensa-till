@@ -7,6 +7,7 @@ import { type Logger, newRequestId } from "./lib/logger.ts";
 import { type AuthRouteDeps, createAuthRoutes } from "./routes/auth.ts";
 import { type DiscrepancyRouteDeps, createDiscrepancyRoutes } from "./routes/discrepancies.ts";
 import { type EndpointRouteDeps, createEndpointRoutes } from "./routes/endpoints.ts";
+import { type ExportRouteDeps, createExportRoutes } from "./routes/export.ts";
 import { type OverviewRouteDeps, createOverviewRoutes } from "./routes/overview.ts";
 import { type PaymentRouteDeps, createPaymentRoutes } from "./routes/payments.ts";
 import { type StatusRouteDeps, createStatusRoutes } from "./routes/status.ts";
@@ -76,6 +77,11 @@ export type AppDeps = {
    * query, rather than becoming something this process assembles.
    */
   readonly overview?: Partial<Pick<OverviewRouteDeps, "session">>;
+  /**
+   * LR-7's ledger export is one database read and CSV serialization, so the seam
+   * is the session alone.
+   */
+  readonly export?: Partial<Pick<ExportRouteDeps, "session">>;
 };
 
 export type Variables = { requestId: string };
@@ -114,8 +120,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    *   routes/discrepancies.ts E2 / UI-4   worklist, resolve, blocks (mounted, F4)
    *   routes/status.ts        UI-5        header balance and last poll (mounted, F5)
    *   routes/overview.ts      UI-6        ledger-equal totals         (mounted, F6)
-   *   routes/swaps.ts         D6 / UI-3   payout leg                (open)
-   *   routes/export.ts        LR-7        CSV export (P1)           (open)
+   *   routes/export.ts        LR-7        CSV export (P1)             (mounted, F7)
+   *   routes/swaps.ts         D6 / UI-3   payout leg                  (open)
    */
 
   // UI-1, F1. First under `/api` and the only route there that does not require a
@@ -138,6 +144,10 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
   // UI-6, F6. The overview's totals, answered for the session's seller by one
   // transaction over the ledger, the payments and the worklist.
   app.route("/api", createOverviewRoutes({ db, env, log, ...deps.overview }));
+
+  // LR-7, F7. The ledger CSV export in decimal units for spreadsheets.
+  app.route("/api", createExportRoutes({ db, env, log, ...deps.export }));
+  app.route("/", createExportRoutes({ db, env, log, ...deps.export }));
 
   // C4, GW-1/GW-2. Mounted last and outside `/api` on purpose: a payer is not a
   // session, and `app.route` keeps the request middleware above it (the id the

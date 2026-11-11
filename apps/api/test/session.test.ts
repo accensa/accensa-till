@@ -215,18 +215,18 @@ describe("the sign-in challenge cookie", () => {
 });
 
 describe("cookie attributes (A5)", () => {
-  it("scopes both cookies to /api, http-only, Strict, and for their own lifetime", () => {
+  it("scopes both cookies to /, http-only, Strict, and for their own lifetime", () => {
     expect(cookieOptions(SIGN_IN_MAX_AGE_SECONDS, false)).toEqual({
       httpOnly: true,
       sameSite: "Strict",
-      path: "/api",
+      path: "/",
       maxAge: 300,
       secure: false,
     });
     expect(cookieOptions(SESSION_MAX_AGE_SECONDS, true)).toEqual({
       httpOnly: true,
       sameSite: "Strict",
-      path: "/api",
+      path: "/",
       maxAge: 60 * 60 * 12,
       secure: true,
     });

@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { type OverviewDto, dashboardErrorSchema, overviewResponseSchema } from "@till/core";
 
@@ -105,6 +105,8 @@ function need(): Handle {
   return handle;
 }
 
+const suite = describe.skipIf(handle === null);
+
 const quiet: Logger = {
   info: () => undefined,
   warn: () => undefined,
@@ -140,13 +142,16 @@ async function newSeller(endpointPayoutMode = "intents"): Promise<Seller> {
     .insert(sellers)
     .values({ nearAccountId: `till-f6-${tag}-${run}.testnet`, displayName: `F6 ${tag}` })
     .returning({ id: sellers.id });
+  if (seller === undefined) {
+    throw new Error("seller insert returned no row");
+  }
 
   const routeIds: string[] = [];
   for (const modeDetail of ["standing", "direct"]) {
     const [route] = await db
       .insert(payoutRoutes)
       .values({
-        sellerId: seller!.id,
+        sellerId: seller.id,
         destinationChain: "near",
         destinationAsset: DESTINATION,
         destinationAddress: `dest-${tag}-${modeDetail}-${run}.testnet`,
@@ -155,13 +160,16 @@ async function newSeller(endpointPayoutMode = "intents"): Promise<Seller> {
         modeDetail,
       })
       .returning({ id: payoutRoutes.id });
-    routeIds.push(route!.id);
+    if (route === undefined) {
+      throw new Error("payoutRoute insert returned no row");
+    }
+    routeIds.push(route.id);
   }
 
   const [endpoint] = await db
     .insert(endpoints)
     .values({
-      sellerId: seller!.id,
+      sellerId: seller.id,
       slug: `f6-${tag}-${run}`,
       upstreamUrl: "https://example.test/data",
       priceAmount: AMOUNT,
@@ -170,13 +178,22 @@ async function newSeller(endpointPayoutMode = "intents"): Promise<Seller> {
       payoutMode: endpointPayoutMode,
     })
     .returning({ id: endpoints.id });
+  if (endpoint === undefined) {
+    throw new Error("endpoint insert returned no row");
+  }
+
+  const intentsRouteId = routeIds[0];
+  const directRouteId = routeIds[1];
+  if (intentsRouteId === undefined || directRouteId === undefined) {
+    throw new Error("expected two routes inserted");
+  }
 
   return {
-    id: seller!.id,
+    id: seller.id,
     near: `till-f6-${tag}-${run}.testnet`,
-    endpointId: endpoint!.id,
-    intentsRouteId: routeIds[0]!,
-    directRouteId: routeIds[1]!,
+    endpointId: endpoint.id,
+    intentsRouteId,
+    directRouteId,
   };
 }
 
@@ -211,7 +228,10 @@ async function newSettledPayment(seller: Seller, seed: PaymentSeed = {}): Promis
       nearTxHash: seed.nearTxHash ?? null,
     })
     .returning({ id: payments.id });
-  return row!.id;
+  if (row === undefined) {
+    throw new Error("payment insert returned no row");
+  }
+  return row.id;
 }
 
 /** The settlement write the gateway would have made, so the ledger is Till's own. */
@@ -248,7 +268,10 @@ async function newSwap(
       raw: { simulated: true },
     })
     .returning({ id: swaps.id });
-  return row!.id;
+  if (row === undefined) {
+    throw new Error("swap insert returned no row");
+  }
+  return row.id;
 }
 
 /** One row of the DTO, by asset, so a test can name what it expects. */
@@ -266,7 +289,7 @@ async function overview(sellerId: string): Promise<OverviewDto> {
   return readSellerOverview(need().db, sellerId);
 }
 
-describe("the overview totals equal the ledger rows they summarise (UI-6)", () => {
+suite("the overview totals equal the ledger rows they summarise (UI-6)", () => {
   let seller: Seller;
   let usdcPayment: string;
   let otherPayment: string;
@@ -321,12 +344,16 @@ describe("the overview totals equal the ledger rows they summarise (UI-6)", () =
       where seller_id = ${seller.id} and asset = ${USDC}
     `;
 
+    if (raw === undefined) {
+      throw new Error("recompute query returned no row");
+    }
+
     expect([
       settled.settledAmount,
       settled.paidOutAmount,
       settled.refundedAmount,
       settled.adjustedAmount,
-    ]).toEqual([raw!.settled, raw!.paid_out, raw!.refunded, raw!.adjusted]);
+    ]).toEqual([raw.settled, raw.paid_out, raw.refunded, raw.adjusted]);
 
     // …and against the fixture's own arithmetic, so the equality above cannot be
     // satisfied by two readings of a number nobody put there.
@@ -370,7 +397,7 @@ describe("the overview totals equal the ledger rows they summarise (UI-6)", () =
   });
 });
 
-describe("in transit is the payout that has not finished (UI-6)", () => {
+suite("in transit is the payout that has not finished (UI-6)", () => {
   it("moves the number when the provider reports the swap terminal", async () => {
     const seller = await newSeller();
     const hash = `tx-${run}-stale`;
@@ -478,7 +505,7 @@ describe("in transit is the payout that has not finished (UI-6)", () => {
   });
 });
 
-describe("the two counts (UI-6)", () => {
+suite("the two counts (UI-6)", () => {
   it("counts open work only, and the sales served without settling", async () => {
     const { db, sql } = need();
     const seller = await newSeller();
@@ -510,7 +537,7 @@ describe("the two counts (UI-6)", () => {
   });
 });
 
-describe("the payout mode answers the same in both forms (PO-7)", () => {
+suite("the payout mode answers the same in both forms (PO-7)", () => {
   /**
    * The overview decides the mode inside SQL and E9 decides it in TypeScript, from
    * the same two columns. Two forms of one rule are one rule only while they agree,
@@ -547,7 +574,11 @@ describe("the payout mode answers the same in both forms (PO-7)", () => {
     expect(answered).toHaveLength(cases.length);
 
     for (const [index, row] of answered.entries()) {
-      const [routeMode, endpointMode] = cases[index]!;
+      const currentCase = cases[index];
+      if (currentCase === undefined) {
+        throw new Error(`missing case at index ${index}`);
+      }
+      const [routeMode, endpointMode] = currentCase;
       expect({
         routeMode,
         endpointMode,
@@ -590,7 +621,7 @@ function route(session: SessionClaims | null) {
   });
 }
 
-describe("GET /api/overview (UI-6, F6)", () => {
+suite("GET /api/overview (UI-6, F6)", () => {
   let seller: Seller;
   let session: SessionClaims;
 
@@ -657,7 +688,7 @@ describe("GET /api/overview (UI-6, F6)", () => {
   });
 });
 
-describe("createApp mounts the overview", () => {
+suite("createApp mounts the overview", () => {
   it("answers /api/overview from the same app as the rest of the dashboard", async () => {
     const seller = await newSeller();
     const paymentId = await newSettledPayment(seller, { amount: "1500000" });
@@ -680,4 +711,10 @@ describe("createApp mounts the overview", () => {
     const body = overviewResponseSchema.parse(await response.json());
     expect(rowFor(body.overview, USDC).settledAmount).toBe("1500000");
   });
+});
+
+afterAll(async () => {
+  if (handle !== null) {
+    await handle.sql.end({ timeout: 5 });
+  }
 });
