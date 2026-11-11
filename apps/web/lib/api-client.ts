@@ -1,4 +1,5 @@
 import {
+  type AuthError,
   type DashboardError,
   type DiscrepancyDto,
   type EndpointCreateRequest,
@@ -9,7 +10,11 @@ import {
   type OverviewDto,
   type PayerBlockDto,
   type PaymentDto,
+  type SellerDto,
+  type SignInChallenge,
+  type SignedMessageRequest,
   type StatusDto,
+  authErrorSchema,
   dashboardErrorSchema,
   discrepancyListResponseSchema,
   discrepancyResolveResponseSchema,
@@ -20,6 +25,8 @@ import {
   payerBlockClearResponseSchema,
   payerBlockListResponseSchema,
   paymentListResponseSchema,
+  signInChallengeSchema,
+  signInResultSchema,
   statusResponseSchema,
 } from "@till/core/schemas";
 
@@ -62,6 +69,15 @@ function fetchOptions(cookie: string | undefined): RequestInit {
  * inventing a reason would be the dashboard lying about Till's state.
  */
 export type Unreachable = { readonly kind: "unreachable"; readonly detail: string };
+
+export type NonceResult =
+  | { readonly kind: "ok"; readonly challenge: SignInChallenge }
+  | Unreachable;
+
+export type VerifySignInResult =
+  | { readonly kind: "ok"; readonly seller: SellerDto }
+  | { readonly kind: "rejected"; readonly error: AuthError }
+  | Unreachable;
 
 export type EndpointListResult =
   | { readonly kind: "ok"; readonly endpoints: readonly EndpointDto[] }
@@ -557,6 +573,90 @@ export const api = {
       : {
           kind: "unreachable",
           detail: `${path} returned ${response.status} with no readable reason`,
+        };
+  },
+
+  /**
+   * Request a fresh sign-in challenge (UI-1, F1, F8).
+   * Mints a 32-byte challenge on the API and sets the till_sign_in cookie.
+   */
+  requestNonce: async (cookie?: string): Promise<NonceResult> => {
+    let response: Response;
+    try {
+      response = await fetch(requestUrl("/api/auth/nonce"), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          accept: "application/json",
+          ...(cookie === undefined ? {} : { cookie }),
+        },
+      });
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const payload = await readJson(response);
+    if (response.ok) {
+      const parsed = signInChallengeSchema.safeParse(payload);
+      return parsed.success
+        ? { kind: "ok", challenge: parsed.data }
+        : {
+            kind: "unreachable",
+            detail: "/api/auth/nonce answered a challenge Till's own schema refuses",
+          };
+    }
+    return {
+      kind: "unreachable",
+      detail: `/api/auth/nonce returned ${response.status} with no readable reason`,
+    };
+  },
+
+  /**
+   * Submit NEP-413 signed message payload to establish a session (UI-1, F1, F8).
+   * On success, the API issues the till_session HttpOnly cookie and returns the seller row.
+   */
+  verifySignIn: async (
+    request: SignedMessageRequest,
+    cookie?: string,
+  ): Promise<VerifySignInResult> => {
+    let response: Response;
+    try {
+      response = await fetch(requestUrl("/api/auth/verify"), {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          ...(cookie === undefined ? {} : { cookie }),
+        },
+        body: JSON.stringify(request),
+      });
+    } catch (error) {
+      return {
+        kind: "unreachable",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    const payload = await readJson(response);
+    if (response.ok) {
+      const parsed = signInResultSchema.safeParse(payload);
+      return parsed.success
+        ? { kind: "ok", seller: parsed.data.seller }
+        : {
+            kind: "unreachable",
+            detail: "/api/auth/verify answered a sign-in Till's own schema refuses",
+          };
+    }
+    const refused = authErrorSchema.safeParse(payload);
+    return refused.success
+      ? { kind: "rejected", error: refused.data }
+      : {
+          kind: "unreachable",
+          detail: `/api/auth/verify returned ${response.status} with no readable reason`,
         };
   },
 };

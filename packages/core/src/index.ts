@@ -9,3 +9,4 @@ export * from "./ids.ts";
 export * from "./schemas/index.ts";
 export * from "./auth/index.ts";
 export * from "./reconcile/index.ts";
+export * from "./hackathon.ts";

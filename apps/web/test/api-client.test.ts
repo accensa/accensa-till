@@ -823,3 +823,95 @@ describe("reading the overview totals", () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe("wallet sign-in client calls (UI-1, F1, F8)", () => {
+  const CHALLENGE = {
+    message: "Sign in to Till",
+    recipient: "http://localhost:3000",
+    nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    callbackUrl: null,
+  };
+
+  const SIGN_IN_REQUEST = {
+    accountId: "till-seller-dev.testnet",
+    publicKey: "ed25519:6E83hnHGhxRczfTksXQz69E5k17w8o95BjhW7qY6F7pA",
+    signature:
+      "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    message: "Sign in to Till",
+    recipient: "http://localhost:3000",
+    nonce: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+  };
+
+  it("requests a sign-in challenge and parses the challenge payload", async () => {
+    const calls = stubAnswer(json(CHALLENGE));
+    const result = await api.requestNonce();
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.challenge.message).toBe("Sign in to Till");
+      expect(result.challenge.recipient).toBe("http://localhost:3000");
+      expect(result.challenge.nonce).toBe("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+    }
+    const call = first(calls);
+    expect(call.url).toBe("http://localhost:3000/api/auth/nonce");
+    expect(call.init.method).toBe("POST");
+  });
+
+  it("refuses a malformed challenge response", async () => {
+    stubAnswer(json({ wrong: "field" }));
+    const result = await api.requestNonce();
+    expect(result.kind).toBe("unreachable");
+  });
+
+  it("handles network failure when requesting a nonce", async () => {
+    stubFailure("fetch failed: network down");
+    const result = await api.requestNonce();
+    expect(result.kind).toBe("unreachable");
+    if (result.kind === "unreachable") {
+      expect(result.detail).toContain("network down");
+    }
+  });
+
+  it("submits signed message and parses successful seller authentication", async () => {
+    const seller = {
+      id: "01a1abe0-2222-7000-8000-000000000002",
+      nearAccountId: "till-seller-dev.testnet",
+      displayName: null,
+    };
+    const calls = stubAnswer(json({ seller }), 200);
+    const result = await api.verifySignIn(SIGN_IN_REQUEST);
+    expect(result.kind).toBe("ok");
+    if (result.kind === "ok") {
+      expect(result.seller.nearAccountId).toBe("till-seller-dev.testnet");
+      expect(result.seller.id).toBe("01a1abe0-2222-7000-8000-000000000002");
+    }
+    const call = first(calls);
+    expect(call.url).toBe("http://localhost:3000/api/auth/verify");
+    expect(call.init.method).toBe("POST");
+    expect(headerOf(call, "content-type")).toBe("application/json");
+  });
+
+  it("parses named authentication refusals", async () => {
+    stubAnswer(
+      json({
+        code: "signature_invalid",
+        message: "That signature does not cover this message and key.",
+      }),
+      401,
+    );
+    const result = await api.verifySignIn(SIGN_IN_REQUEST);
+    expect(result.kind).toBe("rejected");
+    if (result.kind === "rejected") {
+      expect(result.error.code).toBe("signature_invalid");
+      expect(result.error.message).toContain("That signature does not cover");
+    }
+  });
+
+  it("handles unreadable verify responses as unreachable", async () => {
+    stubAnswer("bad gateway", 502, "text/plain");
+    const result = await api.verifySignIn(SIGN_IN_REQUEST);
+    expect(result.kind).toBe("unreachable");
+    if (result.kind === "unreachable") {
+      expect(result.detail).toContain("502");
+    }
+  });
+});

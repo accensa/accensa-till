@@ -1,4 +1,5 @@
 import {
+  type AuthErrorCode,
   SESSION_COOKIE,
   SIGN_IN_COOKIE,
   decodeSignInNonce,
@@ -56,15 +57,7 @@ import { findOrCreateSeller } from "../services/sellers.ts";
 
 export const SIGN_IN_MESSAGE = "Sign in to Till";
 
-export type AuthErrorCode =
-  | "invalid_json"
-  | "invalid_request"
-  | "sign_in_challenge"
-  | "key_type_unsupported"
-  | "signature_invalid"
-  | "access_keys_unavailable"
-  | "account_not_found"
-  | "key_not_found";
+export type { AuthErrorCode };
 
 export type AuthRouteDeps = {
   readonly db: Db;

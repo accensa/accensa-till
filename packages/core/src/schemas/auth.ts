@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { nearAccountIdSchema } from "./common.ts";
+import { boundedArray, nearAccountIdSchema } from "./common.ts";
 
 /**
  * Sign-in wire formats (UI-1, F1). `packages/core` holds them once and both apps
@@ -79,3 +79,28 @@ export const signInResultSchema = z.object({
   seller: sellerDtoSchema,
 });
 export type SignInResult = z.infer<typeof signInResultSchema>;
+
+export const authErrorCodeSchema = z.enum([
+  "invalid_json",
+  "invalid_request",
+  "sign_in_challenge",
+  "key_type_unsupported",
+  "signature_invalid",
+  "access_keys_unavailable",
+  "account_not_found",
+  "key_not_found",
+]);
+export type AuthErrorCode = z.infer<typeof authErrorCodeSchema>;
+
+export const authErrorIssueSchema = z.object({
+  path: z.string(),
+  code: z.string(),
+});
+export type AuthErrorIssue = z.infer<typeof authErrorIssueSchema>;
+
+export const authErrorSchema = z.object({
+  code: authErrorCodeSchema,
+  message: z.string(),
+  issues: boundedArray(authErrorIssueSchema, 32).optional(),
+});
+export type AuthError = z.infer<typeof authErrorSchema>;
