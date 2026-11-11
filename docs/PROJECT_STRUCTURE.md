@@ -172,9 +172,15 @@ till/
 Runs beside `apps/api` as its own process and talks to it over HTTP on one origin.
 
 ```
-app/(app)/endpoints/page.tsx     # lists and creates on the session (UI-2)
+app/(marketing)/page.tsx           # the public landing page and its FAQ (UI-7)
+app/(marketing)/layout.tsx         # marketing chrome; no console status strip
+app/(app)/overview/page.tsx        # totals by asset and state, read on the session (UI-6)
+app/(app)/endpoints/page.tsx       # lists and creates on the session (UI-2)
 app/(app)/payments/page.tsx        # the same read shape for the ledger (UI-3)
 app/(app)/reconciliation/page.tsx  # the open items and the holds, read on the session (UI-4)
+app/(app)/layout.tsx               # ConsoleShell: nav, status strip, footer
+app/(auth)/layout.tsx              # the same shell around sign-in
+components/domain/ConsoleShell.tsx # shared console chrome, async because HeaderStatus reads the session
 components/domain/               # what a seller sees; each renders a named type
   EndpointCard.tsx               # one endpoint: live, or not live with D4's reasons, its destination from its route
   EndpointEditor.tsx             # change these terms: view + container, the confirmation step (F9, "use client")
@@ -184,7 +190,9 @@ components/domain/               # what a seller sees; each renders a named type
 PaymentTable.tsx                 # one row per payment, linked to its transaction (UI-3)
 DiscrepancyCard.tsx              # one open item, quoting the finding's own two sentences (UI-4)
 PayerBlockTable.tsx              # who is held, with the count that put them there (UI-4)
-ReconcileActions.tsx             # the screen's one "use client": both lists, both actions ("use client")
+ReconcileActions.tsx             # both lists, both actions ("use client")
+NavLinks.tsx                     # console nav; pathname-driven active state ("use client")
+PageHeader.tsx                   # numbered eyebrow, title, description, actions
 lib/api-client.ts                # every fetch in the app, and the only place that parses
 lib/endpoint-form.ts             # the rules, as plain functions (buildCreateInput, orderChecks)
 lib/endpoint-edit.ts             # the edit's rules as plain functions (buildEditBody, livenessBody, changeRows)

@@ -134,6 +134,7 @@ P0 must ship. P1 ships if P0 is solid. Nothing below P1 is planned.
 | UI-4 | P0 | Reconciliation view, open items by severity then age | Open items first |
 | UI-5 | P0 | Header shows relayer balance and last successful provider poll | Warns below configured thresholds |
 | UI-6 | P1 | Seller overview with totals by asset and state | Totals equal the ledger |
+| UI-7 | P1 | Public landing page explaining the product, the paid-call order, the limits and a FAQ | A visitor can answer what Till does, what it does not do and how to sign in without opening the docs; the page renders without a session |
 
 ### 6.5 Delivery quality
 

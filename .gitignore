@@ -15,5 +15,9 @@ coverage/
 # Spike scratch output
 scripts/spikes/out/
 
+# Skills and local agent directories
+.agents/
+.claude/
+
 .DS_Store
 *.log

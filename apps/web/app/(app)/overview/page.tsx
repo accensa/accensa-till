@@ -1,10 +1,10 @@
 import { SESSION_COOKIE } from "@till/core/schemas";
 import { cookies } from "next/headers";
 
-import { OverviewTotals } from "../../components/domain/OverviewTotals.tsx";
-import { PageHeader } from "../../components/domain/PageHeader.tsx";
-import { SessionNotice } from "../../components/domain/SessionNotice.tsx";
-import { api } from "../../lib/api-client.ts";
+import { OverviewTotals } from "../../../components/domain/OverviewTotals.tsx";
+import { PageHeader } from "../../../components/domain/PageHeader.tsx";
+import { SessionNotice } from "../../../components/domain/SessionNotice.tsx";
+import { api } from "../../../lib/api-client.ts";
 
 /**
  * Overview (UI-6, F6).

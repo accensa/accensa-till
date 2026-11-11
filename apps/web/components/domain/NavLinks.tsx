@@ -8,7 +8,7 @@ import { usePathname } from "next/navigation";
  * cannot read it. Nothing here fetches or measures.
  */
 const LINKS = [
-  { href: "/", index: "01", label: "Overview" },
+  { href: "/overview", index: "01", label: "Overview" },
   { href: "/endpoints", index: "02", label: "Endpoints" },
   { href: "/payments", index: "03", label: "Payments" },
   { href: "/reconciliation", index: "04", label: "Reconciliation" },
@@ -20,7 +20,7 @@ export function NavLinks() {
   return (
     <nav aria-label="Console" className="flex flex-wrap items-center gap-1">
       {LINKS.map((link) => {
-        const active = link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
+        const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
         return (
           <a
             aria-current={active ? "page" : undefined}

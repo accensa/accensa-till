@@ -41,8 +41,13 @@ Owner: nobody but core. Core may not import `drizzle-orm`, `hono`, `postgres`, `
 
 | Path | Holds | Rules |
 |---|---|---|
-| `app/layout.tsx` | nav + F5's header status; async, reads the cookie, calls `api.status` | server component |
-| `app/(app)/*/page.tsx` | endpoints (UI-2), payments (UI-3), reconciliation (UI-4) | server components; no fetching in components |
+| `app/layout.tsx` | html/body, metadata, skip link only | the only root shell; chrome lives per group |
+| `app/(marketing)/page.tsx` | the public landing page, paid-call order and FAQ (UI-7) | static server component; no session read |
+| `app/(marketing)/layout.tsx` | marketing header/footer | must not use `ConsoleShell` |
+| `app/(app)/layout.tsx`, `app/(auth)/layout.tsx` | `ConsoleShell` around the dashboard and sign-in | server components |
+| `components/domain/ConsoleShell.tsx` | nav + F5's header status + footer; async, reads the cookie, calls `api.status` | server component; the only place console chrome is defined |
+| `app/(app)/overview/page.tsx` | totals by asset and state (UI-6) | server component |
+| `app/(app)/{endpoints,payments,reconciliation}/page.tsx` | endpoints (UI-2), payments (UI-3), reconciliation (UI-4) | server components; no fetching in components |
 | `app/(auth)/sign-in` | the F8 wallet-prompt screen | — |
 | `components/domain/*.tsx` | the dashboard's components, hand-written, styled from `app/globals.css`'s tokens and component classes | no component library; `components/ui/` is an empty `.gitkeep`; no border radius or gradient |
 | `components/domain/{NavLinks,PageHeader}.tsx` | nav with pathname active state; numbered page header | `NavLinks` is client; `PageHeader` is presentational |

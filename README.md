@@ -21,7 +21,7 @@ This guide maps directly to the official hackathon evaluation criteria to enable
 | **Technical Implementation** | 30% | **Architecture & Correctness**: Strict pipeline ordering (`verify` → `guards` → `upstream` → `settle`). Financial integrity enforced at the database level with append-only PostgreSQL triggers (`apps/api/migrations/0001_ledger_append_only.sql`), `numeric(78,0)` precision, and `bigint` base units (zero floating-point math). Complete offline test harness: **900+ passing tests** across core, API, and web with zero external network dependencies. |
 | **Innovation & Creativity** | 25% | **Agent Economy & Real-World Money**: Replaces complex bespoke billing systems with an autonomous HTTP micropayment gateway powered by NEAR x402. Agents pay in real-time, settlements execute with zero relayer drain, and revenue bridges cross-chain via NEAR Intents. Features an automated self-auditing reconciliation engine with 6 deterministic rules that proactively identify lost funds, orphaned deposits, and stuck transactions. |
 | **Sponsor & Track Fit** | 25% | **Direct NEAR Ecosystem Integration**: Fully uses the required sponsor stack. Code pointers for instant verification:<br>• **`@fastnear/x402`**: `apps/api/src/x402/near.ts` (lines 1-135)<br>• **NEAR Intents 1Click**: `apps/api/src/payouts/oneclick/client.ts`<br>• **NEP-366 Delegate Actions**: `apps/api/src/x402/near.ts` & `apps/api/src/gateway/route.ts`<br>• **NEP-413 Signatures**: `packages/core/src/auth/nep413.ts`, `apps/api/src/routes/auth.ts`, `apps/web/components/domain/SignInForm.tsx`<br>• **Live On-Chain Settlement**: Verified testnet tx [`42XtdGR1RoDne3JX2RT6XDfhoVqw9M1orZJHLmHBTJne`](https://explorer.testnet.near.org/transactions/42XtdGR1RoDne3JX2RT6XDfhoVqw9M1orZJHLmHBTJne) |
-| **Execution & Completeness** | 20% | **Complete Working End-to-End System**: Zero-config local Docker setup (`docker compose up`), idempotent seed script (`pnpm seed`), automated end-to-end verification (`pnpm demo`), and a production Next.js dashboard featuring wallet sign-in (`/sign-in`), endpoint management (`/endpoints`), real-time payments ledger (`/payments`), and reconciliation resolution (`/reconciliation`). |
+| **Execution & Completeness** | 20% | **Complete Working End-to-End System**: Zero-config local Docker setup (`docker compose up`), idempotent seed script (`pnpm seed`), automated end-to-end verification (`pnpm demo`), and a Next.js front end: a public landing page with FAQ (`/`), wallet sign-in (`/sign-in`), seller overview (`/overview`), endpoint management (`/endpoints`), real-time payments ledger (`/payments`), and reconciliation resolution (`/reconciliation`). |
 
 ## Quickstart
 
@@ -220,9 +220,11 @@ starts both itself, so you only need these if you want to watch one leg.
   verified or settled"}`, which is fail-closed rather than invented. (A header it
   cannot decode is a `402` re-challenge naming `payment_header_undecodable`; both
   were observed on the boot above.)
-- **A signed-in dashboard.** `http://localhost:3001/endpoints`, `/payments` and
-  `/reconciliation` all answer `Till will not list or save an endpoint without a
-  session. Sign in with your NEAR wallet.` and `/sign-in` says what it is waiting
+- **A public landing page and a signed-in dashboard.** `http://localhost:3001/`
+  explains the paid-call order and the limits without a session; `/overview`,
+  `/endpoints`, `/payments` and `/reconciliation` all answer `Till will not list
+  or save an endpoint without a session. Sign in with your NEAR wallet.` and
+  `/sign-in` says what it is waiting
   on: `The server half is built and tested (F1: routes/auth.ts, lib/session.ts,
   and the NEP-413 verifier in packages/core). This page still needs a wallet to
   prompt (F8), so it does not pretend to sign anyone in.` The three pages are
@@ -440,7 +442,8 @@ in checks against a response or the database:
   no test clicks a button: the state a click sets is passed to those components as a
   prop, and the click path belongs to a human or to the submission video. What the
   Quickstart shows of the dashboard is therefore the honest state — the three real
-  pages ask for a session, and `/sign-in` allows NEP-413 sign-in via browser wallet or CLI challenge.
+  pages ask for a session, `/` is the public landing page, and `/sign-in` allows NEP-413 sign-in via
+  browser wallet or CLI challenge.
 - The project is named **Till** (`accensa-till` repository).
 - The migration set is drizzle-kit generated except `0001_ledger_append_only.sql`:
   a generator cannot express a trigger, so that file is hand written and
