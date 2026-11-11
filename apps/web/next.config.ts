@@ -9,7 +9,7 @@ import type { NextConfig } from "next";
  * The A5 acceptance check is that a request to /api/healthz reaches the API
  * through this rewrite — it needs a running API, so it is not verified here.
  */
-const API_ORIGIN = process.env.API_ORIGIN ?? "http://localhost:3000";
+const API_ORIGIN = (process.env.API_ORIGIN ?? "http://localhost:3000").replace(/\/+$/, "");
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,

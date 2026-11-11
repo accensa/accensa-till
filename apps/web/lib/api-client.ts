@@ -44,7 +44,7 @@ import {
  * can do with it is hand it to the API that signed it.
  */
 
-const API_ORIGIN = process.env.API_ORIGIN ?? "http://localhost:3000";
+const API_ORIGIN = (process.env.API_ORIGIN ?? "http://localhost:3000").replace(/\/+$/, "");
 
 function requestUrl(path: string): string {
   return typeof window === "undefined" ? `${API_ORIGIN}${path}` : path;
