@@ -35,6 +35,16 @@ describe("the landing page", () => {
     expect(markup).toContain("It is a hackathon build, not an audited payment system.");
   });
 
+  it("embeds the launch film with a poster and a repository link", () => {
+    expect(markup).toContain('src="/launch/till-launch.mp4"');
+    expect(markup).toContain('poster="/launch/poster.jpg"');
+    expect(markup).toContain('src="/launch/till-launch.vtt"');
+    expect(markup).toContain("See the whole flow in thirty seconds.");
+    expect(markup).toContain('href="https://github.com/accensa/accensa-till"');
+    expect(markup).toContain("Share on X");
+    expect(markup).toContain("testnet trace, mock payouts");
+  });
+
   it("renders the FAQ as accessible disclosure elements", () => {
     const details = markup.match(/<details/g) ?? [];
     expect(details.length).toBe(8);

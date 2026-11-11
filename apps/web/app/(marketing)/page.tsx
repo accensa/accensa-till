@@ -338,10 +338,81 @@ export default function LandingPage() {
         </div>
       </section>
 
+      <section className="border-b border-line bg-coal" id="film">
+        <div className="mx-auto grid max-w-[1320px] gap-10 px-5 py-16 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-center lg:gap-16 lg:px-8 lg:py-24">
+          <div>
+            <div className="panel p-2">
+              <video
+                aria-label="Till launch film"
+                className="block w-full border border-line bg-ink"
+                controls
+                height={1080}
+                playsInline
+                poster="/launch/poster.jpg"
+                preload="metadata"
+                width={1920}
+              >
+                <source src="/launch/till-launch.mp4" type="video/mp4" />
+                <track
+                  default
+                  kind="captions"
+                  label="English"
+                  src="/launch/till-launch.vtt"
+                  srcLang="en"
+                />
+                Your browser cannot play the film.{" "}
+                <a className="link" href="/launch/till-launch.mp4">
+                  Download it instead
+                </a>
+                .
+              </video>
+            </div>
+            <p className="mt-3 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">
+              0:30 · 1920×1080 · sound on · testnet trace, mock payouts
+            </p>
+          </div>
+
+          <div>
+            <SectionLabel index="05">Launch film</SectionLabel>
+            <h2 className="mt-5 text-3xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-4xl">
+              See the whole flow in thirty seconds.
+            </h2>
+            <p className="mt-6 max-w-lg text-sm leading-7 text-muted">
+              One shape runs from the unpaid 402 through the agent's payment, the four-step order,
+              the ledger and the NEAR Intents payout. There is no voiceover: every claim is written
+              on screen, so it works with the sound off.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <a
+                className="btn btn-primary h-11 px-6"
+                href="https://github.com/accensa/accensa-till"
+                rel="noreferrer noopener"
+                target="_blank"
+              >
+                View the repository
+                <span aria-hidden>↗</span>
+              </a>
+              <a
+                className="btn h-11 px-6"
+                href="https://twitter.com/intent/tweet?text=Till%20%E2%80%94%20charge%20agents%20by%20the%20request.%20Prove%20every%20payout.&url=https%3A%2F%2Fgithub.com%2Faccensa%2Faccensa-till"
+                rel="noreferrer noopener"
+                target="_blank"
+              >
+                Share on X
+              </a>
+            </div>
+            <p className="mt-6 font-mono text-[10px] leading-5 tracking-[0.08em] text-faint">
+              Built at NEAR Hackathon 2026. The film's payout leg is labelled mock because that is
+              the default; no mainnet transaction is shown.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section className="border-b border-line" id="faq">
         <div className="mx-auto grid max-w-[1320px] gap-10 px-5 py-16 lg:grid-cols-[minmax(0,0.62fr)_minmax(0,1.38fr)] lg:gap-16 lg:px-8 lg:py-24">
           <div>
-            <SectionLabel index="05">FAQ</SectionLabel>
+            <SectionLabel index="06">FAQ</SectionLabel>
             <h2 className="mt-5 text-3xl font-semibold leading-[1.05] tracking-[-0.03em] sm:text-4xl">
               Straight answers, including the limits.
             </h2>
@@ -383,7 +454,7 @@ export default function LandingPage() {
       <section>
         <div className="mx-auto flex max-w-[1320px] flex-col justify-between gap-8 px-5 py-16 lg:flex-row lg:items-end lg:px-8 lg:py-20">
           <div>
-            <SectionLabel index="06">Start</SectionLabel>
+            <SectionLabel index="07">Start</SectionLabel>
             <h2 className="mt-5 max-w-2xl text-3xl font-semibold leading-[1.02] tracking-[-0.03em] sm:text-5xl">
               Put a paywall in front of your API.
             </h2>

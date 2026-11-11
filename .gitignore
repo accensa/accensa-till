@@ -19,5 +19,9 @@ scripts/spikes/out/
 .agents/
 .claude/
 
+# Launch film build artefacts (sources and the finished cut are committed)
+docs/video/launch-film/score.wav
+docs/video/launch-film/silent.mp4
+
 .DS_Store
 *.log

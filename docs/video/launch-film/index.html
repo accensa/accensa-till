@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Till — launch film</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1920px; height: 1080px; overflow: hidden; background: #070809; }
+      body {
+        font-family: "DejaVu Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        color: #f3f0e9;
+        -webkit-font-smoothing: antialiased;
+      }
+      #stage { position: absolute; inset: 0; }
+      .mono { font-family: "DejaVu Sans Mono", "SFMono-Regular", Menlo, Consolas, monospace; }
+      .eyebrow {
+        font-family: "DejaVu Sans Mono", monospace;
+        font-size: 18px;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #8f959e;
+      }
+      #panel {
+        position: absolute;
+        border: 1px solid #25282d;
+        background: #0b0d0f;
+        overflow: hidden;
+      }
+      .scene { position: absolute; inset: 0; }
+      .gridline { position: absolute; background: #25282d; opacity: 0.16; }
+
+      #rail {
+        position: absolute; left: 64px; right: 64px; top: 40px;
+        display: flex; justify-content: space-between; align-items: center;
+        font-family: "DejaVu Sans Mono", monospace;
+        font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; color: #5d626a;
+      }
+      #rail .acid { color: #c9ff57; }
+
+      #mark { position: absolute; }
+      #mark .sq { position: absolute; }
+      #word { position: absolute; text-align: center; }
+      #word .till {
+        font-size: 108px; font-weight: 700; letter-spacing: 0.34em; line-height: 1;
+        text-indent: 0.34em;
+      }
+      #word .sub {
+        margin-top: 18px;
+        font-family: "DejaVu Sans Mono", monospace;
+        font-size: 16px; letter-spacing: 0.26em; text-transform: uppercase; color: #8f959e;
+      }
+
+      #terminal { position: absolute; }
+      .dot { display: inline-block; width: 7px; height: 7px; background: #63e6a4; margin-right: 10px; }
+      #terminal .caret {
+        margin-top: 10px; font-family: "DejaVu Sans Mono", monospace;
+        font-size: 26px; color: #c9ff57; height: 30px;
+      }
+      #terminal .bar {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 0 18px; border-bottom: 1px solid #25282d;
+        font-family: "DejaVu Sans Mono", monospace; font-size: 15px;
+        letter-spacing: 0.16em; text-transform: uppercase; color: #8f959e;
+      }
+      #terminal .chip {
+        border: 1px solid rgba(255, 101, 101, 0.35);
+        color: #ff6565; padding: 6px 10px; font-size: 13px; letter-spacing: 0.14em;
+      }
+      #terminal .line {
+        font-family: "DejaVu Sans Mono", monospace;
+        font-size: 26px; line-height: 1.75; white-space: pre; color: #f3f0e9;
+      }
+      #terminal .line .dim { color: #5d626a; }
+      #terminal .line .ok { color: #63e6a4; }
+      #terminal .line .acid { color: #c9ff57; }
+      #terminal .line .warn { color: #ffb454; }
+      #terminal .typed { display: inline-block; }
+
+      .right-copy { position: absolute; }
+      .right-copy h1 {
+        font-size: 68px; font-weight: 700; line-height: 1.02; letter-spacing: -0.035em;
+      }
+      .right-copy p {
+        margin-top: 26px; max-width: 470px; font-size: 21px; line-height: 1.65; color: #8f959e;
+      }
+      .acid { color: #c9ff57; }
+
+      #order { position: absolute; }
+      #order .step { position: absolute; top: 0; width: 372px; }
+      #order .num {
+        font-family: "DejaVu Sans Mono", monospace; font-size: 15px;
+        letter-spacing: 0.2em; color: #5d626a;
+      }
+      #order .name { margin-top: 34px; font-size: 42px; font-weight: 700; letter-spacing: -0.02em; }
+      #order .desc {
+        margin-top: 16px; font-family: "DejaVu Sans Mono", monospace;
+        font-size: 15px; line-height: 1.65; color: #8f959e;
+      }
+      #order .bar { height: 2px; background: #25282d; margin-top: 26px; }
+      #order .bar i { display: block; height: 2px; width: 0; background: #c9ff57; }
+      #order .big {
+        position: absolute; left: 0; bottom: 0;
+        font-size: 30px; letter-spacing: -0.01em; color: #8f959e;
+      }
+      #order .big b { color: #f3f0e9; font-weight: 700; }
+
+      #ledger { position: absolute; }
+      #ledger .head {
+        display: flex; justify-content: space-between; align-items: baseline;
+        border-bottom: 1px solid #3a3f46; padding-bottom: 16px;
+      }
+      #ledger table { width: 100%; border-collapse: collapse; }
+      #ledger th {
+        padding: 14px 0 12px; text-align: left;
+        font-family: "DejaVu Sans Mono", monospace; font-size: 13px; font-weight: 400;
+        letter-spacing: 0.16em; text-transform: uppercase; color: #8f959e;
+      }
+      #ledger td {
+        padding: 14px 0; border-top: 1px solid #25282d;
+        font-family: "DejaVu Sans Mono", monospace; font-size: 22px; color: #f3f0e9;
+      }
+      #ledger td.muted { color: #8f959e; }
+      #ledger td.ok { color: #63e6a4; }
+      #ledger td.warn { color: #ffb454; }
+      #ledger .total {
+        display: flex; justify-content: space-between; align-items: baseline;
+        border-top: 1px solid #3a3f46; margin-top: 8px; padding-top: 22px;
+      }
+      #ledger .total .n { font-family: "DejaVu Sans Mono", monospace; font-size: 58px; letter-spacing: -0.02em; }
+      #ledger .foot {
+        display: flex; justify-content: space-between; gap: 24px;
+        margin-top: 30px; padding-top: 18px; border-top: 1px solid #25282d;
+        font-family: "DejaVu Sans Mono", monospace; font-size: 13px;
+        letter-spacing: 0.12em; text-transform: uppercase; color: #5d626a;
+      }
+      #ledger .badge {
+        border: 1px solid rgba(99, 230, 164, 0.35); color: #63e6a4;
+        padding: 8px 12px; font-family: "DejaVu Sans Mono", monospace;
+        font-size: 13px; letter-spacing: 0.14em; text-transform: uppercase;
+      }
+
+      #payout { position: absolute; }
+      #payout .row { display: flex; align-items: center; gap: 22px; }
+      #payout .box {
+        border: 1px solid #3a3f46; padding: 22px 26px; min-width: 300px;
+      }
+      #payout .box .k {
+        font-family: "DejaVu Sans Mono", monospace; font-size: 12px;
+        letter-spacing: 0.18em; text-transform: uppercase; color: #5d626a;
+      }
+      #payout .box .v { margin-top: 10px; font-size: 26px; font-weight: 700; }
+      #payout .box .s {
+        margin-top: 6px; font-family: "DejaVu Sans Mono", monospace;
+        font-size: 14px; color: #8f959e;
+      }
+      #payout .arrow { font-family: "DejaVu Sans Mono", monospace; font-size: 30px; color: #c9ff57; }
+      #payout .rules { display: flex; gap: 12px; margin-top: 34px; flex-wrap: wrap; }
+      #payout .match {
+        margin-top: 34px; padding-top: 22px; border-top: 1px solid #25282d;
+        font-family: "DejaVu Sans Mono", monospace; font-size: 16px; color: #8f959e;
+      }
+      #payout .match b { color: #63e6a4; font-weight: 400; }
+      #payout .rule {
+        border: 1px solid #25282d; padding: 12px 14px;
+        font-family: "DejaVu Sans Mono", monospace; font-size: 13px;
+        letter-spacing: 0.08em; color: #8f959e;
+      }
+      #payout .rule b { color: #f3f0e9; font-weight: 400; }
+
+      #end { position: absolute; text-align: center; }
+      #end .till { font-size: 122px; font-weight: 700; letter-spacing: 0.34em; text-indent: 0.34em; line-height: 1; }
+      #end .tag {
+        margin-top: 26px; font-size: 30px; line-height: 1.4; letter-spacing: -0.01em; color: #f3f0e9;
+      }
+      #end .tag span { color: #c9ff57; }
+      #end .meta {
+        margin-top: 34px; font-family: "DejaVu Sans Mono", monospace;
+        font-size: 14px; letter-spacing: 0.2em; text-transform: uppercase; color: #5d626a;
+      }
+      #end .note {
+        margin-top: 12px; font-family: "DejaVu Sans Mono", monospace;
+        font-size: 12px; letter-spacing: 0.12em; text-transform: uppercase; color: #3a3f46;
+      }
+
+      #cursor { position: absolute; left: 0; top: 0; opacity: 0; }
+      #cursor .pt {
+        width: 22px; height: 22px; border: 2px solid #c9ff57;
+        background: rgba(201, 255, 87, 0.12);
+      }
+      #cursor .tag {
+        position: absolute; left: 28px; top: 24px; white-space: nowrap;
+        background: #c9ff57; color: #070809; padding: 5px 9px;
+        font-family: "DejaVu Sans Mono", monospace; font-size: 12px;
+        letter-spacing: 0.12em; text-transform: uppercase;
+      }
+
+      #progress { position: absolute; left: 0; bottom: 0; height: 2px; background: #c9ff57; width: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="grid"></div>
+
+      <div id="rail">
+        <span><span class="acid">TILL</span> / NEAR x402 SETTLEMENT</span>
+        <span>NEAR HACKATHON 2026</span>
+      </div>
+
+      <div id="panel"></div>
+
+      <div id="mark" class="scene">
+        <div class="sq"></div><div class="sq"></div><div class="sq"></div><div class="sq"></div>
+      </div>
+
+      <div id="word" class="scene">
+        <div class="till">TILL</div>
+        <div class="sub">x402 settlement for the agent economy</div>
+      </div>
+
+      <div id="terminal" class="scene">
+        <div class="bar">
+          <span><span class="dot" id="terminal-dot"></span><span class="acid">GET</span> /r/demo</span>
+          <span class="chip">402 PAYMENT REQUIRED</span>
+        </div>
+        <div class="line" id="t1"></div>
+        <div class="line" id="t2"></div>
+        <div class="line" id="t3"></div>
+        <div class="line" id="t4"></div>
+        <div class="line" id="t5"></div>
+        <div class="line" id="t6"></div>
+        <div class="line" id="t7"></div>
+        <div class="caret" id="caret">▌</div>
+      </div>
+
+      <div class="right-copy scene" id="terminal-copy">
+        <div class="eyebrow"><span class="acid">01</span> / THE PAYWALL</div>
+        <h1>Agents pay<br />per call.</h1>
+        <p>No keys in the browser, no invoice in a spreadsheet. A signed payment is checked before your upstream is touched.</p>
+      </div>
+
+      <div id="order" class="scene">
+        <div class="step" data-i="0">
+          <div class="num">01</div>
+          <div class="name">Verify</div>
+          <div class="desc">Signed x402 payment,<br />matched to the terms.</div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="step" data-i="1">
+          <div class="num">02</div>
+          <div class="name">Guards</div>
+          <div class="desc">Replay, price, payer,<br />rate — before work.</div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="step" data-i="2">
+          <div class="num">03</div>
+          <div class="name">Upstream</div>
+          <div class="desc">Your existing GET<br />endpoint, untouched.</div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="step" data-i="3">
+          <div class="num">04</div>
+          <div class="name">Settle</div>
+          <div class="desc">Only a 2xx settles.<br />Then the ledger.</div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="big">The order is the product: <b>nothing settles before your upstream answers.</b></div>
+        <div id="scan" style="position:absolute;left:0;top:0;width:100%;height:1px;background:#c9ff57;opacity:0"></div>
+      </div>
+
+      <div id="ledger" class="scene">
+        <div class="head">
+          <div class="eyebrow"><span class="dot" id="ledger-dot"></span>02 / APPEND-ONLY LEDGER</div>
+          <span class="badge">matched by tx hash</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>event</th><th>asset</th><th>amount</th><th>tx</th><th>state</th></tr>
+          </thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div class="total">
+          <span class="eyebrow">settled this session</span>
+          <span class="n mono" id="total">0.000000 USDC</span>
+        </div>
+        <div class="foot">
+          <span>append-only</span>
+          <span>trigger blocks update / delete</span>
+          <span>bigint base units · numeric(78,0)</span>
+        </div>
+      </div>
+
+      <div id="payout" class="scene">
+        <div class="eyebrow">03 / PAYOUTS AND RECONCILIATION</div>
+        <div class="row" style="margin-top: 46px">
+          <div class="box"><div class="k">paid in</div><div class="v">USDC · NEAR</div><div class="s">1.000000 settled</div></div>
+          <div class="arrow">→</div>
+          <div class="box"><div class="k">route</div><div class="v">NEAR INTENTS</div><div class="s">quote at term change</div></div>
+          <div class="arrow">→</div>
+          <div class="box"><div class="k">paid out</div><div class="v">USDC · ETH</div><div class="s">6-decimal stablecoin</div></div>
+        </div>
+        <div class="rules">
+          <span class="rule"><b>6</b> pure rules</span>
+          <span class="rule">unsettled delivery</span>
+          <span class="rule">orphan deposit</span>
+          <span class="rule">stuck swap</span>
+          <span class="rule">shortfall</span>
+          <span class="rule">unbooked payment</span>
+          <span class="rule"><b class="acid">0</b> open</span>
+        </div>
+        <div class="match">payment_in.tx = swap.deposit tx = payout_out.tx &nbsp; <b>matched</b></div>
+      </div>
+
+      <div id="end" class="scene">
+        <div class="till">TILL</div>
+        <div class="tag">Charge agents by the request.<br /><span>Prove every payout.</span></div>
+        <div class="meta">Built at NEAR Hackathon 2026</div>
+        <div class="note">testnet trace · payout provider: mock</div>
+      </div>
+
+      <div id="cursor"><div class="pt"></div><div class="tag">agent</div></div>
+      <div id="progress"></div>
+    </div>
+
+    <script>
+      const stage = document.getElementById("stage");
+      const panel = document.getElementById("panel");
+      const mark = document.getElementById("mark");
+      const word = document.getElementById("word");
+      const terminal = document.getElementById("terminal");
+      const terminalCopy = document.getElementById("terminal-copy");
+      const order = document.getElementById("order");
+      const ledger = document.getElementById("ledger");
+      const payout = document.getElementById("payout");
+      const end = document.getElementById("end");
+      const cursor = document.getElementById("cursor");
+      const progress = document.getElementById("progress");
+
+      // Static grid, drawn as 1px rules — no gradients anywhere.
+      const grid = document.getElementById("grid");
+      for (let x = 120; x < 1920; x += 160) {
+        const d = document.createElement("div");
+        d.className = "gridline";
+        d.style.cssText = `left:${x}px;top:0;width:1px;height:1080px`;
+        grid.appendChild(d);
+      }
+      for (let y = 120; y < 1080; y += 160) {
+        const d = document.createElement("div");
+        d.className = "gridline";
+        d.style.cssText = `top:${y}px;left:0;height:1px;width:1920px`;
+        grid.appendChild(d);
+      }
+
+      const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
+      const smooth = (v) => {
+        const x = clamp(v);
+        return x * x * (3 - 2 * x);
+      };
+      const lerp = (a, b, k) => a + (b - a) * k;
+      const between = (t, a, b, c, d) => smooth((t - a) / Math.max(0.0001, b - a)) * (1 - smooth((t - c) / Math.max(0.0001, d - c)));
+      const alpha = (t, a, b, c, d) => between(t, a, b, c, d);
+
+      // One shape: the panel morphs through every scene instead of being cut.
+      const PANEL = [
+        { t: 0.0, r: [860, 340, 200, 200] },
+        { t: 3.6, r: [860, 340, 200, 200] },
+        { t: 4.2, r: [120, 260, 1140, 520] },
+        { t: 8.8, r: [120, 260, 1140, 520] },
+        { t: 9.4, r: [120, 330, 1680, 380] },
+        { t: 13.8, r: [120, 330, 1680, 380] },
+        { t: 14.4, r: [140, 220, 1640, 650] },
+        { t: 18.8, r: [140, 220, 1640, 650] },
+        { t: 19.4, r: [140, 230, 1640, 500] },
+        { t: 23.8, r: [140, 230, 1640, 500] },
+        { t: 24.4, r: [860, 320, 200, 200] },
+        { t: 30.0, r: [860, 320, 200, 200] },
+      ];
+      function panelAt(t) {
+        let i = 0;
+        while (i < PANEL.length - 2 && t > PANEL[i + 1].t) i++;
+        const a = PANEL[i], b = PANEL[i + 1];
+        const k = smooth((t - a.t) / Math.max(0.0001, b.t - a.t));
+        return a.r.map((v, j) => lerp(v, b.r[j], k));
+      }
+
+      const fmt = (n) => n.toFixed(6);
+
+      function setText(el, text) {
+        if (el.textContent !== text) el.textContent = text;
+      }
+
+      function typed(text, t, start, dur) {
+        const n = Math.floor(text.length * clamp((t - start) / dur));
+        return text.slice(0, n);
+      }
+
+      const ROWS = [
+        { event: "payment_in", asset: "usdc.testnet", amount: "1.000000", tx: "42XtdG…TJne", state: "settled" },
+        { event: "payout_out", asset: "eth/usdc", amount: "0.999400", tx: "0x8a1f…44c2", state: "matched" },
+        { event: "swap", asset: "near→eth", amount: "1.000000", tx: "1Click #7712", state: "succeeded" },
+        { event: "payment_in", asset: "usdc.testnet", amount: "0.250000", tx: "7N5RGu…yTCM", state: "settled" },
+        { event: "payment_in", asset: "usdc.testnet", amount: "0.010000", tx: "5HSAQX…d54g", state: "verified" },
+      ];
+
+      function seek(t) {
+        // Camera: a slow push on the order and ledger beats.
+        const cam = 1 + 0.012 * smooth((t - 8.6) / 1.2) * (1 - smooth((t - 23.4) / 1.0));
+        stage.style.transformOrigin = "50% 50%";
+        stage.style.transform = `scale(${cam.toFixed(5)})`;
+
+        // Panel.
+        const [x, y, w, h] = panelAt(t);
+        panel.style.left = `${x}px`;
+        panel.style.top = `${y}px`;
+        panel.style.width = `${w}px`;
+        panel.style.height = `${h}px`;
+        const live = t > 8.6 && t < 24.0;
+        panel.style.borderColor = live ? "rgba(201,255,87,0.28)" : "#25282d";
+
+        // Grid and rail dim under the closing card.
+        grid.style.opacity = String(0.6 + 0.4 * (1 - alpha(t, 23.8, 24.8, 29.0, 30)));
+        document.getElementById("rail").style.opacity = String(1 - 0.35 * alpha(t, 23.8, 24.8, 29.0, 30));
+
+        const cx = x + w / 2;
+
+        // Logo mark: four squares assemble on the first beat and return at the end.
+        const inMark = alpha(t, 0.1, 0.5, 3.6, 4.1) + alpha(t, 24.0, 24.5, 29.4, 30.0);
+        mark.style.opacity = String(clamp(inMark));
+        mark.style.filter = `blur(${(1 - clamp(inMark)) * 6}px)`;
+        mark.style.left = `${cx - 100}px`;
+        mark.style.top = `${y + 0}px`;
+        mark.style.transform = `translateY(${Math.sin(t * 2.1) * 1.6}px)`;
+        mark.style.width = "200px";
+        mark.style.height = "200px";
+        const sizes = [86, 86, 86, 86];
+        const gaps = 8;
+        const colors = ["#c9ff57", "#f3f0e9", "#f3f0e9", "#3a3f46"];
+        mark.querySelectorAll(".sq").forEach((sq, i) => {
+          const col = i % 2, row = Math.floor(i / 2);
+          const k = smooth((t - (0.25 + i * 0.15)) / 0.35) * (1 - smooth((t - 3.85) / 0.25));
+          const kEnd = smooth((t - (24.0 + i * 0.1)) / 0.35) * (1 - smooth((t - 29.4) / 0.4));
+          const s = (sizes[i] * Math.max(k, kEnd)) / 1;
+          sq.style.width = `${s}px`;
+          sq.style.height = `${s}px`;
+          sq.style.left = `${col * (100 + gaps / 2) + (100 - sizes[i]) / 2}px`;
+          sq.style.top = `${row * (100 + gaps / 2) + (100 - sizes[i]) / 2}px`;
+          sq.style.background = colors[i];
+          sq.style.opacity = String(clamp(k + kEnd));
+        });
+
+        // Wordmark.
+        const wIn = alpha(t, 1.0, 1.45, 3.6, 4.05);
+        word.style.opacity = String(clamp(wIn));
+        word.style.filter = `blur(${(1 - clamp(wIn)) * 6}px)`;
+        word.style.left = "0";
+        word.style.width = "1920px";
+        word.style.top = `${y + h + 56}px`;
+        word.style.transform = `translateY(${(1 - clamp(wIn)) * 18}px)`;
+        const tracking = lerp(0.46, 0.32, smooth((t - 1.4) / 2.2));
+        word.querySelector(".till").style.letterSpacing = `${tracking}em`;
+        word.querySelector(".till").style.textIndent = `${tracking}em`;
+
+        // Terminal scene.
+        const term = alpha(t, 4.05, 4.5, 8.8, 9.3);
+        terminal.style.opacity = String(term);
+        terminal.style.filter = `blur(${(1 - term) * 5}px)`;
+        terminal.style.left = `${x + 44}px`;
+        terminal.style.top = `${y + 34}px`;
+        terminal.style.width = `${w - 88}px`;
+
+        terminalCopy.style.opacity = String(alpha(t, 4.4, 4.9, 8.8, 9.3));
+        terminalCopy.style.filter = `blur(${(1 - alpha(t, 4.4, 4.9, 8.8, 9.3)) * 5}px)`;
+        terminalCopy.style.left = "1330px";
+        terminalCopy.style.top = "330px";
+
+        setText(document.getElementById("t1"), typed("GET /r/demo  HTTP/1.1", t, 4.6, 0.7));
+        setText(document.getElementById("t2"), typed("402 Payment Required", t, 5.3, 0.55));
+        setText(document.getElementById("t3"), typed("scheme exact · near:testnet", t, 6.0, 0.6));
+        setText(document.getElementById("t4"), typed("amount 1.000000 USDC", t, 6.6, 0.5));
+        setText(document.getElementById("t5"), typed("payTo mock-deposit-1", t, 7.05, 0.45));
+        setText(
+          document.getElementById("t6"),
+          typed("verify → guards → upstream → settle", t, 7.5, 0.7),
+        );
+        setText(
+          document.getElementById("t7"),
+          typed("200 OK · served · 42XtdG…TJne settled", t, 8.05, 0.7),
+        );
+        document.getElementById("caret").style.opacity = String(
+          clamp(alpha(t, 6.45, 6.6, 8.7, 8.85)) * (0.35 + 0.65 * (Math.sin(t * 9.0) > 0 ? 1 : 0)),
+        );
+        document.getElementById("terminal-dot").style.opacity = String(
+          0.35 + 0.65 * (Math.sin(t * 6.0) > 0 ? 1 : 0),
+        );
+        document.getElementById("ledger-dot").style.opacity = String(
+          0.35 + 0.65 * (Math.sin(t * 6.0) > 0 ? 1 : 0),
+        );
+        document.getElementById("t1").className = "line";
+        document.getElementById("t2").className = "line warn";
+        document.getElementById("t3").className = "line dim";
+        document.getElementById("t4").className = "line acid";
+        document.getElementById("t5").className = "line dim";
+        document.getElementById("t6").className = "line";
+        document.getElementById("t7").className = "line ok";
+
+        // Order scene.
+        const ord = alpha(t, 9.1, 9.55, 13.8, 14.25);
+        order.style.opacity = String(ord);
+        order.style.filter = `blur(${(1 - ord) * 5}px)`;
+        order.style.left = `${x + 40}px`;
+        order.style.top = `${y + 34}px`;
+        order.style.width = `${w - 80}px`;
+        order.style.height = `${h - 60}px`;
+        const stepTimes = [9.5, 10.5, 11.5, 12.5];
+        order.querySelectorAll(".step").forEach((el, i) => {
+          const k = smooth((t - stepTimes[i]) / 0.28);
+          el.style.opacity = String(0.28 + 0.72 * k);
+          el.style.transform = `translateY(${(1 - k) * 14}px)`;
+          el.querySelector(".bar i").style.width = `${k * 100}%`;
+          el.querySelector(".name").style.color = k > 0.6 ? "#f3f0e9" : "#5d626a";
+        });
+        order.querySelector(".big").style.opacity = String(smooth((t - 12.55) / 0.4));
+        const scan = document.getElementById("scan");
+        const scanK = alpha(t, 10.55, 10.75, 13.45, 13.6);
+        scan.style.opacity = String(scanK * 0.7);
+        scan.style.top = `${lerp(70, 300, smooth((t - 10.55) / 2.9))}px`;
+        order.querySelectorAll(".step").forEach((el, i) => {
+          el.style.left = `${i * 404}px`;
+        });
+
+        // Ledger scene.
+        const led = alpha(t, 14.15, 14.6, 18.8, 19.25);
+        ledger.style.opacity = String(led);
+        ledger.style.filter = `blur(${(1 - led) * 5}px)`;
+        ledger.style.left = `${x + 44}px`;
+        ledger.style.top = `${y + 36}px`;
+        ledger.style.width = `${w - 88}px`;
+
+        const rows = document.getElementById("rows");
+        const shown = Math.max(0, Math.min(ROWS.length, Math.floor((t - 15.0) / 0.62) + 1));
+        if (rows.childElementCount !== shown) {
+          rows.innerHTML = ROWS.slice(0, shown)
+            .map(
+              (r) =>
+                `<tr><td>${r.event}</td><td class="muted">${r.asset}</td><td>${r.amount}</td><td class="muted">${r.tx}</td><td class="${r.state === "verified" ? "warn" : "ok"}">${r.state}</td></tr>`,
+            )
+            .join("");
+        }
+        const total = clamp((t - 15.0) / 3.2);
+        setText(document.getElementById("total"), `${fmt(total * 1.26)} USDC`);
+
+        // Payout scene.
+        const pay = alpha(t, 19.15, 19.6, 23.8, 24.25);
+        payout.style.opacity = String(pay);
+        payout.style.filter = `blur(${(1 - pay) * 5}px)`;
+        payout.style.left = `${x + 44}px`;
+        payout.style.top = `${y + 38}px`;
+        payout.style.width = `${w - 88}px`;
+        payout.querySelectorAll(".box").forEach((box, i) => {
+          const k = smooth((t - (19.6 + i * 0.4)) / 0.3);
+          box.style.opacity = String(0.25 + 0.75 * k);
+          box.style.borderColor = k > 0.7 ? "rgba(201,255,87,0.3)" : "#3a3f46";
+          box.style.transform = `translateY(${(1 - k) * 12}px)`;
+        });
+        payout.querySelectorAll(".rule").forEach((rule, i) => {
+          const k = smooth((t - (21.0 + i * 0.16)) / 0.28);
+          rule.style.opacity = String(k);
+          rule.style.transform = `translateY(${(1 - k) * 8}px)`;
+        });
+
+        // End card.
+        const fin = alpha(t, 24.15, 24.6, 29.4, 30);
+        end.style.opacity = String(fin);
+        end.style.filter = `blur(${(1 - fin) * 5}px)`;
+        end.style.left = "0";
+        end.style.width = "1920px";
+        end.style.top = "640px";
+        end.style.transform = `translateY(${(1 - fin) * 16}px)`;
+
+        // Cursor: the agent drives the click, not a cut.
+        const cIn = alpha(t, 5.1, 5.35, 7.5, 7.7);
+        cursor.style.opacity = String(clamp(cIn));
+        const keys = [
+          { t: 5.1, x: 1490, y: 850 },
+          { t: 5.9, x: 1180, y: 690 },
+          { t: 6.3, x: 1090, y: 638 },
+          { t: 7.1, x: 1210, y: 560 },
+          { t: 16.4, x: 1520, y: 820 },
+          { t: 17.05, x: 1430, y: 695 },
+          { t: 17.4, x: 1430, y: 695 },
+        ];
+        let cxp = 1490, cyp = 850;
+        for (let i = 0; i < keys.length - 1; i++) {
+          if (t >= keys[i].t && t <= keys[i + 1].t) {
+            const k = smooth((t - keys[i].t) / (keys[i + 1].t - keys[i].t));
+            cxp = lerp(keys[i].x, keys[i + 1].x, k);
+            cyp = lerp(keys[i].y, keys[i + 1].y, k);
+          }
+        }
+        if (t > 7.1) { cxp = 1210; cyp = 560; }
+        if (t > 17.4) { cxp = 1430; cyp = 695; }
+        cursor.style.transform = `translate(${cxp}px, ${cyp}px)`;
+        const click = Math.max(
+          1 - smooth(Math.abs(t - 6.3) / 0.12),
+          1 - smooth(Math.abs(t - 17.25) / 0.12),
+        );
+        cursor.querySelector(".pt").style.transform = `scale(${1 - 0.22 * clamp(click)})`;
+
+        progress.style.width = `${(t / 30) * 1920}px`;
+      }
+
+      window.seek = seek;
+      window.__ready = true;
+      // A still can be asked for by URL: index.html#t=12.5
+      const hashT = Number(new URLSearchParams(location.hash.slice(1)).get("t"));
+      seek(Number.isFinite(hashT) ? hashT : 0);
+    </script>
+  </body>
+</html>

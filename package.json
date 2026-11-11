@@ -9,6 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "start": "tsx apps/api/src/server.ts",
     "dev": "pnpm --parallel -r dev",
     "build": "pnpm -r build",
     "db:generate": "pnpm --filter @till/api db:generate",

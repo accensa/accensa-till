@@ -172,8 +172,9 @@ till/
 Runs beside `apps/api` as its own process and talks to it over HTTP on one origin.
 
 ```
-app/(marketing)/page.tsx           # the public landing page and its FAQ (UI-7)
+app/(marketing)/page.tsx           # the public landing page, launch film and FAQ (UI-7)
 app/(marketing)/layout.tsx         # marketing chrome; no console status strip
+public/launch/                     # the 30 s launch film and its poster, served at /launch/*
 app/(app)/overview/page.tsx        # totals by asset and state, read on the session (UI-6)
 app/(app)/endpoints/page.tsx       # lists and creates on the session (UI-2)
 app/(app)/payments/page.tsx        # the same read shape for the ledger (UI-3)

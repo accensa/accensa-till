@@ -1,0 +1,29 @@
+WEBVTT
+
+00:00:00.000 --> 00:00:04.000
+[Music: original 120 BPM electronic score]
+TILL — x402 settlement for the agent economy.
+
+00:00:04.000 --> 00:00:09.000
+[Terminal types; single click]
+GET /r/demo answers 402 Payment Required.
+The agent's signed payment is verified, guards pass, the upstream is served, and the settlement is confirmed.
+
+00:00:09.000 --> 00:00:14.000
+[Four UI ticks on the beat]
+Verify. Guards. Upstream. Settle.
+Nothing settles before your upstream answers.
+
+00:00:14.000 --> 00:00:19.000
+[Ledger rows land on the beat]
+Payment in, payout out, swap succeeded, matched by transaction hash.
+Append-only ledger. Bigint base units.
+
+00:00:19.000 --> 00:00:24.000
+Payouts through NEAR Intents: paid in USDC on NEAR, paid out USDC on Ethereum.
+Six reconciliation rules. Zero open.
+
+00:00:24.000 --> 00:00:30.000
+[Music resolves]
+Charge agents by the request. Prove every payout.
+Built at NEAR Hackathon 2026. Testnet trace, mock payout provider.

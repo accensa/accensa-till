@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 const SECTIONS = [
   { href: "#product", label: "Product" },
   { href: "#how-it-works", label: "How it works" },
+  { href: "#film", label: "Film" },
   { href: "#faq", label: "FAQ" },
 ] as const;
 
@@ -80,6 +81,9 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
               </a>
               <a className="hover:text-bone" href="#how-it-works">
                 How it works
+              </a>
+              <a className="hover:text-bone" href="#film">
+                Film
               </a>
               <a className="hover:text-bone" href="#faq">
                 FAQ
