@@ -1,6 +1,7 @@
 import { SESSION_COOKIE } from "@till/core/schemas";
 import { cookies } from "next/headers";
 
+import { PageHeader } from "../../../components/domain/PageHeader.tsx";
 import { ReconcileActions } from "../../../components/domain/ReconcileActions.tsx";
 import { SessionNotice } from "../../../components/domain/SessionNotice.tsx";
 import { api } from "../../../lib/api-client.ts";
@@ -22,10 +23,18 @@ export default async function ReconciliationPage() {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
 
+  const header = (
+    <PageHeader
+      description="Open findings, ordered by severity and age, then the payers Till is holding. Every sentence here is the rule's own — the dashboard invents none of it."
+      index="04 / Reconciliation"
+      title="Reconciliation"
+    />
+  );
+
   if (token === undefined) {
     return (
       <section>
-        <h1>Reconciliation</h1>
+        {header}
         <SessionNotice kind="no-session" />
       </section>
     );
@@ -36,7 +45,7 @@ export default async function ReconciliationPage() {
 
   return (
     <section>
-      <h1>Reconciliation</h1>
+      {header}
       <ReconcileActions blocked={blocked} listed={listed} nowMs={Date.now()} />
     </section>
   );

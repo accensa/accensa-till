@@ -25,10 +25,17 @@ export type DiscrepancyCardProps = {
 };
 
 const SEVERITY_CLASS: Readonly<Record<DiscrepancyDto["severity"], string>> = {
-  critical: "text-red-700 font-semibold",
-  high: "text-amber-700 font-semibold",
-  medium: "text-amber-700",
-  low: "opacity-70",
+  critical: "text-danger",
+  high: "text-amber",
+  medium: "text-acid",
+  low: "text-muted",
+};
+
+const SEVERITY_EDGE: Readonly<Record<DiscrepancyDto["severity"], string>> = {
+  critical: "border-l-danger",
+  high: "border-l-amber",
+  medium: "border-l-acid",
+  low: "border-l-line-bright",
 };
 
 export function DiscrepancyCard({
@@ -38,38 +45,47 @@ export function DiscrepancyCard({
   busy = false,
 }: DiscrepancyCardProps) {
   return (
-    <article className="border p-4">
-      <header className="flex flex-wrap items-baseline gap-2 text-sm">
-        <span className={SEVERITY_CLASS[discrepancy.severity]}>
+    <article
+      className={`border border-l-2 border-line bg-panel ${SEVERITY_EDGE[discrepancy.severity]}`}
+    >
+      <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-line px-4 py-3">
+        <span
+          className={`font-mono text-[10px] uppercase tracking-[0.14em] ${SEVERITY_CLASS[discrepancy.severity]}`}
+        >
           {severityWords()[discrepancy.severity]}
         </span>
-        <code>{discrepancy.code}</code>
-        <span className="opacity-60">
+        <code className="font-mono text-[11px] text-bone">{discrepancy.code}</code>
+        <span className="ml-auto font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
           {discrepancyAge(discrepancy.openedAt, nowMs)} — opened {displayDate(discrepancy.openedAt)}
         </span>
       </header>
 
-      <p className="mt-2 text-sm">{discrepancy.explanation}</p>
-      <p className="mt-1 text-sm">
-        <span className="font-semibold">Suggested: </span>
-        {discrepancy.suggestedAction}
-      </p>
+      <div className="px-4 py-4">
+        <p className="max-w-3xl text-sm leading-6 text-bone">{discrepancy.explanation}</p>
+        <p className="mt-3 max-w-3xl border-l border-line-bright pl-3 text-sm leading-6 text-muted">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-acid">
+            Suggested /{" "}
+          </span>
+          {discrepancy.suggestedAction}
+        </p>
+      </div>
 
-      <p className="mt-1 text-xs opacity-60">
-        {discrepancy.paymentId === null
-          ? "No payment named on this item"
-          : `Payment ${discrepancy.paymentId}`}
-        {discrepancy.swapId === null ? null : ` · swap ${discrepancy.swapId}`}
-      </p>
-
-      <button
-        type="button"
-        className="mt-3 border px-3 py-1 text-sm disabled:opacity-50"
-        disabled={busy}
-        onClick={() => onResolve(discrepancy.id)}
-      >
-        {busy ? "Closing…" : "Resolve"}
-      </button>
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-line px-4 py-3">
+        <p className="font-mono text-[10px] uppercase tracking-[0.08em] text-faint">
+          {discrepancy.paymentId === null
+            ? "No payment named on this item"
+            : `Payment ${discrepancy.paymentId}`}
+          {discrepancy.swapId === null ? null : ` · swap ${discrepancy.swapId}`}
+        </p>
+        <button
+          className="btn btn-small ml-auto"
+          disabled={busy}
+          onClick={() => onResolve(discrepancy.id)}
+          type="button"
+        >
+          {busy ? "Closing…" : "Resolve"}
+        </button>
+      </div>
     </article>
   );
 }

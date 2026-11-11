@@ -6,9 +6,5 @@ import { SignInForm } from "../../../components/domain/SignInForm.tsx";
  * and direct CLI testnet credentials.
  */
 export default function SignInPage() {
-  return (
-    <div className="py-6">
-      <SignInForm />
-    </div>
-  );
+  return <SignInForm />;
 }

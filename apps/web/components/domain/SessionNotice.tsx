@@ -19,21 +19,31 @@ export type SessionNoticeProps = {
 export function SessionNotice({ kind, detail }: SessionNoticeProps) {
   if (kind === "unreachable") {
     return (
-      <p className="text-sm text-red-700">
-        Till is not answering, so this page cannot say what you have. Nothing was changed.
-        {detail === undefined ? null : ` (${detail})`}
-      </p>
+      <div className="panel flex flex-col gap-2 border-l-2 border-l-danger p-6 sm:flex-row sm:items-start sm:gap-5">
+        <span className="chip chip-danger w-fit">Read failed</span>
+        <p className="text-sm leading-6 text-bone">
+          Till is not answering, so this page cannot say what you have. Nothing was changed.
+          {detail === undefined ? null : (
+            <span className="mt-1 block font-mono text-[11px] text-muted">{detail}</span>
+          )}
+        </p>
+      </div>
     );
   }
   return (
-    <p className="text-sm">
-      {kind === "no-session"
-        ? "Till will not list or save an endpoint without a session."
-        : "That session is no longer one Till accepts — it expired, or it was issued by a different install."}{" "}
-      <a className="underline" href="/sign-in">
-        {kind === "no-session" ? "Sign in with your NEAR wallet" : "Sign in again"}
-      </a>
-      .
-    </p>
+    <div className="panel flex flex-col gap-2 border-l-2 border-l-acid p-6 sm:flex-row sm:items-start sm:gap-5">
+      <span className="chip chip-muted w-fit">
+        {kind === "no-session" ? "No session" : "Session refused"}
+      </span>
+      <p className="max-w-2xl text-sm leading-6 text-muted">
+        {kind === "no-session"
+          ? "Till will not list or save an endpoint without a session."
+          : "That session is no longer one Till accepts — it expired, or it was issued by a different install."}{" "}
+        <a className="link text-bone" href="/sign-in">
+          {kind === "no-session" ? "Sign in with your NEAR wallet" : "Sign in again"}
+        </a>
+        .
+      </p>
+    </div>
   );
 }

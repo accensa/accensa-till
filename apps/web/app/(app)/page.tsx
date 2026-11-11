@@ -2,6 +2,7 @@ import { SESSION_COOKIE } from "@till/core/schemas";
 import { cookies } from "next/headers";
 
 import { OverviewTotals } from "../../components/domain/OverviewTotals.tsx";
+import { PageHeader } from "../../components/domain/PageHeader.tsx";
 import { SessionNotice } from "../../components/domain/SessionNotice.tsx";
 import { api } from "../../lib/api-client.ts";
 
@@ -27,7 +28,11 @@ export default async function OverviewPage() {
   if (token === undefined) {
     return (
       <section>
-        <h1>Overview</h1>
+        <PageHeader
+          description="Settlement totals straight from the append-only ledger. In-transit funds are counted but not yet yours to spend."
+          index="01 / Settlement"
+          title="Overview"
+        />
         <SessionNotice kind="no-session" />
       </section>
     );
@@ -38,16 +43,17 @@ export default async function OverviewPage() {
   if (listed.kind === "ok") {
     return (
       <section>
-        <div className="flex items-center justify-between mb-4">
-          <h1>Overview</h1>
-          <a
-            className="text-sm underline hover:text-blue-600"
-            download="ledger.csv"
-            href="/api/export/ledger.csv"
-          >
-            Export Ledger (CSV)
-          </a>
-        </div>
+        <PageHeader
+          actions={
+            <a className="btn btn-outline-acid" download="ledger.csv" href="/api/export/ledger.csv">
+              <span aria-hidden>↓</span>
+              Export ledger (CSV)
+            </a>
+          }
+          description="Settlement totals straight from the append-only ledger. In-transit funds are counted but not yet yours to spend."
+          index="01 / Settlement"
+          title="Overview"
+        />
         <OverviewTotals result={listed} />
       </section>
     );
@@ -55,7 +61,11 @@ export default async function OverviewPage() {
 
   return (
     <section>
-      <h1>Overview</h1>
+      <PageHeader
+        description="Settlement totals straight from the append-only ledger. In-transit funds are counted but not yet yours to spend."
+        index="01 / Settlement"
+        title="Overview"
+      />
       {listed.kind === "signed_out" ? (
         <SessionNotice kind="session-refused" />
       ) : (

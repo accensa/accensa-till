@@ -1,6 +1,7 @@
 import { SESSION_COOKIE } from "@till/core/schemas";
 import { cookies } from "next/headers";
 
+import { PageHeader } from "../../../components/domain/PageHeader.tsx";
 import { PaymentTable } from "../../../components/domain/PaymentTable.tsx";
 import { SessionNotice } from "../../../components/domain/SessionNotice.tsx";
 import { api } from "../../../lib/api-client.ts";
@@ -21,10 +22,18 @@ export default async function PaymentsPage() {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
 
+  const header = (
+    <PageHeader
+      description="Every verified payment, newest first. Each hash links to the chain it settled on; a test from your own wallet is not revenue."
+      index="03 / Ledger"
+      title="Payments"
+    />
+  );
+
   if (token === undefined) {
     return (
       <section>
-        <h1>Payments</h1>
+        {header}
         <SessionNotice kind="no-session" />
       </section>
     );
@@ -35,16 +44,17 @@ export default async function PaymentsPage() {
   if (listed.kind === "ok") {
     return (
       <section>
-        <div className="flex items-center justify-between mb-4">
-          <h1>Payments</h1>
-          <a
-            className="text-sm underline hover:text-blue-600"
-            download="ledger.csv"
-            href="/api/export/ledger.csv"
-          >
-            Export Ledger (CSV)
-          </a>
-        </div>
+        <PageHeader
+          actions={
+            <a className="btn btn-outline-acid" download="ledger.csv" href="/api/export/ledger.csv">
+              <span aria-hidden>↓</span>
+              Export ledger (CSV)
+            </a>
+          }
+          description="Every verified payment, newest first. Each hash links to the chain it settled on; a test from your own wallet is not revenue."
+          index="03 / Ledger"
+          title="Payments"
+        />
         <PaymentTable payments={listed.payments} />
       </section>
     );
@@ -52,7 +62,7 @@ export default async function PaymentsPage() {
 
   return (
     <section>
-      <h1>Payments</h1>
+      {header}
       {listed.kind === "signed_out" ? (
         <SessionNotice kind="session-refused" />
       ) : (

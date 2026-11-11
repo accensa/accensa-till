@@ -17,40 +17,67 @@ export type EndpointCardProps = { readonly endpoint: EndpointDto };
 
 export function EndpointCard({ endpoint }: EndpointCardProps) {
   return (
-    <article className="border-b p-4">
-      <header className="flex items-baseline justify-between gap-4">
-        <h3 className="font-semibold">{endpoint.description ?? endpoint.slug}</h3>
-        <span className={endpoint.active ? "text-sm text-green-700" : "text-sm text-amber-700"}>
-          {endpoint.active ? "Live" : "Not live"}
-        </span>
+    <article className="panel">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-line px-5 py-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={endpoint.active ? "chip chip-live" : "chip chip-warn"}>
+              <span
+                aria-hidden
+                className={`h-1.5 w-1.5 ${endpoint.active ? "bg-mint" : "bg-amber"}`}
+              />
+              {endpoint.active ? "Live" : "Not live"}
+            </span>
+            <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+              {endpoint.payoutMode} payout
+            </span>
+          </div>
+          <h3 className="mt-3 truncate text-lg font-semibold tracking-[-0.01em] text-bone">
+            {endpoint.description ?? endpoint.slug}
+          </h3>
+        </div>
+        <code className="border border-line-bright px-2 py-1 font-mono text-[10px] text-muted">
+          {endpoint.slug}
+        </code>
       </header>
 
-      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-        <dt className="opacity-60">Payment link</dt>
-        <dd>
-          <a className="underline" href={endpoint.gatewayUrl} rel="noreferrer" target="_blank">
+      <dl className="grid gap-x-6 gap-y-3 px-5 py-5 text-sm sm:grid-cols-[150px_minmax(0,1fr)]">
+        <dt className="label pt-0.5">Payment link</dt>
+        <dd className="min-w-0">
+          <a
+            className="link break-all font-mono text-[12px]"
+            href={endpoint.gatewayUrl}
+            rel="noreferrer"
+            target="_blank"
+          >
             {endpoint.gatewayUrl}
           </a>
         </dd>
-        <dt className="opacity-60">Price</dt>
-        <dd>
-          {displayAmount(endpoint.priceAmount)} {endpoint.assetContract}
+
+        <dt className="label pt-0.5">Price</dt>
+        <dd className="font-mono text-[12px] tabular-nums">
+          <span className="text-bone">{displayAmount(endpoint.priceAmount)}</span>{" "}
+          <span className="text-faint">{endpoint.assetContract}</span>
         </dd>
-        <dt className="opacity-60">Network</dt>
-        <dd>{endpoint.network}</dd>
-        <dt className="opacity-60">Upstream</dt>
-        <dd>
-          <code>{endpoint.upstreamUrl}</code>
+
+        <dt className="label pt-0.5">Network</dt>
+        <dd className="font-mono text-[12px] text-muted">{endpoint.network}</dd>
+
+        <dt className="label pt-0.5">Upstream</dt>
+        <dd className="min-w-0 break-all font-mono text-[12px] text-muted">
+          {endpoint.upstreamUrl}
         </dd>
-        <dt className="opacity-60">Payout mode</dt>
-        <dd>{endpoint.payoutMode}</dd>
-        <dt className="opacity-60">Payout destination</dt>
-        <dd>
-          <code>{endpoint.route?.destinationAddress ?? "no route set"}</code>
+
+        <dt className="label pt-0.5">Payout mode</dt>
+        <dd className="font-mono text-[12px] text-muted">{endpoint.payoutMode}</dd>
+
+        <dt className="label pt-0.5">Payout destination</dt>
+        <dd className="min-w-0 break-all font-mono text-[12px] text-bone">
+          {endpoint.route?.destinationAddress ?? "no route set"}
           {/* The address a `direct` endpoint pays is the signed-in account, which the
               browser cannot know; an intents route names the deposit address beside it. */}
           {typeof endpoint.route?.depositAddress === "string" ? (
-            <span className="ml-2 opacity-60">
+            <span className="mt-1 block text-faint">
               via <code>{endpoint.route.depositAddress}</code>
             </span>
           ) : null}
@@ -58,25 +85,36 @@ export function EndpointCard({ endpoint }: EndpointCardProps) {
       </dl>
 
       {endpoint.creationWarnings.length > 0 ? (
-        <section className="mt-3">
-          <h4 className="text-sm font-semibold">Why this one is not live</h4>
-          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+        <section className="border-t border-line px-5 py-4">
+          <h4 className="flex items-center gap-2 font-mono text-[10px] uppercase tracking-[0.16em] text-amber">
+            <span aria-hidden className="h-1.5 w-1.5 bg-amber" />
+            Why this one is not live
+          </h4>
+          <ul className="mt-3 space-y-2">
             {endpoint.creationWarnings.map((warning, index) => (
-              <li key={`${index}:${warning.slice(0, 24)}`}>{warning}</li>
+              <li
+                className="border-l border-amber/40 pl-3 text-sm leading-6 text-muted"
+                key={`${index}:${warning.slice(0, 24)}`}
+              >
+                {warning}
+              </li>
             ))}
           </ul>
         </section>
       ) : null}
 
-      <p className="mt-2 text-xs opacity-60">
-        Slug <code>{endpoint.slug}</code> — the only name a buyer sees, and not guessable from
-        another endpoint's.
+      <p className="border-t border-line px-5 py-3 font-mono text-[10px] leading-5 tracking-[0.04em] text-faint">
+        Slug <code className="text-muted">{endpoint.slug}</code> — the only name a buyer sees, and
+        not guessable from another endpoint&apos;s.
       </p>
 
       {/* D9's `PATCH`, on the row it changes. Folded away because a list of eight
           input boxes per endpoint is not a list; the seller opens it to change terms. */}
-      <details className="mt-3">
-        <summary className="cursor-pointer text-sm font-semibold">Change these terms</summary>
+      <details className="border-t border-line px-5 py-4">
+        <summary className="inline-flex cursor-pointer items-center gap-2 font-mono text-[10px] uppercase tracking-[0.14em] text-muted transition-colors hover:text-acid">
+          <span aria-hidden>+</span>
+          Change these terms
+        </summary>
         <EndpointEditor endpoint={endpoint} />
       </details>
     </article>
@@ -92,12 +130,15 @@ export function EndpointList({ endpoints }: { readonly endpoints: readonly Endpo
   return (
     <section aria-label="Endpoints">
       {endpoints.length === 0 ? (
-        <p className="text-sm">
-          No endpoints yet. Create one below: Till checks it as it is saved and tells you what is
-          missing.
-        </p>
+        <div className="panel flex flex-col gap-3 p-8">
+          <span className="chip chip-muted w-fit">No endpoints</span>
+          <p className="max-w-xl text-sm leading-6 text-muted">
+            No endpoints yet. Create one below: Till checks it as it is saved and tells you what is
+            missing.
+          </p>
+        </div>
       ) : (
-        <div className="divide-y">
+        <div className="grid gap-3">
           {endpoints.map((endpoint) => (
             <EndpointCard key={endpoint.id} endpoint={endpoint} />
           ))}

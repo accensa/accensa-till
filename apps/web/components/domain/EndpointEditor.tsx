@@ -82,40 +82,49 @@ export function EndpointEditorView({
   if (pendingAddress !== null) {
     const rows = changeRows(endpoint, values);
     return (
-      <section aria-label="Confirm the change" className="mt-3">
-        <h4 className="text-sm font-semibold">
-          Confirm before Till writes this. Nothing has changed yet.
-        </h4>
-        <table className="mt-2 text-sm">
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.label}>
-                <th className="pr-3 text-left font-normal opacity-60">{row.label}</th>
-                <td className="pr-3">
-                  <code>{row.from}</code>
-                </td>
-                <td>
-                  <span className="opacity-60">→</span> <code>{row.to}</code>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <p className="mt-2 text-sm">
-          Till pays out to <code>{pendingAddress}</code>. It is asking you to say so because a
-          payout route is written from this value and a settled payment keeps the one it was made
-          under.
+      <section aria-label="Confirm the change" className="mt-4 border border-line">
+        <div className="border-b border-line bg-coal px-4 py-3">
+          <h4 className="font-mono text-[11px] uppercase leading-5 tracking-[0.12em] text-bone">
+            Confirm before Till writes this. Nothing has changed yet.
+          </h4>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="data-table">
+            <tbody>
+              {rows.map((row) => (
+                <tr className="border-t border-line first:border-t-0" key={row.label}>
+                  <th className="py-2 pl-4 pr-4 text-left font-mono text-[10px] font-normal uppercase tracking-[0.12em] text-faint">
+                    {row.label}
+                  </th>
+                  <td className="py-2 pr-4 font-mono text-[12px] text-muted line-through decoration-line-bright">
+                    {row.from}
+                  </td>
+                  <td className="py-2 pr-4 text-muted">
+                    <span aria-hidden className="mr-1 text-faint">
+                      →
+                    </span>
+                  </td>
+                  <td className="py-2 pr-4 font-mono text-[12px] text-bone">{row.to}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="border-t border-line px-4 py-3 text-sm leading-6 text-muted">
+          Till pays out to <code className="text-bone">{pendingAddress}</code>. It is asking you to
+          say so because a payout route is written from this value and a settled payment keeps the
+          one it was made under.
         </p>
-        <div className="mt-3 flex gap-2">
+        <div className="flex flex-wrap gap-2 border-t border-line px-4 py-3">
           <button
-            type="button"
-            className="border px-3 py-1 text-sm disabled:opacity-50"
+            className="btn btn-primary btn-small"
             disabled={busy}
             onClick={onConfirm}
+            type="button"
           >
             {busy ? "Saving…" : "Confirm and save"}
           </button>
-          <button type="button" className="border px-3 py-1 text-sm" onClick={onBack}>
+          <button className="btn btn-small" onClick={onBack} type="button">
             Back
           </button>
         </div>
@@ -126,16 +135,16 @@ export function EndpointEditorView({
   return (
     <form
       aria-label={`Change ${endpoint.slug}`}
-      className="mt-3"
+      className="mt-4 border border-line"
       onSubmit={reviewOnSubmit(onReview)}
     >
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-x-5 gap-y-3 border-b border-line px-4 py-4 sm:grid-cols-2">
         {EDIT_FIELD_ORDER.map((field) => (
           <label className="block text-sm" htmlFor={`edit-${endpoint.id}-${field}`} key={field}>
-            <span className="font-semibold">{FIELD_LABELS[field]}</span>
+            <span className="label">{FIELD_LABELS[field]}</span>
             {field === "payoutMode" ? (
               <select
-                className="mt-1 block w-full border px-2 py-1"
+                className="field appearance-none"
                 id={`edit-${endpoint.id}-${field}`}
                 onChange={(event: ChangeEvent<HTMLSelectElement>) =>
                   onEdit(field, event.target.value)
@@ -147,7 +156,7 @@ export function EndpointEditorView({
               </select>
             ) : (
               <input
-                className="mt-1 block w-full border px-2 py-1"
+                className="field"
                 id={`edit-${endpoint.id}-${field}`}
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   onEdit(field, event.target.value)
@@ -157,30 +166,31 @@ export function EndpointEditorView({
               />
             )}
             {errors[field] === undefined ? null : (
-              <span className="mt-1 block text-red-700">{errors[field]}</span>
+              <span className="mt-1.5 block font-mono text-[10px] leading-4 text-danger">
+                {errors[field]}
+              </span>
             )}
           </label>
         ))}
       </div>
 
-      {note === null ? null : <p className="mt-2 text-sm opacity-70">{note}</p>}
+      {note === null ? null : (
+        <p className="border-b border-line px-4 py-3 font-mono text-[10px] leading-5 text-amber">
+          {note}
+        </p>
+      )}
 
-      <div className="mt-3 flex gap-2">
-        <button type="submit" className="border px-3 py-1 text-sm">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-4">
+        <button className="btn btn-small btn-primary" type="submit">
           Review the change
         </button>
         {/* The only control that changes whether money arrives, and the only body with
             `active` in it. It says which way it goes and what is already true. */}
-        <button
-          type="button"
-          className="border px-3 py-1 text-sm disabled:opacity-50"
-          disabled={busy}
-          onClick={onLiveness}
-        >
+        <button className="btn btn-small" disabled={busy} onClick={onLiveness} type="button">
           {busy ? "Working…" : endpoint.active ? "Pause this paywall" : "Open this paywall again"}
         </button>
       </div>
-      <p className="mt-2 text-xs opacity-60">
+      <p className="border-t border-line px-4 py-3 text-[11px] leading-5 text-faint">
         Till saves only what you changed, and a change that fails one of its checks is refused whole
         — an endpoint that was earning keeps earning while you fix it.
       </p>
@@ -201,43 +211,51 @@ function ChangeResult({
   if (result.kind === "updated" || result.kind === "refused") {
     const changed = result.result;
     return (
-      <section aria-label="Change result" className="mt-3">
-        <h4 className="text-sm font-semibold">
-          {result.kind === "updated"
-            ? changed.endpoint.active
-              ? "Saved — the next payer is charged this"
-              : "Saved, and this paywall is closed"
-            : "Till refused the change and wrote nothing"}
-        </h4>
-        {result.kind === "refused" ? (
-          <p className="mt-1 text-sm opacity-70">
-            These are still the live terms, including the payout address:
-          </p>
-        ) : null}
-        <CreationCheckResults checks={changed.checks} />
-        <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-          <dt className="opacity-60">Price</dt>
-          <dd>
+      <section aria-label="Change result" className="mt-4 border border-line">
+        <div className="border-b border-line bg-coal px-4 py-3">
+          <h4 className="font-mono text-[11px] uppercase leading-5 tracking-[0.1em] text-bone">
+            {result.kind === "updated"
+              ? changed.endpoint.active
+                ? "Saved — the next payer is charged this"
+                : "Saved, and this paywall is closed"
+              : "Till refused the change and wrote nothing"}
+          </h4>
+          {result.kind === "refused" ? (
+            <p className="mt-1 text-sm leading-6 text-muted">
+              These are still the live terms, including the payout address:
+            </p>
+          ) : null}
+        </div>
+        <div className="px-4 pt-3">
+          <CreationCheckResults checks={changed.checks} />
+        </div>
+        <dl className="grid gap-x-6 gap-y-2 px-4 py-4 text-sm sm:grid-cols-[140px_minmax(0,1fr)]">
+          <dt className="label pt-0.5">Price</dt>
+          <dd className="font-mono text-[12px] text-bone">
             {displayAmount(changed.endpoint.priceAmount)} of {changed.endpoint.assetContract}
           </dd>
-          <dt className="opacity-60">Payout destination</dt>
-          <dd>
-            <code>{changed.endpoint.route?.destinationAddress ?? "none yet"}</code>
+          <dt className="label pt-0.5">Payout destination</dt>
+          <dd className="break-all font-mono text-[12px] text-bone">
+            {changed.endpoint.route?.destinationAddress ?? "none yet"}
           </dd>
         </dl>
-        <button type="button" className="mt-3 border px-3 py-1 text-sm" onClick={onDismiss}>
-          Back to the form
-        </button>
+        <div className="border-t border-line px-4 py-3">
+          <button className="btn btn-small" onClick={onDismiss} type="button">
+            Back to the form
+          </button>
+        </div>
       </section>
     );
   }
 
   if (result.kind === "rejected") {
     return (
-      <section aria-label="Change refused" className="mt-3">
-        <h4 className="text-sm font-semibold text-red-700">Till did not save that</h4>
+      <section aria-label="Change refused" className="notice-danger mt-4">
+        <h4 className="font-mono text-[11px] uppercase tracking-[0.14em] text-danger">
+          Till did not save that
+        </h4>
         <Refusal error={result.error} endpoint={endpoint} />
-        <button type="button" className="mt-3 border px-3 py-1 text-sm" onClick={onDismiss}>
+        <button className="btn btn-small mt-3" onClick={onDismiss} type="button">
           Back to the form
         </button>
       </section>
@@ -245,12 +263,12 @@ function ChangeResult({
   }
 
   return (
-    <section aria-label="Change refused" className="mt-3">
-      <p className="text-sm text-red-700">
+    <section aria-label="Change refused" className="notice-danger mt-4">
+      <p className="text-sm leading-6">
         The dashboard could not read Till&apos;s answer, so it is not claiming anything changed. (
         {result.detail})
       </p>
-      <button type="button" className="mt-3 border px-3 py-1 text-sm" onClick={onDismiss}>
+      <button className="btn btn-small mt-3" onClick={onDismiss} type="button">
         Back to the form
       </button>
     </section>
@@ -266,18 +284,23 @@ function Refusal({
 }) {
   if (error.code === "destination_not_confirmed") {
     return (
-      <p className="mt-1 text-sm">
+      <p className="mt-2 text-sm leading-6">
         Till will keep paying out to{" "}
-        <code>{endpoint.route?.destinationAddress ?? "the address on the row"}</code> until you
-        confirm the new one:{" "}
-        <code>{error.destinationAddress ?? "the address you were editing"}</code>. {error.message}
+        <code className="text-bone">
+          {endpoint.route?.destinationAddress ?? "the address on the row"}
+        </code>{" "}
+        until you confirm the new one:{" "}
+        <code className="text-bone">
+          {error.destinationAddress ?? "the address you were editing"}
+        </code>
+        . {error.message}
       </p>
     );
   }
   if (error.code === "unauthenticated") {
     return (
-      <p className="mt-1 text-sm">
-        <a className="underline" href="/sign-in">
+      <p className="mt-2 text-sm leading-6">
+        <a className="link" href="/sign-in">
           Sign in again
         </a>{" "}
         and come back: Till wrote nothing.
@@ -285,16 +308,18 @@ function Refusal({
     );
   }
   if (error.code === "endpoint_not_found") {
-    return <p className="mt-1 text-sm">{error.message} Nothing was written.</p>;
+    return <p className="mt-2 text-sm leading-6">{error.message} Nothing was written.</p>;
   }
   const issues = Object.values(fieldErrorsFromIssues(error.issues ?? []));
   return (
     <>
-      <p className="mt-1 text-sm">{error.message}</p>
+      <p className="mt-2 text-sm leading-6">{error.message}</p>
       {issues.length === 0 ? null : (
-        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm">
+        <ul className="mt-3 space-y-1.5 border-t border-line pt-3">
           {issues.map((copy) => (
-            <li key={copy}>{copy}</li>
+            <li className="text-sm leading-6 text-muted" key={copy}>
+              {copy}
+            </li>
           ))}
         </ul>
       )}

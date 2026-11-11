@@ -19,9 +19,15 @@ export type HeaderStatusProps = {
 };
 
 const TONE_CLASS: Readonly<Record<HeaderLine["tone"], string>> = {
-  ok: "opacity-60",
-  warn: "text-red-700 font-semibold",
-  unknown: "text-amber-700",
+  ok: "text-muted",
+  warn: "text-amber font-medium",
+  unknown: "text-faint",
+};
+
+const DOT_CLASS: Readonly<Record<HeaderLine["tone"], string>> = {
+  ok: "bg-mint",
+  warn: "bg-amber",
+  unknown: "bg-faint",
 };
 
 export function HeaderStatus({ result }: HeaderStatusProps) {
@@ -30,10 +36,11 @@ export function HeaderStatus({ result }: HeaderStatusProps) {
     <>
       {lines.map((line) => (
         <span
+          className={`inline-flex items-center gap-2 text-[11px] leading-5 ${TONE_CLASS[line.tone]}`}
           key={line.text}
           role={line.tone === "warn" ? "alert" : undefined}
-          className={`text-sm ${TONE_CLASS[line.tone]}`}
         >
+          <span aria-hidden className={`h-1.5 w-1.5 shrink-0 ${DOT_CLASS[line.tone]}`} />
           {line.text}
         </span>
       ))}

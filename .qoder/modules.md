@@ -44,8 +44,9 @@ Owner: nobody but core. Core may not import `drizzle-orm`, `hono`, `postgres`, `
 | `app/layout.tsx` | nav + F5's header status; async, reads the cookie, calls `api.status` | server component |
 | `app/(app)/*/page.tsx` | endpoints (UI-2), payments (UI-3), reconciliation (UI-4) | server components; no fetching in components |
 | `app/(auth)/sign-in` | the F8 wallet-prompt screen | — |
-| `components/domain/*.tsx` | all twelve components, hand-written | no component library; `components/ui/` is an empty `.gitkeep` |
-| `components/domain/ReconcileActions.tsx` | the only `"use client"` boundary | everything else is server-rendered |
+| `components/domain/*.tsx` | the dashboard's components, hand-written, styled from `app/globals.css`'s tokens and component classes | no component library; `components/ui/` is an empty `.gitkeep`; no border radius or gradient |
+| `components/domain/{NavLinks,PageHeader}.tsx` | nav with pathname active state; numbered page header | `NavLinks` is client; `PageHeader` is presentational |
+| `components/domain/{ReconcileActions,SignInForm,EndpointEditor,CreateEndpointForm}.tsx` | the interactive surfaces | the only `"use client"` boundaries; everything else is server-rendered |
 | `lib/api-client.ts` | every `fetch`, each parsed or answered `unreachable` | the only place that talks to the API |
 | `lib/{endpoint-form,endpoint-edit,payments,reconcile,header-status,format}.ts` | every rule the browser enforces before sending, as pure functions | a rule needs a test here, not in a component |
 

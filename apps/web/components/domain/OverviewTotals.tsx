@@ -21,12 +21,6 @@ export type OverviewTotalsProps = {
   readonly result: OverviewResult;
 };
 
-const TONE_CLASS: Readonly<Record<OverviewLine["tone"], string>> = {
-  ok: "opacity-60",
-  warn: "text-red-700 font-semibold",
-  unknown: "text-amber-700",
-};
-
 const COLUMNS = ["Settled", "In transit", "Paid out", "Refunded", "Adjusted", "Net held"] as const;
 
 export function OverviewTotals({ result }: OverviewTotalsProps) {
@@ -34,15 +28,28 @@ export function OverviewTotals({ result }: OverviewTotalsProps) {
 
   return (
     <section>
-      {lines.map((line) => (
-        <p
-          className={`text-sm ${TONE_CLASS[line.tone]}`}
-          key={line.text}
-          role={line.tone === "warn" ? "alert" : undefined}
-        >
-          {line.text}
-        </p>
-      ))}
+      <div className="space-y-3">
+        {lines.map((line) => (
+          <p
+            className={
+              line.tone === "warn"
+                ? "notice-warn"
+                : line.tone === "unknown"
+                  ? "notice-muted"
+                  : "text-sm leading-6 text-muted"
+            }
+            key={line.text}
+            role={line.tone === "warn" ? "alert" : undefined}
+          >
+            {line.tone === "warn" ? (
+              <span aria-hidden className="mr-2 font-mono text-[10px] uppercase tracking-[0.16em]">
+                Action /
+              </span>
+            ) : null}
+            {line.text}
+          </p>
+        ))}
+      </div>
       {rows.length === 0 ? null : <AssetTotalsTable rows={rows} />}
     </section>
   );
@@ -59,13 +66,19 @@ function AssetTotalsTable({
   readonly rows: ReturnType<typeof overviewView>["rows"];
 }) {
   return (
-    <div className="mt-4 overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="panel mt-8 overflow-x-auto">
+      <div className="panel-head">
+        <span className="eyebrow">Ledger totals</span>
+        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+          Decimal units · 6 dp
+        </span>
+      </div>
+      <table className="data-table">
         <thead>
-          <tr className="text-left opacity-70">
-            <th className="py-1 pr-4 font-medium">Asset</th>
+          <tr>
+            <th>Asset</th>
             {COLUMNS.map((column) => (
-              <th className="py-1 pr-4 font-medium" key={column}>
+              <th className="text-right" key={column}>
                 {column}
               </th>
             ))}
@@ -74,15 +87,17 @@ function AssetTotalsTable({
         <tbody>
           {rows.map((row) => (
             <tr className="border-t" key={row.asset}>
-              <td className="py-2 pr-4 align-top">
-                <code>{row.asset}</code>
+              <td>
+                <span className="chip chip-muted">{row.asset}</span>
               </td>
-              <td className="py-2 pr-4 align-top">{row.settled}</td>
-              <td className="py-2 pr-4 align-top">{row.inTransit}</td>
-              <td className="py-2 pr-4 align-top">{row.paidOut}</td>
-              <td className="py-2 pr-4 align-top">{row.refunded}</td>
-              <td className="py-2 pr-4 align-top">{row.adjusted}</td>
-              <td className="py-2 font-medium align-top">{row.netHeld}</td>
+              <td className="text-right font-mono tabular-nums text-muted">{row.settled}</td>
+              <td className="text-right font-mono tabular-nums text-muted">{row.inTransit}</td>
+              <td className="text-right font-mono tabular-nums text-muted">{row.paidOut}</td>
+              <td className="text-right font-mono tabular-nums text-muted">{row.refunded}</td>
+              <td className="text-right font-mono tabular-nums text-muted">{row.adjusted}</td>
+              <td className="text-right font-mono text-base tabular-nums text-acid">
+                {row.netHeld}
+              </td>
             </tr>
           ))}
         </tbody>

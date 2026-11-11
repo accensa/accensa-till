@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 
 import { CreateEndpointForm } from "../../../components/domain/CreateEndpointForm.tsx";
 import { EndpointList } from "../../../components/domain/EndpointCard.tsx";
+import { PageHeader } from "../../../components/domain/PageHeader.tsx";
 import { SessionNotice } from "../../../components/domain/SessionNotice.tsx";
 import { api } from "../../../lib/api-client.ts";
 
@@ -23,10 +24,18 @@ export default async function EndpointsPage() {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
 
+  const header = (
+    <PageHeader
+      description="Paywalled GET routes. Each one is checked before it takes money, and its slug is the only name a buyer sees."
+      index="02 / Paywall"
+      title="Endpoints"
+    />
+  );
+
   if (token === undefined) {
     return (
       <section>
-        <h1>Endpoints</h1>
+        {header}
         <SessionNotice kind="no-session" />
       </section>
     );
@@ -37,17 +46,39 @@ export default async function EndpointsPage() {
   if (listed.kind === "ok") {
     return (
       <section>
-        <h1>Endpoints</h1>
-        <EndpointList endpoints={listed.endpoints} />
-        <h2 className="mt-6 font-semibold">Create an endpoint</h2>
-        <CreateEndpointForm />
+        {header}
+        <div className="space-y-12">
+          <div>
+            <div className="mb-4 flex items-end justify-between gap-4 border-b border-line pb-3">
+              <h2 className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
+                Your paywalls
+              </h2>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+                {listed.endpoints.length} total
+              </span>
+            </div>
+            <EndpointList endpoints={listed.endpoints} />
+          </div>
+
+          <div>
+            <div className="mb-4 flex items-end justify-between gap-4 border-b border-line pb-3">
+              <h2 className="font-mono text-[11px] uppercase tracking-[0.18em] text-muted">
+                New endpoint
+              </h2>
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+                Checked on save
+              </span>
+            </div>
+            <CreateEndpointForm />
+          </div>
+        </div>
       </section>
     );
   }
 
   return (
     <section>
-      <h1>Endpoints</h1>
+      {header}
       {listed.kind === "signed_out" ? (
         <SessionNotice kind="session-refused" />
       ) : (

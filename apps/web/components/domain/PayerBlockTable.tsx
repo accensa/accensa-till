@@ -25,51 +25,61 @@ export type PayerBlockTableProps = {
 
 export function PayerBlockTable({ payerBlocks, busyPayer, onClear }: PayerBlockTableProps) {
   if (payerBlocks.length === 0) {
-    return <p className="text-sm opacity-70">{NO_BLOCKED_PAYER_COPY}</p>;
+    return (
+      <div className="panel flex flex-col gap-2 p-6">
+        <span className="chip chip-live w-fit">Clear</span>
+        <p className="text-sm leading-6 text-muted">{NO_BLOCKED_PAYER_COPY}</p>
+      </div>
+    );
   }
 
   return (
-    <div className="mt-4">
-      <p className="text-sm opacity-70">{HELD_PAYER_EXPLAINED}</p>
-      <div className="mt-2 overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left opacity-70">
-              <th className="py-1 pr-4 font-medium">Payer</th>
-              <th className="py-1 pr-4 font-medium">Unpaid serves</th>
-              <th className="py-1 pr-4 font-medium">Last one</th>
-              <th className="py-1 font-medium">Action</th>
+    <div className="panel overflow-x-auto">
+      <p className="border-b border-line px-4 py-3 text-[12px] leading-5 text-muted">
+        {HELD_PAYER_EXPLAINED}
+      </p>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th>Payer</th>
+            <th>Unpaid serves</th>
+            <th>Last one</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {payerBlocks.map((block) => (
+            <tr className="border-t border-line" key={block.payerAccountId}>
+              <td>
+                <code className="text-[12px] text-bone">{block.payerAccountId}</code>
+              </td>
+              <td className="font-mono text-[12px] tabular-nums text-amber">
+                {block.strikes} unpaid serves
+                {block.blocked ? null : <span className="text-muted"> — already released</span>}
+              </td>
+              <td className="whitespace-nowrap font-mono text-[11px] text-muted">
+                {displayDate(block.lastStrikeAt)}
+              </td>
+              <td>
+                {block.blocked ? (
+                  <button
+                    className="btn btn-small"
+                    disabled={busyPayer === block.payerAccountId}
+                    onClick={() => onClear(block.payerAccountId)}
+                    type="button"
+                  >
+                    {busyPayer === block.payerAccountId ? "Clearing…" : "Clear"}
+                  </button>
+                ) : (
+                  <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
+                    nothing to clear
+                  </span>
+                )}
+              </td>
             </tr>
-          </thead>
-          <tbody>
-            {payerBlocks.map((block) => (
-              <tr className="border-t" key={block.payerAccountId}>
-                <td className="py-2 pr-4 align-top">
-                  <code>{block.payerAccountId}</code>
-                </td>
-                <td className="py-2 pr-4 align-top">
-                  {block.strikes} unpaid serves{block.blocked ? null : " — already released"}
-                </td>
-                <td className="py-2 pr-4 align-top">{displayDate(block.lastStrikeAt)}</td>
-                <td className="py-2 align-top">
-                  {block.blocked ? (
-                    <button
-                      type="button"
-                      className="border px-3 py-1 text-sm disabled:opacity-50"
-                      disabled={busyPayer === block.payerAccountId}
-                      onClick={() => onClear(block.payerAccountId)}
-                    >
-                      {busyPayer === block.payerAccountId ? "Clearing…" : "Clear"}
-                    </button>
-                  ) : (
-                    <span className="opacity-60">nothing to clear</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

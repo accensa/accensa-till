@@ -45,6 +45,24 @@ export type SignInFormViewProps = {
   readonly onRefreshChallenge: () => void;
 };
 
+const STEPS = [
+  {
+    index: "01",
+    title: "Request a challenge",
+    body: "Till issues a one-time nonce bound to this browser session.",
+  },
+  {
+    index: "02",
+    title: "Sign the message",
+    body: "Your wallet signs the NEP-413 payload. The key never leaves it.",
+  },
+  {
+    index: "03",
+    title: "Session issued",
+    body: "Till verifies the signature and sets an HttpOnly session cookie.",
+  },
+] as const;
+
 export function SignInFormView({
   challenge,
   challengeError,
@@ -62,18 +80,34 @@ export function SignInFormView({
 }: SignInFormViewProps) {
   if (result?.kind === "ok") {
     return (
-      <section aria-label="Sign-in complete" className="max-w-xl space-y-4">
-        <h2 className="text-xl font-semibold">Signed In</h2>
-        <p className="text-sm text-emerald-700">
-          Authenticated as <strong>{result.seller.nearAccountId}</strong>.
-        </p>
-        <p className="text-xs opacity-70">
-          Your session cookie is active. If you are not redirected automatically,{" "}
-          <a href="/endpoints" className="underline">
-            proceed to Endpoints
+      <section aria-label="Sign-in complete" className="panel max-w-2xl">
+        <div className="border-b border-line bg-coal px-6 py-4">
+          <span className="eyebrow flex items-center gap-2 text-mint">
+            <span aria-hidden className="h-1.5 w-1.5 bg-mint" />
+            Session active
+          </span>
+        </div>
+        <div className="px-6 py-8">
+          <h2 className="text-3xl font-semibold tracking-[-0.03em]">Signed In</h2>
+          <p className="mt-4 text-sm leading-6 text-muted">
+            Authenticated as{" "}
+            <strong className="font-mono text-[13px] font-normal text-bone">
+              {result.seller.nearAccountId}
+            </strong>
+            .
+          </p>
+          <p className="mt-2 text-xs leading-5 text-faint">
+            Your session cookie is active. If you are not redirected automatically,{" "}
+            <a className="link text-bone" href="/endpoints">
+              proceed to Endpoints
+            </a>
+            .
+          </p>
+          <a className="btn btn-primary mt-8" href="/endpoints">
+            Open the console
+            <span aria-hidden>→</span>
           </a>
-          .
-        </p>
+        </div>
       </section>
     );
   }
@@ -81,201 +115,291 @@ export function SignInFormView({
   const cliCommand = challenge ? buildCliCommand(challenge, values.accountId) : "";
 
   return (
-    <section aria-label="Sign in to Till" className="max-w-xl space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">Sign in with NEAR</h2>
-        <p className="text-sm opacity-70">
-          Verify account ownership via NEP-413 signed message. No private keys ever touch the
-          browser.
-        </p>
-      </div>
+    <section
+      aria-label="Sign in to Till"
+      className="grid border border-line lg:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]"
+    >
+      <aside className="flex flex-col justify-between gap-10 border-b border-line bg-coal p-7 lg:border-b-0 lg:border-r lg:p-10">
+        <div>
+          <p className="eyebrow flex items-center gap-3">
+            <span aria-hidden className="h-px w-6 bg-acid" />
+            Authentication / NEP-413
+          </p>
+          <h1 className="mt-5 max-w-sm text-4xl font-semibold leading-[1.02] tracking-[-0.035em] sm:text-5xl">
+            Sign in with NEAR
+          </h1>
+          <p className="mt-5 max-w-sm text-sm leading-6 text-muted">
+            Verify account ownership via NEP-413 signed message. No private keys ever touch the
+            browser.
+          </p>
 
-      {challengeError && (
-        <div role="alert" className="border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-          Failed to obtain challenge from Till: {challengeError}
-          <button
-            type="button"
-            onClick={onRefreshChallenge}
-            className="ml-2 underline hover:no-underline"
-          >
-            Retry
-          </button>
+          <ol className="mt-10 space-y-0 border-t border-line">
+            {STEPS.map((step) => (
+              <li className="flex gap-5 border-b border-line py-4" key={step.index}>
+                <span className="font-mono text-[10px] leading-5 text-acid">{step.index}</span>
+                <div>
+                  <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-bone">
+                    {step.title}
+                  </p>
+                  <p className="mt-1 text-[13px] leading-5 text-muted">{step.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
         </div>
-      )}
 
-      {result?.kind === "rejected" && (
-        <div role="alert" className="border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-          <strong>Sign-in refused:</strong> {authErrorMessage(result.error)}
-        </div>
-      )}
-
-      {result?.kind === "unreachable" && (
-        <div
-          role="alert"
-          className="border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800"
-        >
-          <strong>Service unreachable:</strong> {result.detail}
-        </div>
-      )}
-
-      {challenge && (
-        <div className="rounded border bg-gray-50 p-3 text-xs space-y-1">
-          <div className="flex justify-between items-center">
-            <span className="font-semibold text-gray-700">Active Challenge (expires in 5 min)</span>
-            <button
-              type="button"
-              onClick={onRefreshChallenge}
-              className="text-xs text-blue-600 underline hover:no-underline"
-            >
-              Refresh Nonce
-            </button>
+        <dl className="grid grid-cols-2 gap-4 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">
+          <div>
+            Signature
+            <dd className="mt-1 text-[10px] tracking-[0.1em] text-bone">Ed25519</dd>
           </div>
-          <div className="grid grid-cols-[80px_1fr] gap-x-2 text-gray-600">
-            <span className="opacity-70">Recipient:</span>
-            <code className="break-all">{challenge.recipient}</code>
-            <span className="opacity-70">Nonce:</span>
-            <code className="break-all">{challenge.nonce}</code>
+          <div>
+            Session
+            <dd className="mt-1 text-[10px] tracking-[0.1em] text-bone">HttpOnly</dd>
           </div>
+        </dl>
+      </aside>
+
+      <div className="p-7 lg:p-10">
+        <div className="flex items-center justify-between gap-4 border-b border-line pb-4">
+          <span className="eyebrow">Access request</span>
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-faint">
+            near:testnet
+          </span>
         </div>
-      )}
 
-      <div className="border-b flex gap-4 text-sm font-medium">
-        <button
-          type="button"
-          onClick={() => onTabChange("wallet")}
-          className={`pb-2 border-b-2 ${
-            activeTab === "wallet"
-              ? "border-black text-black"
-              : "border-transparent text-gray-500 hover:text-black"
-          }`}
-        >
-          Browser Wallet
-        </button>
-        <button
-          type="button"
-          onClick={() => onTabChange("cli")}
-          className={`pb-2 border-b-2 ${
-            activeTab === "cli"
-              ? "border-black text-black"
-              : "border-transparent text-gray-500 hover:text-black"
-          }`}
-        >
-          CLI / Manual Sign
-        </button>
-      </div>
-
-      {activeTab === "wallet" ? (
-        <div className="space-y-4">
-          {walletAvailable ? (
-            <div className="space-y-3">
-              <p className="text-sm">
-                In-page NEAR wallet detected. Click below to sign the NEP-413 challenge.
-              </p>
+        <div className="mt-6 space-y-4">
+          {challengeError && (
+            <div className="notice-danger" role="alert">
+              <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-danger">
+                Challenge failed /{" "}
+              </span>
+              Failed to obtain challenge from Till: {challengeError}
               <button
+                className="ml-2 underline underline-offset-4 hover:text-acid"
+                onClick={onRefreshChallenge}
                 type="button"
-                onClick={onPromptWallet}
-                disabled={busy || !challenge}
-                className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
               >
-                {busy ? "Signing in…" : "Sign In with Wallet"}
-              </button>
-            </div>
-          ) : (
-            <div className="space-y-3 rounded border border-gray-200 p-4 text-sm">
-              <p className="font-medium text-gray-800">No browser wallet extension detected</p>
-              <p className="text-xs text-gray-600">
-                Install a NEAR wallet extension (such as Meteor Wallet or HERE Wallet), or switch to
-                the <strong>CLI / Manual Sign</strong> tab to authenticate using testnet
-                credentials.
-              </p>
-              <button
-                type="button"
-                onClick={() => onTabChange("cli")}
-                className="text-xs underline text-blue-600"
-              >
-                Switch to CLI / Manual Sign
+                Retry
               </button>
             </div>
           )}
+
+          {result?.kind === "rejected" && (
+            <div className="notice-danger" role="alert">
+              <strong className="font-mono text-[10px] uppercase tracking-[0.14em] text-danger">
+                Sign-in refused:{" "}
+              </strong>
+              {authErrorMessage(result.error)}
+            </div>
+          )}
+
+          {result?.kind === "unreachable" && (
+            <div className="notice-warn" role="alert">
+              <strong className="font-mono text-[10px] uppercase tracking-[0.14em] text-amber">
+                Service unreachable:{" "}
+              </strong>
+              {result.detail}
+            </div>
+          )}
+
+          {challenge && (
+            <div className="border border-line bg-ink">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-4 py-2.5">
+                <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-muted">
+                  Active Challenge (expires in 5 min)
+                </span>
+                <button
+                  className="font-mono text-[10px] uppercase tracking-[0.1em] text-acid underline underline-offset-4 hover:no-underline"
+                  onClick={onRefreshChallenge}
+                  type="button"
+                >
+                  Refresh Nonce
+                </button>
+              </div>
+              <dl className="grid gap-x-4 gap-y-2 px-4 py-3 text-[11px]">
+                <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-2">
+                  <dt className="font-mono uppercase tracking-[0.1em] text-faint">Recipient</dt>
+                  <dd className="break-all font-mono text-muted">{challenge.recipient}</dd>
+                </div>
+                <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-2">
+                  <dt className="font-mono uppercase tracking-[0.1em] text-faint">Nonce</dt>
+                  <dd className="break-all font-mono text-muted">{challenge.nonce}</dd>
+                </div>
+              </dl>
+            </div>
+          )}
         </div>
-      ) : (
-        <form
-          aria-label="Manual NEP-413 sign-in form"
-          onSubmit={(e: FormEvent) => {
-            e.preventDefault();
-            onSubmitCli();
-          }}
-          className="space-y-4"
-        >
-          <div className="space-y-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
-              Terminal Command (near-cli-rs)
-            </span>
-            <pre className="overflow-x-auto rounded bg-gray-900 p-3 text-xs text-green-400">
-              <code>{cliCommand || "Fetching challenge..."}</code>
-            </pre>
-            <p className="text-xs text-gray-500">
-              Run this command in your terminal, then paste the resulting account, public key, and
-              signature below.
-            </p>
-          </div>
 
-          <div className="space-y-3">
+        <div className="mt-6 grid grid-cols-2 border border-line">
+          <button
+            className={`h-10 border-r border-line font-mono text-[10px] uppercase tracking-[0.14em] transition-colors ${
+              activeTab === "wallet"
+                ? "bg-bone text-ink"
+                : "text-muted hover:bg-raised hover:text-bone"
+            }`}
+            onClick={() => onTabChange("wallet")}
+            type="button"
+          >
+            Browser Wallet
+          </button>
+          <button
+            className={`h-10 font-mono text-[10px] uppercase tracking-[0.14em] transition-colors ${
+              activeTab === "cli"
+                ? "bg-bone text-ink"
+                : "text-muted hover:bg-raised hover:text-bone"
+            }`}
+            onClick={() => onTabChange("cli")}
+            type="button"
+          >
+            CLI / Manual Sign
+          </button>
+        </div>
+
+        <div className="mt-6">
+          {activeTab === "wallet" ? (
             <div>
-              <label htmlFor="accountId" className="block text-xs font-semibold text-gray-700">
-                NEAR Account ID
-              </label>
-              <input
-                id="accountId"
-                type="text"
-                placeholder="seller.testnet"
-                value={values.accountId}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onEdit("accountId", e.target.value)}
-                className="mt-1 block w-full rounded border px-3 py-1.5 text-sm"
-              />
-              {errors.accountId && <p className="mt-1 text-xs text-red-600">{errors.accountId}</p>}
+              {walletAvailable ? (
+                <div className="border border-line p-5">
+                  <span className="chip chip-live">Wallet found</span>
+                  <p className="mt-3 text-sm leading-6 text-muted">
+                    In-page NEAR wallet detected. Click below to sign the NEP-413 challenge.
+                  </p>
+                  <button
+                    className="btn btn-primary mt-5 w-full"
+                    disabled={busy || !challenge}
+                    onClick={onPromptWallet}
+                    type="button"
+                  >
+                    {busy ? "Signing in…" : "Sign In with Wallet"}
+                  </button>
+                </div>
+              ) : (
+                <div className="border border-line p-5">
+                  <span className="chip chip-warn">No wallet</span>
+                  <p className="mt-3 font-mono text-[11px] uppercase tracking-[0.1em] text-bone">
+                    No browser wallet extension detected
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-muted">
+                    Install a NEAR wallet extension (such as Meteor Wallet or HERE Wallet), or
+                    switch to the{" "}
+                    <strong className="font-normal text-bone">CLI / Manual Sign</strong> tab to
+                    authenticate using testnet credentials.
+                  </p>
+                  <button
+                    className="btn btn-small mt-4"
+                    onClick={() => onTabChange("cli")}
+                    type="button"
+                  >
+                    Switch to CLI / Manual Sign
+                  </button>
+                </div>
+              )}
             </div>
-
-            <div>
-              <label htmlFor="publicKey" className="block text-xs font-semibold text-gray-700">
-                Public Key
-              </label>
-              <input
-                id="publicKey"
-                type="text"
-                placeholder="ed25519:..."
-                value={values.publicKey}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onEdit("publicKey", e.target.value)}
-                className="mt-1 block w-full rounded border px-3 py-1.5 text-sm"
-              />
-              {errors.publicKey && <p className="mt-1 text-xs text-red-600">{errors.publicKey}</p>}
-            </div>
-
-            <div>
-              <label htmlFor="signature" className="block text-xs font-semibold text-gray-700">
-                Signature (Base64 or ed25519:base58)
-              </label>
-              <input
-                id="signature"
-                type="text"
-                placeholder="base64 signature..."
-                value={values.signature}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onEdit("signature", e.target.value)}
-                className="mt-1 block w-full rounded border px-3 py-1.5 text-sm"
-              />
-              {errors.signature && <p className="mt-1 text-xs text-red-600">{errors.signature}</p>}
-            </div>
-
-            <button
-              type="submit"
-              disabled={busy || !challenge}
-              className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+          ) : (
+            <form
+              aria-label="Manual NEP-413 sign-in form"
+              className="space-y-5"
+              onSubmit={(e: FormEvent) => {
+                e.preventDefault();
+                onSubmitCli();
+              }}
             >
-              {busy ? "Verifying…" : "Verify Signature & Sign In"}
-            </button>
-          </div>
-        </form>
-      )}
+              <div>
+                <span className="eyebrow">Terminal Command (near-cli-rs)</span>
+                <div className="mt-2 border border-line bg-ink">
+                  <div className="flex items-center gap-1.5 border-b border-line px-3 py-2">
+                    <span aria-hidden className="h-1.5 w-1.5 bg-danger" />
+                    <span aria-hidden className="h-1.5 w-1.5 bg-amber" />
+                    <span aria-hidden className="h-1.5 w-1.5 bg-mint" />
+                    <span className="ml-2 font-mono text-[9px] uppercase tracking-[0.14em] text-faint">
+                      shell
+                    </span>
+                  </div>
+                  <pre className="overflow-x-auto p-4 font-mono text-[11px] leading-5 text-bone">
+                    <code>{cliCommand || "Fetching challenge..."}</code>
+                  </pre>
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-faint">
+                  Run this command in your terminal, then paste the resulting account, public key,
+                  and signature below.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="label" htmlFor="accountId">
+                    NEAR Account ID
+                  </label>
+                  <input
+                    className="field"
+                    id="accountId"
+                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                      onEdit("accountId", e.target.value)
+                    }
+                    placeholder="seller.testnet"
+                    type="text"
+                    value={values.accountId}
+                  />
+                  {errors.accountId && (
+                    <p className="mt-1.5 font-mono text-[10px] text-danger">{errors.accountId}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="label" htmlFor="publicKey">
+                    Public Key
+                  </label>
+                  <input
+                    className="field"
+                    id="publicKey"
+                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                      onEdit("publicKey", e.target.value)
+                    }
+                    placeholder="ed25519:..."
+                    type="text"
+                    value={values.publicKey}
+                  />
+                  {errors.publicKey && (
+                    <p className="mt-1.5 font-mono text-[10px] text-danger">{errors.publicKey}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="label" htmlFor="signature">
+                    Signature (Base64 or ed25519:base58)
+                  </label>
+                  <input
+                    className="field"
+                    id="signature"
+                    onChange={(e: ChangeEvent<HTMLInputElement>) =>
+                      onEdit("signature", e.target.value)
+                    }
+                    placeholder="base64 signature..."
+                    type="text"
+                    value={values.signature}
+                  />
+                  {errors.signature && (
+                    <p className="mt-1.5 font-mono text-[10px] text-danger">{errors.signature}</p>
+                  )}
+                </div>
+
+                <button
+                  className="btn btn-primary w-full"
+                  disabled={busy || !challenge}
+                  type="submit"
+                >
+                  {busy ? "Verifying…" : "Verify Signature & Sign In"}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        <p className="mt-6 border-t border-line pt-4 font-mono text-[9px] uppercase leading-5 tracking-[0.12em] text-faint">
+          Single origin / HttpOnly cookie / no key material stored
+        </p>
+      </div>
     </section>
   );
 }

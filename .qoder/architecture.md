@@ -109,6 +109,6 @@ Tailwind v4 compiles through `apps/web/postcss.config.mjs`, which loads the
 `@tailwindcss/postcss` dev dependency the human approved on 2026-11-10. Next falls back to its
 own built-in PostCSS set when that file is absent, and that set has no Tailwind, so deleting the
 config does not fail the build — it silently ships `node_modules/tailwindcss/index.css` verbatim
-(preflight and `@theme` only, zero utility rules) and every `className` in the twelve domain
-components goes inert. Check `apps/web/.next/static/css/*.css` for a `.flex` rule if the
+(preflight and `@theme` only, zero utility rules) and every `className` in the domain components
+goes inert. Check `apps/web/.next/static/css/*.css` for a `.flex` rule if the
 dashboard ever looks unstyled.

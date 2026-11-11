@@ -1,1 +1,179 @@
 @import "tailwindcss";
+
+/*
+ * Till design system (UI-1 to UI-6).
+ *
+ * One dark surface, hairline rules, acid-lime for action and attention, and no
+ * border radius anywhere. The dashboard is a settlement console, so the type
+ * does the work: a tight grotesk for headings, monospace for every number,
+ * address, code and label. Colours are flat tokens — there are no gradients in
+ * the product by rule, and the global radius reset below makes that impossible
+ * to reintroduce by accident.
+ */
+@theme {
+  --color-ink: #070809;
+  --color-coal: #0b0d0f;
+  --color-panel: #101215;
+  --color-raised: #171a1e;
+  --color-line: #25282d;
+  --color-line-bright: #3a3f46;
+  --color-bone: #f3f0e9;
+  --color-muted: #8f959e;
+  --color-faint: #5d626a;
+  --color-acid: #c9ff57;
+  --color-mint: #63e6a4;
+  --color-amber: #ffb454;
+  --color-danger: #ff6565;
+
+  --font-sans: "Inter Tight", "Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui,
+    sans-serif;
+  --font-mono: "Berkeley Mono", "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+}
+
+/* Unlayered on purpose: a layered base rule loses to any Tailwind utility, so a stray
+   `rounded` would soften the square edges this design depends on. */
+*,
+::before,
+::after {
+  border-radius: 0;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    background: var(--color-ink);
+  }
+
+  body {
+    @apply bg-ink font-sans text-bone antialiased;
+    font-feature-settings: "ss01" on, "cv01" on;
+  }
+
+  ::selection {
+    background: var(--color-acid);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-acid);
+    outline-offset: 2px;
+  }
+
+  table {
+    border-collapse: collapse;
+  }
+
+  summary {
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+}
+
+@layer components {
+  /* Micro-label: every section, field and table column is named in mono caps. */
+  .eyebrow {
+    @apply font-mono text-[10px] uppercase tracking-[0.24em] text-muted;
+  }
+
+  .panel {
+    @apply border border-line bg-panel;
+  }
+
+  .panel-head {
+    @apply flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-3;
+  }
+
+  /* Controls share one silhouette: square, hairline, mono caps. */
+  .btn {
+    @apply inline-flex h-9 items-center justify-center gap-2 border border-line-bright px-4 font-mono text-[10px] uppercase tracking-[0.16em] text-bone transition-colors duration-150 hover:border-bone hover:bg-raised disabled:pointer-events-none disabled:opacity-40;
+  }
+
+  .btn-primary {
+    @apply border-acid bg-acid text-ink hover:border-acid hover:bg-acid hover:text-ink;
+  }
+
+  .btn-outline-acid {
+    @apply border-acid/50 text-acid hover:border-acid hover:bg-acid/10 hover:text-acid;
+  }
+
+  .btn-small {
+    @apply h-7 px-2.5 text-[9px];
+  }
+
+  .field {
+    @apply mt-2 block w-full border border-line-bright bg-ink px-3 py-2 font-mono text-sm text-bone placeholder:text-faint focus:border-acid focus:outline-none;
+  }
+
+  .label {
+    @apply block font-mono text-[10px] uppercase tracking-[0.16em] text-muted;
+  }
+
+  .mono {
+    @apply font-mono text-[12px];
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 border px-2 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em];
+  }
+
+  .chip-live {
+    @apply border-mint/30 bg-mint/10 text-mint;
+  }
+
+  .chip-warn {
+    @apply border-amber/30 bg-amber/10 text-amber;
+  }
+
+  .chip-danger {
+    @apply border-danger/30 bg-danger/10 text-danger;
+  }
+
+  .chip-muted {
+    @apply border-line-bright text-muted;
+  }
+
+  .data-table {
+    @apply w-full text-sm;
+  }
+
+  .data-table thead th {
+    @apply border-b border-line-bright py-2 pr-4 text-left font-mono text-[10px] font-normal uppercase tracking-[0.16em] text-muted last:pr-0;
+  }
+
+  .data-table tbody td {
+    @apply py-3 pr-4 align-top last:pr-0;
+  }
+
+  /* Rows carry the `border-t` utility their markup test reads; the colour is here so
+     that class can stay the bare token the test matches on. */
+  .data-table tbody tr {
+    border-top-color: var(--color-line);
+  }
+
+  .data-table tbody tr:hover {
+    @apply bg-raised/40;
+  }
+
+  .link {
+    @apply underline decoration-line-bright underline-offset-4 transition-colors hover:text-acid hover:decoration-acid;
+  }
+
+  .notice-warn {
+    @apply border-l-2 border-amber bg-amber/[0.06] px-4 py-3 text-sm text-bone;
+  }
+
+  .notice-danger {
+    @apply border-l-2 border-danger bg-danger/[0.06] px-4 py-3 text-sm text-bone;
+  }
+
+  .notice-muted {
+    @apply border-l-2 border-line-bright bg-coal px-4 py-3 text-sm text-muted;
+  }
+
+  .stat-value {
+    @apply font-mono text-2xl tracking-tight tabular-nums;
+  }
+}

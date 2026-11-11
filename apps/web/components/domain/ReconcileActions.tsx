@@ -41,7 +41,10 @@ export type ReconcileActionsProps = {
  */
 export function ActionNotice({ message }: { readonly message: string }) {
   return (
-    <p aria-live="polite" className="mt-2 text-sm text-red-700">
+    <p aria-live="polite" className="notice-danger">
+      <span className="mr-2 font-mono text-[10px] uppercase tracking-[0.14em] text-danger">
+        Refused /
+      </span>
       {message}
     </p>
   );
@@ -98,9 +101,12 @@ export function ReconcileActions({ listed, blocked, nowMs }: ReconcileActionsPro
     items.kind === "unreachable" ? (
       <SessionNotice detail={items.detail} kind="unreachable" />
     ) : items.discrepancies.length === 0 ? (
-      <p className="text-sm opacity-70">{NO_DISCREPANCY_COPY}</p>
+      <div className="panel flex flex-col gap-2 p-6">
+        <span className="chip chip-live w-fit">Clear</span>
+        <p className="text-sm leading-6 text-muted">{NO_DISCREPANCY_COPY}</p>
+      </div>
     ) : (
-      <div className="mt-4 space-y-4">
+      <div className="space-y-3">
         {items.discrepancies.map((discrepancy) => (
           <DiscrepancyCard
             busy={busyId === discrepancy.id}
@@ -131,16 +137,32 @@ export function ReconcileActions({ listed, blocked, nowMs }: ReconcileActionsPro
     );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-12">
       {notice === null ? null : <ActionNotice message={notice} />}
 
       <section aria-label="Open items">
-        <h2 className="text-lg font-semibold">Open items</h2>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3">
+          <h2 className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-bone">
+            <span aria-hidden className="h-px w-5 bg-acid" />
+            Open items
+          </h2>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+            Severity, then age
+          </span>
+        </div>
         {worklist}
       </section>
 
       <section aria-label="Payers you are holding">
-        <h2 className="text-lg font-semibold">Payers you are holding</h2>
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b border-line pb-3">
+          <h2 className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-bone">
+            <span aria-hidden className="h-px w-5 bg-acid" />
+            Payers you are holding
+          </h2>
+          <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+            Gateway predicate, read back
+          </span>
+        </div>
         {held}
       </section>
     </div>

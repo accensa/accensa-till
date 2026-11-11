@@ -20,32 +20,58 @@ export function CreationCheckResults({ checks }: CreationCheckResultsProps) {
   // storage rule runs once per account it has to check.
   const { failed, passed } = orderChecks(checks);
   return (
-    <div className="mt-4">
-      <h3 className="font-semibold">
-        {failed.length === 0
-          ? "Every creation check passed"
-          : `${failed.length} ${failed.length === 1 ? "check" : "checks"} to fix`}
-      </h3>
+    <div className="mt-5 border border-line">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line bg-coal px-4 py-3">
+        <h3 className="font-mono text-[11px] uppercase tracking-[0.14em] text-bone">
+          {failed.length === 0
+            ? "Every creation check passed"
+            : `${failed.length} ${failed.length === 1 ? "check" : "checks"} to fix`}
+        </h3>
+        <span className={`chip ${failed.length === 0 ? "chip-live" : "chip-warn"}`}>
+          {failed.length === 0 ? "Clear" : "Blocked"}
+        </span>
+      </div>
+
       {failed.length > 0 ? (
-        <ul className="mt-2 space-y-2">
+        <ul className="divide-y divide-line">
           {failed.map((check, index) => (
-            <li className="text-sm" key={`${check.code}:${index}`}>
-              <span className="text-red-700">Failed</span> <code>{check.code}</code>
-              <p className="opacity-80">{check.message}</p>
+            <li
+              className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:gap-4"
+              key={`${check.code}:${index}`}
+            >
+              <span className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-danger">
+                Failed
+              </span>
+              <div className="min-w-0">
+                <code className="font-mono text-[11px] text-bone">{check.code}</code>
+                <p className="mt-1 text-sm leading-6 text-muted">{check.message}</p>
+              </div>
             </li>
           ))}
         </ul>
       ) : null}
+
       {passed.length > 0 ? (
-        <details className="mt-3">
-          <summary className="text-sm cursor-pointer">
+        <details className="border-t border-line">
+          <summary className="cursor-pointer px-4 py-3 font-mono text-[10px] uppercase tracking-[0.12em] text-muted transition-colors hover:text-bone">
+            <span aria-hidden className="mr-2 text-acid">
+              +
+            </span>
             {passed.length} passed ({passed.map((check) => check.code).join(", ")})
           </summary>
-          <ul className="mt-2 space-y-2">
+          <ul className="divide-y divide-line border-t border-line">
             {passed.map((check, index) => (
-              <li className="text-sm" key={`${check.code}:${index}`}>
-                <span className="text-green-700">Passed</span> <code>{check.code}</code>
-                <p className="opacity-80">{check.message}</p>
+              <li
+                className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:gap-4"
+                key={`${check.code}:${index}`}
+              >
+                <span className="w-16 shrink-0 font-mono text-[10px] uppercase tracking-[0.12em] text-mint">
+                  Passed
+                </span>
+                <div className="min-w-0">
+                  <code className="font-mono text-[11px] text-bone">{check.code}</code>
+                  <p className="mt-1 text-sm leading-6 text-muted">{check.message}</p>
+                </div>
               </li>
             ))}
           </ul>
