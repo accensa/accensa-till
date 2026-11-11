@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Instructions for coding agents working in this repository (Till, working name). Read this file fully, then the progress block and your phase in `ROADMAP.md`, then `docs/ARCHITECTURE_ESSENTIALS.md`. Open the other docs only when a task needs them.
+Instructions for coding agents working in this repository (Till). Read this file fully, then the progress block and your phase in `ROADMAP.md`, then `docs/ARCHITECTURE_ESSENTIALS.md`. Open the other docs only when a task needs them.
 
 Three files in `.qoder/` are the fast route into the codebase and they are kept in sync with it: `.qoder/modules.md` (what each directory owns and the rule that guards it), `.qoder/architecture.md` (the paid-call order, state machines, data model and the gaps), `.qoder/workflows.md` (setup, gates, test modes, the change loop). Read the relevant one before developing in an area; update it in the same change when your work moves what it describes.
 

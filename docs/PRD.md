@@ -1,4 +1,4 @@
-# PRD: Till (working name)
+# PRD: Till
 
 Seller-side back-office for x402 payments on NEAR.
 

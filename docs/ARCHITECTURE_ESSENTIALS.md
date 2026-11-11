@@ -1,4 +1,4 @@
-# ARCHITECTURE_ESSENTIALS: Till (working name)
+# ARCHITECTURE_ESSENTIALS: Till
 
 Version 2.1. Outline of decisions that must not be violated. Detail: `ARCHITECTURE.md`. Scope: `PRD.md`. Layout: `PROJECT_STRUCTURE.md`. Status and task list: `ROADMAP.md` (repo root).
 

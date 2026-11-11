@@ -1,4 +1,4 @@
-# ARCHITECTURE: Till (working name)
+# ARCHITECTURE: Till
 
 Version 2, revised after a red-team pass (section 14). Companion to `PRD.md`. For a short outline of the decisions that matter most, see `ARCHITECTURE_ESSENTIALS.md`.
 

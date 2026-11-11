@@ -1,4 +1,4 @@
-# PROJECT_STRUCTURE: Till (working name)
+# PROJECT_STRUCTURE: Till
 
 Version 2.1. Where everything lives and where new code goes. Companion to `ARCHITECTURE.md`.
 

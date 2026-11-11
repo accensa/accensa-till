@@ -1,4 +1,4 @@
-# Till (working name)
+# Till
 
 Seller-side back-office for [x402](https://www.x402.org/) payments on NEAR.
 
@@ -440,10 +440,8 @@ in checks against a response or the database:
   no test clicks a button: the state a click sets is passed to those components as a
   prop, and the click path belongs to a human or to the submission video. What the
   Quickstart shows of the dashboard is therefore the honest state — the three real
-  pages ask for a session, and `/sign-in` names F8 as the missing wallet rather than
-  pretending.
-- The project name is a working name; `accensa-till` is the repo, "Till" appears
-  throughout the docs, and renaming is open work under A1.
+  pages ask for a session, and `/sign-in` allows NEP-413 sign-in via browser wallet or CLI challenge.
+- The project is named **Till** (`accensa-till` repository).
 - The migration set is drizzle-kit generated except `0001_ledger_append_only.sql`:
   a generator cannot express a trigger, so that file is hand written and
   registered in `migrations/meta/_journal.json`. If a later `pnpm db:generate`

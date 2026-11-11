@@ -2,7 +2,7 @@
   "name": "till",
   "version": "0.0.0",
   "private": true,
-  "description": "Seller-side back-office for x402 payments on NEAR (working name)",
+  "description": "Seller-side back-office for x402 payments on NEAR",
   "type": "module",
   "packageManager": "pnpm@9.15.0",
   "engines": {
