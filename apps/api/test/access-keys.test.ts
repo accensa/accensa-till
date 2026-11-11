@@ -86,7 +86,7 @@ describe("createAccessKeyReader", () => {
   it("asks the node for a public view of this account's keys", async () => {
     const reader = stubFetch(() => ({
       json: {
-        result: { values: [{ public_key: FULL, access_key: { permission: "FullAccess" } }] },
+        result: { keys: [{ public_key: FULL, access_key: { permission: "FullAccess" } }] },
       },
     }));
     expect(await reader("seller.testnet")).toEqual({
@@ -108,6 +108,18 @@ describe("createAccessKeyReader", () => {
     });
     // A read, so nothing that spends or signs rides along with it.
     expect(call?.body).not.toMatch(/secret|private_key|signature/i);
+  });
+
+  it("accepts legacy stub result.values as well as RPC result.keys", async () => {
+    const reader = stubFetch(() => ({
+      json: {
+        result: { values: [{ public_key: FULL, access_key: { permission: "FullAccess" } }] },
+      },
+    }));
+    expect(await reader("seller.testnet")).toEqual({
+      ok: true,
+      keys: [{ publicKey: FULL, fullAccess: true }],
+    });
   });
 
   it("names an account that is not there, in each of the wordings a node uses", async () => {

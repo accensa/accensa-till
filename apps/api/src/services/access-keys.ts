@@ -111,7 +111,7 @@ export function createAccessKeyReader(options: {
 
     const parsed = body as {
       error?: unknown;
-      result?: { error?: unknown; values?: unknown };
+      result?: { error?: unknown; keys?: unknown; values?: unknown };
     };
     if (parsed.error !== undefined || parsed.result === undefined) {
       return classifyError(JSON.stringify(parsed.error ?? ""));
@@ -119,7 +119,7 @@ export function createAccessKeyReader(options: {
     if (parsed.result.error !== undefined) {
       return classifyError(JSON.stringify(parsed.result.error));
     }
-    const keys = parseAccessKeyList(parsed.result.values);
+    const keys = parseAccessKeyList(parsed.result.keys ?? parsed.result.values);
     // A list that came back empty or unparseable is not "no full-access key", it is
     // a read we do not trust, and refusing sign-in on it is the honest answer.
     return keys.length > 0 ? { ok: true, keys } : { ok: false, reason: "unavailable" };
