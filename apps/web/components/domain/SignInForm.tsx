@@ -43,6 +43,7 @@ export type SignInFormViewProps = {
   readonly onSubmitCli: () => void;
   readonly onPromptWallet: () => void;
   readonly onRefreshChallenge: () => void;
+  readonly onScanWallet?: () => void;
 };
 
 const STEPS = [
@@ -77,6 +78,7 @@ export function SignInFormView({
   onSubmitCli,
   onPromptWallet,
   onRefreshChallenge,
+  onScanWallet,
 }: SignInFormViewProps) {
   if (result?.kind === "ok") {
     return (
@@ -286,13 +288,24 @@ export function SignInFormView({
                     <strong className="font-normal text-bone">CLI / Manual Sign</strong> tab to
                     authenticate using testnet credentials.
                   </p>
-                  <button
-                    className="btn btn-small mt-4"
-                    onClick={() => onTabChange("cli")}
-                    type="button"
-                  >
-                    Switch to CLI / Manual Sign
-                  </button>
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button
+                      className="btn btn-small"
+                      onClick={() => onTabChange("cli")}
+                      type="button"
+                    >
+                      Switch to CLI / Manual Sign
+                    </button>
+                    {onScanWallet && (
+                      <button
+                        className="btn btn-small border border-line bg-raised hover:bg-line text-bone"
+                        onClick={onScanWallet}
+                        type="button"
+                      >
+                        Scan Again for Wallet
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -404,6 +417,23 @@ export function SignInFormView({
   );
 }
 
+function checkInjectedWallet(): boolean {
+  if (typeof window === "undefined") return false;
+  const win = window as unknown as Record<string, unknown>;
+  const nightly = win.nightly as Record<string, unknown> | undefined;
+  const bitget = win.bitgetWallet as Record<string, unknown> | undefined;
+  return Boolean(
+    win.near ||
+      win.meteorWallet ||
+      win.meteor ||
+      win.hereWallet ||
+      win.here ||
+      win.sender ||
+      nightly?.near ||
+      bitget?.near,
+  );
+}
+
 export function SignInForm() {
   const [challenge, setChallenge] = useState<SignInChallenge | null>(null);
   const [challengeError, setChallengeError] = useState<string | null>(null);
@@ -413,6 +443,14 @@ export function SignInForm() {
   const [busy, setBusy] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<"wallet" | "cli">("wallet");
   const [walletAvailable, setWalletAvailable] = useState<boolean>(false);
+
+  const scanWallet = useCallback(() => {
+    if (checkInjectedWallet()) {
+      setWalletAvailable(true);
+      return true;
+    }
+    return false;
+  }, []);
 
   const fetchChallenge = useCallback(async () => {
     setChallengeError(null);
@@ -427,22 +465,29 @@ export function SignInForm() {
   useEffect(() => {
     void fetchChallenge();
 
-    // Detect browser wallet extension presence
-    if (typeof window !== "undefined") {
-      const win = window as unknown as {
-        near?: unknown;
-        meteor?: unknown;
-        here?: unknown;
-        sender?: unknown;
-      };
-      if (win.near || win.meteor || win.here || win.sender) {
-        setWalletAvailable(true);
-      } else {
-        // Default to CLI tab if no extension is installed
+    if (scanWallet()) {
+      return;
+    }
+
+    // Extensions inject asynchronously after page script execution; poll for 3 seconds
+    const interval = setInterval(() => {
+      if (scanWallet()) {
+        clearInterval(interval);
+      }
+    }, 300);
+
+    const timeout = setTimeout(() => {
+      clearInterval(interval);
+      if (!checkInjectedWallet()) {
         setActiveTab("cli");
       }
-    }
-  }, [fetchChallenge]);
+    }, 3000);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(timeout);
+    };
+  }, [fetchChallenge, scanWallet]);
 
   const handleEdit = (field: SignInFormField, value: string) => {
     setValues((prev) => ({ ...prev, [field]: value }));
@@ -485,28 +530,34 @@ export function SignInForm() {
     setBusy(true);
     setResult(null);
     try {
-      const win = window as unknown as {
-        near?: {
-          signMessage?: (params: {
-            message: string;
-            recipient: string;
-            nonce: Uint8Array | number[];
-          }) => Promise<{
-            accountId: string;
-            publicKey: string;
-            signature: string;
-          }>;
-        };
-      };
+      const win = window as unknown as Record<string, unknown>;
+      const nightly = win.nightly as Record<string, unknown> | undefined;
+      const provider = (win.near ||
+        win.meteorWallet ||
+        win.hereWallet ||
+        win.sender ||
+        nightly?.near) as
+        | {
+            signMessage?: (params: {
+              message: string;
+              recipient: string;
+              nonce: Uint8Array | number[];
+            }) => Promise<{
+              accountId: string;
+              publicKey: string;
+              signature: string;
+            }>;
+          }
+        | undefined;
 
-      if (!win.near?.signMessage) {
+      if (!provider?.signMessage) {
         setActiveTab("cli");
         return;
       }
 
       // Convert nonce string to binary array for wallet signMessage
       const nonceBytes = Buffer.from(challenge.nonce, "base64");
-      const signed = await win.near.signMessage({
+      const signed = await provider.signMessage({
         message: challenge.message,
         recipient: challenge.recipient,
         nonce: Array.from(nonceBytes),
@@ -551,6 +602,7 @@ export function SignInForm() {
       onSubmitCli={handleCliSubmit}
       onPromptWallet={handleWalletPrompt}
       onRefreshChallenge={fetchChallenge}
+      onScanWallet={scanWallet}
     />
   );
 }
