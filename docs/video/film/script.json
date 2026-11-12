@@ -1,0 +1,67 @@
+{
+  "voice": {
+    "id": "hpp4J3VqNfWAUOO0d1Us",
+    "name": "Bella - Professional, Bright, Warm",
+    "model": "eleven_v4",
+    "stability": 0.42,
+    "similarity": 0.78,
+    "speed": 1.0
+  },
+  "scenes": [
+    {
+      "id": "hook",
+      "headline": "Software is buying from software.",
+      "vo": "Software is buying from software. Data. Prices. Compute. But AI agents have no credit cards, and no time for invoices."
+    },
+    {
+      "id": "problem",
+      "headline": "APIs are free. Getting paid isn't.",
+      "vo": "So sellers give away their APIs for free. No way to charge per request, and no way to prove the money actually arrived."
+    },
+    {
+      "id": "reveal",
+      "headline": "TILL",
+      "vo": "Till is the payment gateway for this new economy, built on NEAR."
+    },
+    {
+      "id": "setup",
+      "headline": "Point. Price. Paid.",
+      "vo": "Point Till at any API. Set a price in digital dollars. Switch the paywall on."
+    },
+    {
+      "id": "challenge",
+      "headline": "402 Payment Required",
+      "vo": "Now every request has a price. When an agent asks without paying, Till answers with a four oh two: payment required."
+    },
+    {
+      "id": "paid",
+      "headline": "Verified. Served. Settled.",
+      "vo": "The agent signs one gasless payment. Till verifies it, serves the data, and settles on NEAR."
+    },
+    {
+      "id": "proof",
+      "headline": "Real settlement. NEAR testnet.",
+      "vo": "This is a real transaction on NEAR testnet. Not a mock-up. Every paid request leaves a receipt anyone can check."
+    },
+    {
+      "id": "payout",
+      "headline": "One payment in. One payout out.",
+      "vo": "Payouts are built on NEAR Intents, so sellers choose the stablecoin and the chain they get paid on. And every payment is matched to its payout by transaction hash."
+    },
+    {
+      "id": "reconcile",
+      "headline": "When money disagrees, Till finds it.",
+      "vo": "If a payout is refunded, Till explains what happened in plain English, and tells the seller what to do next."
+    },
+    {
+      "id": "guard",
+      "headline": "Blocked at the gate.",
+      "vo": "Agents that take data without settling get blocked at the gate, before they burn a cent of gas."
+    },
+    {
+      "id": "close",
+      "headline": "Charge agents by the request. Prove every payout.",
+      "vo": "Till. Charge agents by the request. Prove every payout. Real World Money and Agent Economy, at NEAR Hackathon twenty twenty six."
+    }
+  ]
+}

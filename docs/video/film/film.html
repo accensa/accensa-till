@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Till — Charge agents by the request</title>
+<link rel="stylesheet" href="assets/fonts/embedded.css" />
+<link rel="stylesheet" href="film.css" />
+</head>
+<body>
+<div id="bg"></div>
+<div id="grid"></div>
+<div id="glow"></div>
+<div id="grain"></div>
+
+<header id="topbar">
+  <div class="brand">
+    <div class="mark"><i></i><i></i><i></i><i></i></div>
+    <span class="name">TILL</span>
+    <span class="sub">x402 on NEAR</span>
+  </div>
+  <div class="top-right"><span class="live-dot"></span><span>agent payments</span><span style="color:#3b4148">/</span><span>NEAR Intents</span></div>
+</header>
+
+<main id="stage">
+
+  <!-- 0 · HOOK -->
+  <section class="scene" id="sc-hook">
+    <div class="cam" id="cam-hook">
+      <div class="eyebrow" id="h-eye">THE AGENT ECONOMY</div>
+      <h1 class="display" id="h-title">Software is buying<br>from software.</h1>
+      <div class="word-row" id="h-words">
+        <span class="word" data-cue="data">Data</span>
+        <span class="word" data-cue="prices">Prices</span>
+        <span class="word" data-cue="compute">Compute</span>
+      </div>
+      <div class="agent-line" id="h-agents">
+        <div class="row"><span class="tick"></span><span>research-agent · 4,208 calls/day</span></div>
+        <div class="row"><span class="tick"></span><span>trader-bot · 11,906 calls/day</span></div>
+        <div class="row"><span class="tick"></span><span>support-agent · 2,441 calls/day</span></div>
+      </div>
+      <div class="ep-grid" id="ep-grid"></div>
+      <div class="ghost-card" id="ghost-card">
+        <div class="c-label">CORPORATE CARD</div>
+        <div class="c-num">•••• 4242</div>
+        <div class="no">NOT FOR AGENTS</div>
+      </div>
+      <div class="ghost-invoice" id="ghost-invoice">
+        <div><span>INVOICE #0042</span><br><span style="color:#3b4148">net 30 · manual</span></div>
+        <b>UNPAID</b>
+      </div>
+      <div class="agent-cursor" id="ag1" style="left:180px;top:700px">
+        <svg width="22" height="22" viewBox="0 0 24 24"><path d="M3 2l7.4 19 2.3-7.1L20 11.4z" fill="#f5f3ec" stroke="#06070a" stroke-width="1.3"/></svg>
+        <span class="agent-tag">research-agent</span>
+      </div>
+      <div class="agent-cursor" id="ag2" style="left:250px;top:760px">
+        <svg width="20" height="20" viewBox="0 0 24 24"><path d="M3 2l7.4 19 2.3-7.1L20 11.4z" fill="#f5f3ec" stroke="#06070a" stroke-width="1.3"/></svg>
+        <span class="agent-tag">trader-bot</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 1 · PROBLEM -->
+  <section class="scene" id="sc-problem">
+    <div class="cam" id="cam-problem">
+      <div class="card" id="s1-card">
+        <div class="card-label">SELLER ANALYTICS · LAST 24H</div>
+        <div id="s1-req">0</div>
+        <div id="s1-sub">requests answered by your API</div>
+        <svg id="s1-spark" width="696" height="120" viewBox="0 0 696 120" style="position:absolute;left:32px;top:246px">
+          <path id="s1-area" d="M0 112 L0 112 C 90 108, 150 96, 220 84 C 300 70, 360 58, 430 44 C 500 30, 560 20, 696 8 L696 118 L0 118 Z" fill="rgba(201,255,87,0.12)"></path>
+          <path id="s1-line" d="M0 112 C 90 108, 150 96, 220 84 C 300 70, 360 58, 430 44 C 500 30, 560 20, 696 8" fill="none" stroke="#c9ff57" stroke-width="4" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+          <path d="M0 112 L696 112" stroke="rgba(255,255,255,0.08)" stroke-width="1" stroke-dasharray="3 6"></path>
+        </svg>
+        <div class="rev-row"><span>Revenue booked</span><strong id="s1-rev">$0.00</strong></div>
+      </div>
+      <div class="card" id="s1-server">
+        <div class="card-label">api.yourshop.com · INCOMING</div>
+        <div class="lines" id="s1-lines"></div>
+      </div>
+      <div id="s1-tags">
+        <div class="s1-tag" data-tag="free"><span>No per-request billing</span><b>402 unused</b></div>
+        <div class="s1-tag" data-tag="charge"><span>Payouts are manual</span><b>cross-chain by hand</b></div>
+        <div class="s1-tag" data-tag="prove"><span>No proof of arrival</span><b>reconcile in a spreadsheet</b></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · REVEAL -->
+  <section class="scene" id="sc-reveal">
+    <div class="cam" id="cam-reveal">
+      <div class="gate" id="gate2">
+        <div class="gate-half l" id="gate2-l"></div>
+        <div class="gate-half r" id="gate2-r"></div>
+        <div class="gate-scan"></div>
+        <div class="gate-core"></div>
+      </div>
+      <div class="brandmark-big mark" id="brandmark-big"><i></i><i></i><i></i><i></i></div>
+      <div class="wordmark" id="s2-word">TILL</div>
+      <div id="s2-tagline">The payment gateway for the agent economy.</div>
+      <div id="s2-chips">
+        <span class="chip acid" id="s2-near">BUILT ON NEAR</span>
+        <span class="chip">x402 · HTTP 402</span>
+        <span class="chip">STABLECOIN SETTLEMENT</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · SETUP -->
+  <section class="scene" id="sc-setup">
+    <div class="cam" id="cam-setup">
+      <div id="s3-left">
+        <div class="eyebrow">01 · THE SELLER</div>
+        <h2 class="display">Point. Price.<br><span class="acid">Paid.</span></h2>
+        <div class="step" data-step="point"><div class="n">01</div><div><div class="t">Point at any API</div><div class="d">Your existing GET endpoint, unchanged.</div></div></div>
+        <div class="step" data-step="price"><div class="n">02</div><div><div class="t">Set a price</div><div class="d">One stablecoin price per request.</div></div></div>
+        <div class="step" data-step="switch"><div class="n">03</div><div><div class="t">Switch the paywall on</div><div class="d">Every call is priced, automatically.</div></div></div>
+      </div>
+      <div class="card" id="s3-panel">
+        <div class="head">
+          <div class="card-label">NEW ENDPOINT</div>
+          <span class="chip" id="s3-mode">PAY PER REQUEST</span>
+        </div>
+        <div class="field">
+          <label>Endpoint URL</label>
+          <div class="input"><span class="pre">https://</span><span id="s3-url"></span><span class="caret" id="s3-caret"></span></div>
+        </div>
+        <div class="row2">
+          <div class="field">
+            <label>Price</label>
+            <div class="input"><span id="s3-price">1.00</span><span class="unit">USDC</span></div>
+          </div>
+          <div class="field">
+            <label>Network</label>
+            <div class="input"><span>NEAR</span><span class="unit">near:testnet</span></div>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div>
+            <div class="lbl">Paywall</div>
+            <div class="sub">Answer 402 until the request is paid.</div>
+          </div>
+          <div class="toggle" id="s3-toggle"><div class="track-on" id="s3-track"></div><div class="knob" id="s3-knob"></div></div>
+        </div>
+        <div class="status" id="s3-status"><span class="led" id="s3-led"></span><span id="s3-status-text">PAYWALL OFF</span></div>
+        <div class="cursor-el" id="s3-cursor" style="left:760px;top:520px">
+          <svg width="24" height="24" viewBox="0 0 24 24"><path d="M3 2l7.4 19 2.3-7.1L20 11.4z" fill="#f5f3ec" stroke="#06070a" stroke-width="1.3"/></svg>
+        </div>
+        <div class="ripple" id="s3-ripple" style="left:760px;top:520px"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · CHALLENGE -->
+  <section class="scene" id="sc-challenge">
+    <div class="cam" id="cam-challenge">
+      <div class="agent-cursor" id="s4-agent">
+        <svg width="24" height="24" viewBox="0 0 24 24"><path d="M3 2l7.4 19 2.3-7.1L20 11.4z" fill="#f5f3ec" stroke="#06070a" stroke-width="1.3"/></svg>
+        <span class="agent-tag">buyer-agent</span>
+      </div>
+      <div class="gate" id="s4-gate">
+        <div class="gate-half l"></div>
+        <div class="gate-half r"></div>
+        <div class="gate-scan"></div>
+        <div class="gate-core"></div>
+      </div>
+      <div class="big402" id="big402">402</div>
+      <div class="card" id="s4-card">
+        <div class="ch-head">
+          <div class="lane"><span class="chip acid">x402</span><span class="card-label">PAYMENT-REQUIRED · BASE64 HEADER</span></div>
+          <span class="chip">SCHEME: EXACT</span>
+        </div>
+        <div class="ch-body" id="s4-rows"></div>
+      </div>
+      <div id="s4-note">the machine-readable invoice — every field the payer signs</div>
+      <div class="req-pill" id="s4-req" style="left:220px;top:590px">GET /prices</div>
+    </div>
+  </section>
+
+  <!-- 5 · PAID -->
+  <section class="scene" id="sc-paid">
+    <div class="cam" id="cam-paid">
+      <div class="card" id="s5-wallet">
+        <div class="card-label">AGENT WALLET</div>
+        <div class="wallet-acct" id="s5-acct">till-payer-dev.testnet</div>
+        <div class="wallet-bal">balance · 24.60 NEAR · USDC ready</div>
+        <div class="sig-wrap">
+          <div class="lab">SIGNED DELEGATE ACTION</div>
+          <svg width="480" height="130" viewBox="0 0 480 130">
+            <path id="s5-sig" d="M40 86 C 66 40, 84 38, 96 76 C 108 114, 126 110, 140 62 C 152 22, 172 26, 182 78 C 192 120, 212 108, 226 70 C 238 38, 252 44, 262 84 C 272 118, 292 108, 306 72 C 318 40, 332 48, 342 84 C 352 116, 372 104, 388 66 C 400 38, 414 46, 424 82" fill="none" stroke="#c9ff57" stroke-width="3" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"></path>
+          </svg>
+        </div>
+        <div style="margin-top:22px"><span class="chip" id="s5-gas">GASLESS · NEP-366 META-TRANSACTION</span></div>
+      </div>
+      <div class="gate" id="s5-gate">
+        <div class="gate-half l" id="s5-gl"></div>
+        <div class="gate-half r" id="s5-gr"></div>
+        <div class="gate-scan"></div>
+      </div>
+      <div class="card" id="s5-result">
+        <div class="stamp" id="s5-stamp">200 OK</div>
+        <div style="margin-top:10px;font-size:17px;color:#8f959e">Verified, served and settled in one request.</div>
+        <div style="margin-top:22px;display:flex;gap:10px">
+          <span class="chip emerald">VERIFIED</span><span class="chip">SERVED</span><span class="chip">SETTLED</span>
+        </div>
+      </div>
+      <div class="card" id="s5-data">
+        <div class="kv"><span>GET /prices</span><b>{ "BTC": 97412.60, "ETH": 3418.02 }</b></div>
+      </div>
+      <div id="s5-receipt"><span>PAYMENT-RESPONSE</span><span>settled · near:testnet</span></div>
+    </div>
+  </section>
+
+  <!-- 6 · PROOF -->
+  <section class="scene" id="sc-proof">
+    <div class="cam" id="cam-proof">
+      <div class="card" id="s6-card">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="card-label">SETTLEMENT RECEIPT</div>
+          <span class="chip emerald" id="s6-live"><span class="live-dot"></span>LIVE · NEAR TESTNET</span>
+        </div>
+        <div class="tx-hash" id="s6-hash">42XtdGR1RoDne3JX2RT6XDfhoVqw9M1orZJHLmHBTJne</div>
+        <div class="tx-grid" id="s6-rows"></div>
+        <div id="s6-foot">
+          <span>explorer.testnet.near.org/transactions/42XtdGR1RoD…</span>
+          <span>anyone can check it · nothing to trust</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7 · PAYOUT -->
+  <section class="scene" id="sc-payout">
+    <div class="cam" id="cam-payout">
+      <div class="card" id="s7-ledger">
+        <div class="card-label">APPEND-ONLY LEDGER</div>
+        <div id="s7-rows" style="margin-top:10px"></div>
+        <div id="s7-bracket"></div>
+        <div id="s7-match">MATCHED BY TX HASH</div>
+        <div style="position:absolute;left:26px;bottom:22px;font-family:'JetBrains Mono',monospace;font-size:10px;color:#3b4148;letter-spacing:.1em">UPDATE + DELETE REFUSED BY DATABASE TRIGGER</div>
+      </div>
+      <div class="card" id="s7-route">
+        <div class="card-label">PAYOUT ROUTING · NEAR INTENTS</div>
+        <svg width="824" height="420" style="position:absolute;left:0;top:70px">
+          <path id="s7-path" d="M150 190 C 260 190, 300 190, 392 190" fill="none" stroke="rgba(201,255,87,0.45)" stroke-width="2" stroke-dasharray="5 7" pathLength="1" stroke-dashoffset="1"></path>
+          <path id="s7-flow0" d="M470 190 C 560 190, 590 120, 640 96" fill="none" stroke="rgba(201,255,87,0.22)" stroke-width="1.5" stroke-dasharray="4 7"></path>
+          <path id="s7-flow1" d="M470 190 C 560 190, 600 250, 640 268" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1.5" stroke-dasharray="4 7"></path>
+          <path id="s7-flow2" d="M470 190 C 560 190, 600 330, 640 352" fill="none" stroke="rgba(255,255,255,0.10)" stroke-width="1.5" stroke-dasharray="4 7"></path>
+        </svg>
+        <div class="node" style="left:40px;top:236px">PAYMENT IN<b>NEAR · USDC</b></div>
+        <div class="node" style="left:306px;top:218px;border-color:rgba(201,255,87,0.4)">NEAR INTENTS<b>1Click settlement</b></div>
+        <div class="chain-chip" id="ch-base" style="left:628px;top:70px"><span>BASE</span><span class="dot"></span></div>
+        <div class="chain-chip" id="ch-eth" style="left:628px;top:240px"><span>ETHEREUM</span></div>
+        <div class="chain-chip" id="ch-sol" style="left:628px;top:326px"><span>SOLANA</span></div>
+        <div class="node" style="left:40px;top:390px">PAYOUT OUT<b>1.000000 USDC</b></div>
+        <div id="s7-foot">The 1Click client, status polling and swap matching are shipped.<br>In this public demo the payout leg runs on the mock provider.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 8 · RECONCILE -->
+  <section class="scene" id="sc-reconcile">
+    <div class="cam" id="cam-reconcile">
+      <div class="card" id="s8-ledger">
+        <div class="card-label">LEDGER · PAYMENT vs PAYOUT</div>
+        <div id="s8-rows" style="margin-top:10px"></div>
+      </div>
+      <div class="card" id="s8-alert"><div class="alert-card-accent"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div class="alert-code"><span class="live-dot" style="background:#ffb454;box-shadow:0 0 10px rgba(255,180,84,.6)"></span>PAYOUT_REFUNDED</div>
+          <span class="alert-sev">SEVERITY · HIGH</span>
+        </div>
+        <div class="alert-text" id="s8-text">The payout swap was refunded, so the money did not arrive where the seller asked for it.</div>
+        <div class="alert-act" id="s8-act">
+          <span>SUGGESTED ACTION</span>
+          <p>Confirm the destination address and asset are supported, then re-route the payout or keep it on NEAR.</p>
+        </div>
+        <div class="btn-row" id="s8-btns">
+          <span class="btn" id="s8-btn">Resolve</span>
+          <span class="btn ghost">View transaction</span>
+          <span style="margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:10px;color:#3b4148;letter-spacing:.12em">DEDUPED · IDEMPOTENT</span>
+        </div>
+        <div class="cursor-el" id="s8-cursor" style="left:120px;top:520px">
+          <svg width="24" height="24" viewBox="0 0 24 24"><path d="M3 2l7.4 19 2.3-7.1L20 11.4z" fill="#f5f3ec" stroke="#06070a" stroke-width="1.3"/></svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9 · GUARD -->
+  <section class="scene" id="sc-guard">
+    <div class="cam" id="cam-guard">
+      <div class="strike-list">
+        <div class="strike" data-strike="1"><b>STRIKE 1 · SERVED, NOT SETTLED</b><span>200 OK · revenue unbooked</span></div>
+        <div class="strike" data-strike="2"><b>STRIKE 2 · SERVED, NOT SETTLED</b><span>counter = 2 / threshold 2</span></div>
+        <div class="strike" data-strike="3" style="border-color:rgba(255,111,97,.45)"><b>NEXT REQUEST · BLOCKED</b><span>403 · before any upstream call</span></div>
+      </div>
+      <div id="s9-wall"></div>
+      <div id="s9-wall-glow"></div>
+      <div id="s9-block">
+        <div class="big403">403</div>
+        <div id="s9-sub">PAYER BLOCKED AT THE GATE<br>2 unsettled serves in 24h</div>
+        <div id="s9-gas"><span class="live-dot"></span>0 GAS BURNED · 0 UPSTREAM CALLS</div>
+      </div>
+      <div class="req-pill" id="s9-r1" style="left:260px;top:270px">GET /prices</div>
+      <div class="req-pill" id="s9-r2" style="left:260px;top:370px">GET /prices</div>
+      <div class="req-pill" id="s9-r3" style="left:260px;top:470px">GET /prices</div>
+    </div>
+  </section>
+
+  <!-- 10 · CLOSE -->
+  <section class="scene" id="sc-close">
+    <div class="cam" id="cam-close">
+      <div class="mark" id="end-mark"><i></i><i></i><i></i><i></i></div>
+      <div id="end-word">TILL</div>
+      <div id="end-tag">
+        <div class="l1" id="end-l1">Charge agents by the request.</div>
+        <div class="l2" id="end-l2">Prove every payout.</div>
+      </div>
+      <div id="end-chips">
+        <span class="chip acid" id="end-c1">REAL-WORLD MONEY</span>
+        <span class="chip emerald" id="end-c2">AGENT ECONOMY</span>
+        <span class="chip" id="end-c3">NEAR HACKATHON 2026</span>
+      </div>
+      <div id="end-tech"><span>x402</span><span>NEAR INTENTS</span><span>NEP-141 USDC</span><span>NEP-366</span></div>
+      <div id="end-url">github.com/accensa/accensa-till&nbsp;&nbsp;·&nbsp;&nbsp;nearhackathon.com</div>
+    </div>
+  </section>
+
+</main>
+
+<div id="packet" data-kind="req"><div class="pk-inner"><div class="pk-icon" id="pk-icon">→</div><div class="pk-label" id="pk-label">GET /prices</div></div></div>
+<div id="caption"><p id="cap-text"></p></div>
+<div id="progress"><i id="bar"></i></div>
+
+<script src="build/timeline.js"></script>
+<script src="film.js"></script>
+</body>
+</html>
