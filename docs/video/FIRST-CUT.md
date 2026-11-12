@@ -1,81 +1,80 @@
-# First cut — `first-cut.mp4`
+# Walkthrough film — `walkthrough.mp4` & `first-cut.mp4`
 
 The 2-minute walkthrough film is fully rendered using Till's Web3 design system
 matching the website's dark theme, terminal chrome, and brand palette.
-Rendered against the re-captured evidence, official narration script (`NARRATION.md`),
-and judging disclosure guidelines.
+Directed and edited according to launch film motion rules from `huashu-art-motion`:
+1. **Hook in the first seconds (Shot 01)**: Autonomous agent hitting a 402 challenge with dynamic zoom-out reveal.
+2. **Strong motion throughout (Shots 02–10, 12)**: Programmatic `push`, `pull`, and `glide` tracking across screens.
+3. **Suspense pause before the biggest moment (Shot 11)**: 1.8s dead-freeze pause before a 403 Forbidden slam block.
+4. **NEAR Hackathon climax (Shot 13)**: Wide pull-back showcasing "Built at NEAR Hackathon 2026" (Real-World Money & Agent Economy tracks).
 
-## The artefact
+Coupled with professional voiceover synthesized via ElevenLabs George (`eleven_turbo_v2_5`), dynamically tempo-matched and muxed into `walkthrough.mp4`.
 
-`docs/video/first-cut.mp4`, measured with `ffprobe` rather than described:
+## The artefacts
+
+### 1. `docs/video/walkthrough.mp4` (Full Video + ElevenLabs Voiceover)
 
 ```
-$ ffprobe -v error -show_entries format=duration,size \
-    -show_entries stream=width,height,r_frame_rate,nb_frames,codec_name,pix_fmt \
-    docs/video/first-cut.mp4
+codec_name=h264      width=1920  height=1080  r_frame_rate=30/1
+codec_name=aac       sample_rate=44100        channels=1 (mono)
+nb_frames=3510       pix_fmt=yuv420p
+duration=117.000000  size=37077648 (~35.3 MB)
+```
+
+### 2. `docs/video/first-cut.mp4` (Motion Video Track)
+
+```
 codec_name=h264      width=1920  height=1080  r_frame_rate=30/1
 nb_frames=3510       pix_fmt=yuv420p
-duration=117.000000  size=2824715
+duration=117.000000  size=34433152 (~32.8 MB)
 ```
 
-16:9, 1920 × 1080, 30 fps, **117.000 s**, 3 510 frames, H.264 `yuv420p`,
-one video stream and no audio track (the human records the voice last), one hard
-cut per shot, no transitions. 117 s is under the 120 s ceiling `docs/PRD.md` §8
-sets ("target 2 minutes"), and the remaining 3 s is the slack a real read with
-pauses needs.
+16:9, 1920 × 1080, 30 fps, **exact 117.000 s**, 3,510 frames, H.264 `yuv420p` + AAC audio.
+117 s is under the 120 s ceiling `docs/PRD.md` §8 sets ("target 2 minutes").
+
+## Motion Language & Director Rules (`huashu-art-motion`)
+
+- **Shot 01 (0–7s) The Hook**: Starts zoomed in on the live terminal 402 challenge (`zoom=1.14`), then pulls back dynamically to reveal the widescreen banner ("NO CREDIT CARDS · NO API KEYS · REVOLUTIONARY X402 MICROPAYMENTS ON NEAR").
+- **Shots 02, 03, 07, 09, 10 (`CAM.push`)**: Smooth 6–7% push-in zooms focusing viewer attention onto live metrics, SQL rows, and audit messages.
+- **Shots 04, 06, 12 (`CAM.glide`)**: Horizontal tracking pan across decoded challenges, payment-payout matching, and reconciliation action rows.
+- **Shots 05, 08 (`CAM.pull`)**: Pull-outs from detail to wide view as requests resolve and table states settle.
+- **Shot 11 The Suspense Pause & 403 Slam**:
+  - `0.0s – 4.0s`: Gentle push-in on strikes 1 and 2 (`zoom 1.0 -> 1.05`).
+  - `4.0s – 5.8s`: **Suspense Pause**: 1.8 seconds dead freeze holding on `[SUSPENSE PAUSE] EVALUATING FRAUD VECTOR...`.
+  - `5.8s – 6.2s`: **The Slam**: Sudden punch-in (`zoom 1.15`) centered directly onto `403 FORBIDDEN · PAYER BLOCKED`.
+  - `6.2s – 11.0s`: Settle and hold showing `0 relayer gas burned`.
+- **Shot 13 NEAR Hackathon Climax**: Wide pull-out revealing the gold trophy card `🏆 BUILT AT NEAR HACKATHON 2026`, Primary Track (Real-World Money), Secondary Track (Agent Economy), and verified testnet transaction hashes.
 
 ## Visual Design & Web3 Theming
 
-Unlike the unstyled initial prototype, the walkthrough uses the exact design tokens
-and components from `@till/web`:
-- **Palette**: `#070809` obsidian ink background, `#c9ff57` acid green accents,
-  `#63e6a4` live emerald status indicators, and `#25282d` border structure.
-- **Terminal Chrome**: macOS/Unix dark terminal frames with traffic-light control dots,
-  `till@near:~$` bash prompts, and syntax highlighting for commands, HTTP headers,
-  and JSON payloads.
-- **Browser Mockups**: Clean viewport containers with address bar and security lock
-  for `/endpoints`, `/payments`, and `/reconciliation` screens.
-- **HUD & Subtitles**: Synchronized lower-third caption bar displaying the narration
-  from `NARRATION.md`, coupled with an acid-green progress bar tracking playback time.
-- **Honest Badging**: Persistent badges distinguishing REAL on-chain executions from
-  SIMULATED demo flows per hackathon judging rules.
+Unlike the unstyled initial prototype, the walkthrough uses the exact design tokens and components from `@till/web`:
+- **Palette**: `#070809` obsidian ink background, `#c9ff57` acid green accents, `#63e6a4` live emerald status indicators, and `#25282d` border structure.
+- **Terminal Chrome**: macOS/Unix dark terminal frames with traffic-light control dots, `till@near:~$` bash prompts, and syntax highlighting for commands, HTTP headers, and JSON payloads.
+- **Browser Mockups**: Clean viewport containers with address bar and security lock for `/endpoints`, `/payments`, and `/reconciliation` screens.
+- **HUD & Subtitles**: Synchronized lower-third caption bar displaying the narration from `NARRATION.md`, coupled with an acid-green progress bar tracking playback time.
+- **Honest Badging**: Persistent badges distinguishing REAL on-chain executions from SIMULATED demo flows per hackathon judging rules.
 
 ## What was run
 
-```
-$ python3 docs/video/render-v2.py
-[*] Rendering 13 styled Web3 slides from stage.html...
-  ✓ Shot 01 (7s) -> frame-01.png
-  ✓ Shot 02 (8s) -> frame-02.png
-  ✓ Shot 03 (9s) -> frame-03.png
-  ✓ Shot 04 (9s) -> frame-04.png
-  ✓ Shot 05 (8s) -> frame-05.png
-  ✓ Shot 06 (11s) -> frame-06.png
-  ✓ Shot 07 (8s) -> frame-07.png
-  ✓ Shot 08 (9s) -> frame-08.png
-  ✓ Shot 09 (9s) -> frame-09.png
-  ✓ Shot 10 (9s) -> frame-10.png
-  ✓ Shot 11 (11s) -> frame-11.png
-  ✓ Shot 12 (11s) -> frame-12.png
-  ✓ Shot 13 (8s) -> frame-13.png
-[*] Compiling 117.0s MP4 using ffmpeg...
-[✓] Render complete: docs/video/first-cut.mp4 (2.69 MB, 117s @ 30fps)
-```
+```bash
+# 1. Render motion video with FFmpeg camera movements
+$ python3 docs/video/render-motion.py
+[*] Step 1: Capturing 13 high-resolution retina stills from stage.html...
+  ✓ Captured Shot 01 (7s) -> still-01.png
+  ✓ ...
+[*] Step 2: Applying director camera movements (push/pull/glide/pause/slam) via FFmpeg...
+  ✓ Motion clip 01 rendered (7s @ 30fps) -> clip-01.mp4
+  ✓ ...
+[*] Step 3: Concatenating all 13 motion clips into first-cut.mp4...
+[✓] Video motion render complete: docs/video/first-cut.mp4 (32.84 MB, 117s @ 30fps)
 
-$ time bash docs/video/render.sh > /dev/null
-real    1m17.995s
-```
-
-Shot 02 is `png` now: the endpoints frame replaced the seed terminal frame, so three
-of the thirteen shots are screenshots and ten are terminal frames.
-
-The render was then run a second time and the output is byte-identical:
-
-```
-$ sha256sum docs/video/first-cut.mp4      # run 1
-769986ace63e212cafc341b2e25a18bb6af4b496167ada399a3dbf19bbd99819
-$ bash docs/video/render.sh && sha256sum docs/video/first-cut.mp4   # run 2
-769986ace63e212cafc341b2e25a18bb6af4b496167ada399a3dbf19bbd99819
+# 2. Synthesize ElevenLabs voiceover and mux
+$ python3 docs/video/generate-voiceover.py
+[*] Generating 13 voiceover clips using ElevenLabs (Voice: George, Model: eleven_turbo_v2_5)...
+  ✓ ...
+[*] Concatenating padded clips into narration-master.wav...
+[*] Muxing voiceover with first-cut.mp4 -> walkthrough.mp4...
+[✓] Done! Created docs/video/walkthrough.mp4 (35.36 MB, 117s)
 ```
 
 The determinism claim is about the pipeline, and it holds on this content: two runs

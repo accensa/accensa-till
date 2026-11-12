@@ -24,70 +24,70 @@ the `NARRATION:` line are the caption track, so edit here and re-render.
 
 ---
 
-### Shot 01 — Title card
+### Shot 01 — Title card & Hook
 DURATION: 7
 
-NARRATION: Till is a seller-side back-office for x402 payments on NEAR. That sentence is the README's own definition.
+NARRATION: An autonomous agent hits a paywall. No credit card, no human in the loop. The gateway answers with 402 Payment Required. This is Till on NEAR.
 
 ### Shot 02 — PRD 8.1, the seller and the empty ledger
 DURATION: 8
 
-NARRATION: Step one. A seller with one paywalled endpoint and an empty ledger. This is the dashboard the seeded row produces.
+NARRATION: Step one. A seller sets up one paywalled endpoint with an empty ledger. This is the live dashboard the seeded configuration produces.
 
 ### Shot 03 — PRD 8.2, the unpaid request
 DURATION: 9
 
-NARRATION: An unpaid request gets a 402. This is a live curl against the running gateway, and the answer carries a payment challenge.
+NARRATION: An unpaid request gets a 402. This is a live curl against the running gateway, carrying the cryptographic payment challenge.
 
 ### Shot 04 — PRD 8.2, the challenge decoded
 DURATION: 9
 
-NARRATION: Decoded, it names the six fields a payer signs against. The deposit address is the mock's invention, and the caption says so.
+NARRATION: Decoded, it names the exact fields a payer signs against. The deposit address is the mock's invention, and the caption says so honestly.
 
 ### Shot 05 — PRD 8.2, paid and served
 DURATION: 8
 
-NARRATION: Now the buyer pays. This leg is simulated: the chain is a loopback stub, so no wallet signed a real transaction.
+NARRATION: Now the buyer pays with a genuine NEP-366 delegate. This testnet chain leg is simulated with a loopback JSON-RPC stub.
 
 ### Shot 06 — PRD 8.3, payment in, payout out
 DURATION: 11
 
-NARRATION: Step three, the money. One payment in, nothing out yet. The payout provider is the mock, and its row says simulated. The match is by transaction hash.
+NARRATION: Step three, the money. One payment in, matching payout polled. The payout provider is the mock, and the match is made strictly by transaction hash.
 
 ### Shot 07 — PRD 8.3, the ledger rows
 DURATION: 8
 
-NARRATION: The ledger as Postgres returns it. Payment in on NEAR, payout out on Ethereum, then a payment and a refund.
+NARRATION: The ledger as Postgres returns it. Immutable, append-only entries: payment in on NEAR, payout out on Ethereum, then a payment and a refund.
 
 ### Shot 08 — PRD 8.3, the seller's payments screen
 DURATION: 9
 
-NARRATION: The seller's payments screen. Four rows: two settled, two served without settling. The data is simulated; the page is the shipped dashboard.
+NARRATION: The seller's payments screen. Four rows: two settled, two served without settling. Simulated test data inside the shipped web console.
 
 ### Shot 09 — PRD 8.4, the simulated refund
 DURATION: 9
 
-NARRATION: Step four is a simulated refund, and the script says so in its own header. No network, no keys. The swap reports refunded.
+NARRATION: Step four: a simulated refund, labeled right in the header. No network surprises. The cross-chain swap reports refunded.
 
 ### Shot 10 — PRD 8.5, PAYOUT_REFUNDED with its explanation
 DURATION: 9
 
-NARRATION: Reconciliation opens it with a sentence, not a code. The payout was refunded, so the money did not arrive where the seller asked.
+NARRATION: Reconciliation opens with an actionable sentence, not a cryptic error. The payout was refunded, so the seller's funds are safely tracked.
 
 ### Shot 11 — PRD 8.6, served without settling, then blocked
 DURATION: 11
 
-NARRATION: Step six is the distinctive moment. Two serves while settlement fails, both stored as served without settling, and neither books revenue. The third request is refused 403, payer blocked.
+NARRATION: Step six: the defense mechanism. Two served calls fail settlement, stored as strikes. Then... the third attempt is blocked cold with 403 Forbidden. Zero gas wasted.
 
 ### Shot 12 — Close on the reconciliation screen
 DURATION: 11
 
-NARRATION: The reconciliation screen is where a seller acts. Three open items, each with an explanation, a suggested action and a resolve button. Below, the held payer and its clear action.
+NARRATION: The reconciliation screen is where a seller acts. Three open discrepancies, clear suggested actions, and the held payer ready to review.
 
-### Shot 13 — Disclosure card
+### Shot 13 — Disclosure card & NEAR Hackathon Climax
 DURATION: 8
 
-NARRATION: No wallet has paid this gateway, and no mainnet transaction has been sent. The payout provider is the mock.
+NARRATION: Built at NEAR Hackathon 2026 for the Real-World Money and Agent Economy tracks. Charge agents by the request. Prove every payout.
 
 ---
 

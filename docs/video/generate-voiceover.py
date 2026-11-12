@@ -112,12 +112,19 @@ for sid, dur, text in shots:
             method="POST"
         )
         
-        try:
-            with urllib.request.urlopen(req) as resp:
-                raw_mp3.write_bytes(resp.read())
-        except urllib.error.HTTPError as e:
-            err_msg = e.read().decode("utf-8", errors="replace")
-            print(f"ElevenLabs API error for shot {sid:02d}: {e.code} - {err_msg}", file=sys.stderr)
+        success = False
+        for attempt in range(3):
+            try:
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    raw_mp3.write_bytes(resp.read())
+                    success = True
+                    break
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, Exception) as e:
+                print(f"    [!] Attempt {attempt + 1} failed: {e}. Retrying in 2s...")
+                import time
+                time.sleep(2)
+        if not success:
+            print(f"Failed to synthesize shot {sid:02d} after 3 attempts.", file=sys.stderr)
             sys.exit(1)
     else:
         print(f"  ✓ Shot {sid:02d} cached: {raw_mp3.name}")
