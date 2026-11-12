@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { api } from "../../lib/api-client.ts";
 import { HeaderStatus } from "./HeaderStatus.tsx";
 import { NavLinks } from "./NavLinks.tsx";
+import { SignOutButton } from "./SignOutButton.tsx";
 
 /**
  * Console chrome (A5, UI-5, F5) shared by the dashboard and sign-in groups. The
@@ -52,9 +53,18 @@ export async function ConsoleShell({ children }: { children: ReactNode }) {
             <span className="hidden font-mono text-[10px] uppercase tracking-[0.14em] text-faint sm:block">
               Hackathon build · 2026
             </span>
-            <a className="btn btn-primary" href="/sign-in">
-              Connect wallet
-            </a>
+            {token !== undefined ? (
+              <div className="flex items-center gap-2">
+                <span className="hidden font-mono text-[10px] uppercase tracking-[0.14em] text-mint sm:inline">
+                  Connected
+                </span>
+                <SignOutButton />
+              </div>
+            ) : (
+              <a className="btn btn-primary" href="/sign-in">
+                Connect wallet
+              </a>
+            )}
           </div>
         </div>
 

@@ -747,54 +747,35 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
       ),
     );
 
-    // `advancePayment` is compare-and-set on the state it read (C3), so a row some
-    // other writer already moved throws rather than taking a second receipt.
+    // `advancePayment` is compare-and-set on the state it read (C3), and `recordSettlement`
+    // writes the matching ledger entry. Both commit together inside one transaction so
+    // a settled payment is never committed unbooked (G6·2).
     let booked: PaymentRow;
     try {
-      booked = await advancePayment(db, payment.id, "settled", {
-        nearTxHash: settled.nearTxHash,
-        upstreamStatus: served.status,
-        upstreamMs: served.elapsedMs,
+      booked = await db.transaction(async (tx) => {
+        const moved = await advancePayment(tx, payment.id, "settled", {
+          nearTxHash: settled.nearTxHash,
+          upstreamStatus: served.status,
+          upstreamMs: served.elapsedMs,
+        });
+        await recordSettlement(
+          tx,
+          {
+            sellerId: row.sellerId,
+            amount: BigInt(moved.amount),
+            asset: moved.assetContract,
+            paymentId: moved.id,
+          },
+          row.payoutMode === "direct" ? "direct" : "intents",
+        );
+        return moved;
       });
     } catch (error) {
       requestLog.error(
-        { code: "settlement_race", paymentId: payment.id, error: String(error) },
-        "settled without booking",
+        { code: "settlement_booking_failed", paymentId: payment.id, error: String(error) },
+        "settled without booking or transaction rolled back",
       );
       return responseOf(served, settled.nearTxHash);
-    }
-
-    try {
-      // D8: in `direct` mode the seller's own account was the pay-to, so the same
-      // transfer is the payout and both lines are written together. `intents`
-      // writes only the payment; its payout arrives with D6's swap.
-      await recordSettlement(
-        db,
-        {
-          sellerId: row.sellerId,
-          amount: BigInt(booked.amount),
-          asset: booked.assetContract,
-          paymentId: booked.id,
-        },
-        row.payoutMode,
-      );
-    } catch (error) {
-      // The money is in and the answer is on its way, so the buyer is not charged
-      // twice for a line that failed here. What this does NOT do, stated because the
-      // sentence that used to sit here claimed the opposite (G6·2, 2026-11-10): no
-      // rule finds the gap. The boot sweep asks the *chain* about a `verified` row and
-      // this row is already `settled`; the reconcile snapshot reads payments, swaps
-      // and per-seller ledger balances, never this payment's own `ledger_entries`
-      // row, and `payment-not-swept.ts` asks whether a *swap* carries the hash rather
-      // than whether the money was booked. So a settled payment with no `payment_in`
-      // leaves the seller's balance short and unnamed, and this log line is the only
-      // record of it. The dated fix is the rule that read would need
-      // (`PAYMENT_UNBOOKED`: settled, hash on the row, no ledger line) and it belongs
-      // before G7 carries real money. Grep for `ledger_write_failed`.
-      requestLog.error(
-        { code: "ledger_write_failed", paymentId: payment.id, error: String(error) },
-        "settled payment not booked",
-      );
     }
 
     // C12, GW-9: keep the answer for five minutes, keyed by the authorization, so a

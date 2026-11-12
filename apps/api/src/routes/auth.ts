@@ -245,6 +245,12 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
     return c.json(signInResultSchema.parse({ seller }));
   });
 
+  app.post("/auth/sign-out", (c) => {
+    deleteCookie(c, SESSION_COOKIE, { path: "/", secure });
+    log.info({ code: "signed_out" }, "wallet sign-out");
+    return c.json({ ok: true });
+  });
+
   return app;
 }
 

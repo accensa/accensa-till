@@ -109,46 +109,27 @@ export async function sweepStaleOnBoot(deps: SweepDeps): Promise<SweepResult> {
       continue;
     }
 
-    let settledId: string;
-    let amount: string;
-    let asset: string;
     try {
-      const settled = await advancePayment(db, payment.id, "settled", {
-        nearTxHash: hash,
+      await db.transaction(async (tx) => {
+        const settled = await advancePayment(tx, payment.id, "settled", {
+          nearTxHash: hash,
+        });
+        await recordSettlement(
+          tx,
+          {
+            sellerId,
+            amount: BigInt(settled.amount),
+            asset: settled.assetContract,
+            paymentId: settled.id,
+          },
+          payoutMode === "direct" ? "direct" : "intents",
+        );
       });
-      settledId = settled.id;
-      amount = settled.amount;
-      asset = settled.assetContract;
+      recovered += 1;
     } catch (error) {
       log?.warn(
-        { code: "sweep_move_failed", paymentId: payment.id, to: "settled", error: String(error) },
-        "stale payment was moved by another writer",
-      );
-      continue;
-    }
-    recovered += 1;
-
-    try {
-      // The route's own booking rule (D8): a `direct` recovery writes the payout
-      // line too, or a restarted process would leave a direct sale half-booked.
-      await recordSettlement(
-        db,
-        {
-          sellerId,
-          amount: BigInt(amount),
-          asset,
-          paymentId: settledId,
-        },
-        // The route refuses to advertise any other mode, so a row here is already
-        // an anomaly; book the payment and do not invent a payout for it.
-        payoutMode === "direct" ? "direct" : "intents",
-      );
-    } catch (error) {
-      // Same posture as the route: the money arrived and the row is honest; a
-      // missing ledger line is ours to chase and reconcile will see the payment.
-      log?.error(
-        { code: "sweep_ledger_failed", paymentId: payment.id, error: String(error) },
-        "recovered payment not booked",
+        { code: "sweep_settlement_failed", paymentId: payment.id, error: String(error) },
+        "stale payment recovery or booking failed",
       );
     }
   }

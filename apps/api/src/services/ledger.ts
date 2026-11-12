@@ -65,11 +65,11 @@ async function insert(db: Db | Tx, entry: LedgerWrite): Promise<void> {
  * belongs to D6 and arrives when the swap succeeds.
  */
 export async function recordSettlement(
-  db: Db,
+  db: Db | Tx,
   entry: Omit<LedgerWrite, "kind">,
   payoutMode: PayoutMode,
 ): Promise<void> {
-  await db.transaction(async (tx) => {
+  const write = async (tx: Db | Tx) => {
     await insert(tx, { ...entry, kind: SETTLEMENT_LEDGER_KIND });
     if (payoutMode === "direct") {
       await insert(tx, {
@@ -78,7 +78,13 @@ export async function recordSettlement(
         note: "direct: the x402 transfer paid the seller's own account",
       });
     }
-  });
+  };
+
+  if ("transaction" in db && typeof db.transaction === "function") {
+    await db.transaction(write);
+  } else {
+    await write(db);
+  }
 }
 
 /**
@@ -121,10 +127,16 @@ export type LedgerExportRow = {
   readonly note: string | null;
 };
 
+export const DEFAULT_LEDGER_EXPORT_LIMIT = 10_000;
+
 /**
  * LR-7 (F7): read ledger entries for a seller, ordered newest-first, for CSV export.
  */
-export async function listLedgerForExport(db: Db, sellerId: string): Promise<LedgerExportRow[]> {
+export async function listLedgerForExport(
+  db: Db,
+  sellerId: string,
+  limit = DEFAULT_LEDGER_EXPORT_LIMIT,
+): Promise<LedgerExportRow[]> {
   const rows = await db
     .select({
       id: ledgerEntries.id,
@@ -138,7 +150,8 @@ export async function listLedgerForExport(db: Db, sellerId: string): Promise<Led
     })
     .from(ledgerEntries)
     .where(eq(ledgerEntries.sellerId, sellerId))
-    .orderBy(desc(ledgerEntries.createdAt), desc(ledgerEntries.id));
+    .orderBy(desc(ledgerEntries.createdAt), desc(ledgerEntries.id))
+    .limit(limit);
 
   return rows as LedgerExportRow[];
 }

@@ -31,7 +31,7 @@ export type PaymentRow = typeof payments.$inferSelect;
  * helper taking it is the difference between Guard 3 reading and writing in one
  * transaction and reading in a transaction it has already left.
  */
-type DbOrTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
+export type DbOrTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 export type NewPayment = {
   readonly id: string;
@@ -87,7 +87,7 @@ function toColumn(amount: BaseUnitAmount): string {
   return amount.toString();
 }
 
-async function byId(db: Db, paymentId: string): Promise<PaymentRow | null> {
+async function byId(db: Db | DbOrTransaction, paymentId: string): Promise<PaymentRow | null> {
   const [row] = await db.select().from(payments).where(sql`${payments.id} = ${paymentId}`).limit(1);
   return row ?? null;
 }
@@ -266,7 +266,7 @@ export function findPayment(db: Db, paymentId: string): Promise<PaymentRow | nul
  * answer means the row moved on; the hash is then the winner's, not ours.
  */
 export async function recordSettlementHash(
-  db: Db,
+  db: Db | DbOrTransaction,
   paymentId: string,
   nearTxHash: string,
 ): Promise<PaymentRow | null> {
@@ -290,7 +290,7 @@ export async function recordSettlementHash(
  * silent no-op.
  */
 export async function advancePayment(
-  db: Db,
+  db: Db | DbOrTransaction,
   paymentId: string,
   to: PaymentState,
   fields: AdvanceFields = {},

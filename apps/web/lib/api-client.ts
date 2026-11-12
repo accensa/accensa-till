@@ -659,4 +659,16 @@ export const api = {
           detail: `/api/auth/verify returned ${response.status} with no readable reason`,
         };
   },
+
+  async signOut(): Promise<{ ok: boolean }> {
+    try {
+      const response = await fetch(requestUrl("/api/auth/sign-out"), {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      return { ok: response.ok };
+    } catch {
+      return { ok: false };
+    }
+  },
 };

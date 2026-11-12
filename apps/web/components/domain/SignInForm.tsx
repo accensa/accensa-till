@@ -10,6 +10,7 @@ import {
   type SignInFormValues,
   authErrorMessage,
   buildCliCommand,
+  decodeBase64Nonce,
   emptySignInForm,
   validateSignInInput,
 } from "../../lib/sign-in.ts";
@@ -556,7 +557,7 @@ export function SignInForm() {
       }
 
       // Convert nonce string to binary array for wallet signMessage
-      const nonceBytes = Buffer.from(challenge.nonce, "base64");
+      const nonceBytes = decodeBase64Nonce(challenge.nonce);
       const signed = await provider.signMessage({
         message: challenge.message,
         recipient: challenge.recipient,

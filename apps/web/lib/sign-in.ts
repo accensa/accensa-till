@@ -39,6 +39,21 @@ export const AUTH_CODE_DESCRIPTIONS: Readonly<Record<AuthErrorCode, string>> = {
   invalid_json: "The server received an unreadable payload.",
 };
 
+/**
+ * Decodes a base64 / base64url encoded nonce string into bytes in browser environments
+ * without relying on Node's Buffer or node:crypto.
+ */
+export function decodeBase64Nonce(value: string): Uint8Array {
+  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  const binary = atob(normalized + pad);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
 export function authErrorMessage(error: AuthError): string {
   return AUTH_CODE_DESCRIPTIONS[error.code] ?? error.message;
 }
