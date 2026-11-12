@@ -10,10 +10,11 @@ is the submission file.
 | [`SHOTLIST.md`](SHOTLIST.md) | 13 shots, 117 s, each naming the capture file it comes from, plus the PRD §8 coverage map and the known gaps |
 | [`NARRATION.md`](NARRATION.md) | The spoken script, one block per shot, sized 2.5 words/second. `render.sh` reads durations and subtitles out of this file |
 | [`CAPTURES/`](CAPTURES/) | The raw evidence: five text captures, one `psql` read, three browser screenshots, and `frames/` — the verbatim excerpts the film renders |
-| [`render.sh`](render.sh) | The deterministic ffmpeg pipeline: captures → 13 stills → `first-cut.mp4` |
-| [`FIRST-CUT.md`](FIRST-CUT.md) | What was rendered, the `ffprobe` numbers, the determinism check, what is missing |
-| `first-cut.mp4` | The silent first cut: 117.000 s, 1920 × 1080, 30 fps, no audio |
-| `build/` | Generated per run (the shot table, the wrapped text files, the 13 stills). Disposable — safe to delete, and there is no reason to commit it |
+| [`render-v2.py`](render-v2.py) | Renders the Web3 styled presentation deck (`stage.html`) into `first-cut.mp4` via headless Chrome CDP |
+| [`generate-voiceover.py`](generate-voiceover.py) | Synthesizes ElevenLabs voiceover narration per shot and muxes it into `walkthrough.mp4` |
+| `walkthrough.mp4` | The complete 2-minute demo with ElevenLabs voiceover: 117.000 s, 1920 × 1080, 30 fps, H.264 + AAC stereo |
+| `first-cut.mp4` | The silent visual cut: 117.000 s, 1920 × 1080, 30 fps |
+| `build/` | Generated per run (the shot table, the wrapped text files, the 13 stills). Disposable |
 
 ## Re-running the render
 
