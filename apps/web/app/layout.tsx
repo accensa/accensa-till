@@ -16,6 +16,12 @@ export const metadata: Metadata = {
   },
   description:
     "Till paywalls any GET API with x402 on NEAR, routes payouts through NEAR Intents, and reconciles every payment against every payout in an append-only ledger.",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+      { url: "/favicon.ico", sizes: "32x32" },
+    ],
+  },
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

@@ -3,12 +3,11 @@ import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { SESSION_COOKIE, newId } from "@till/core";
+import { SESSION_COOKIE } from "@till/core";
 
 import { createApp } from "../src/app.ts";
 import type { Db } from "../src/db/client.ts";
@@ -227,13 +226,11 @@ describe.skipIf(handle === null)("export routes (LR-7, F7)", () => {
   });
 
   afterAll(async () => {
-    if (handle === null) return;
-    const { db } = need();
-    await db.delete(schema.payments).where(eq(schema.payments.endpointId, endpointId));
-    await db.delete(schema.endpoints).where(eq(schema.endpoints.id, endpointId));
-    await db.delete(schema.sellers).where(eq(schema.sellers.id, MINE.id));
-    await db.delete(schema.sellers).where(eq(schema.sellers.id, OTHER.id));
-    await handle.sql.end({ timeout: 5 }).catch(() => undefined);
+    // No deletes: the ledger refuses its own DELETE (A7 trigger) and payments has
+    // a foreign key from ledger_entries. The rows stay, scoped by run UUID.
+    if (handle !== null) {
+      await handle.sql.end({ timeout: 5 }).catch(() => undefined);
+    }
   });
 
   it("refuses export requests with no session cookie", async () => {

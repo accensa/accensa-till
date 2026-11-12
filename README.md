@@ -1,6 +1,29 @@
-# Till
+<div align="center">
+  <h1>accensa-till</h1>
+  <p><strong>Seller-side back-office and reconciliation for x402 payments on NEAR</strong></p>
+  <p>
+    <img src="https://img.shields.io/github/actions/workflow/status/accensa/accensa-till/ci.yml?branch=main" alt="CI Status" />
+    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License" />
+    <img src="https://img.shields.io/badge/near-x402-blue.svg" alt="NEAR x402" />
+    <img src="https://img.shields.io/badge/testnet-deployed-success.svg" alt="Deployed on testnet" />
+    <a href="https://scorecard.dev/viewer/?uri=github.com/accensa/accensa-till">
+      <img src="https://api.scorecard.dev/projects/github.com/accensa/accensa-till/badge" alt="OpenSSF Scorecard" />
+    </a>
+  </p>
+  <p>
+    <a href="docs/PRD.md"><strong>PRD</strong></a> ·
+    <a href="docs/ARCHITECTURE.md"><strong>Architecture</strong></a> ·
+    <a href="ROADMAP.md"><strong>Roadmap</strong></a> ·
+    <a href="https://github.com/accensa"><strong>Accensa org</strong></a> ·
+    <a href="https://www.x402.org/"><strong>x402 spec</strong></a>
+  </p>
+</div>
 
-Seller-side back-office for [x402](https://www.x402.org/) payments on NEAR.
+> Part of the **[Accensa](https://github.com/accensa)** merchant back-office for x402
+> sellers. This repo holds the NEAR x402 payment gateway, multi-chain NEAR Intents
+> payout router, and append-only reconciliation engine.
+
+## Overview
 
 An API seller can already take money from AI agents and still not know whether
 every payment became a payout. Till points at an existing GET endpoint, paywalls

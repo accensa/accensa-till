@@ -318,7 +318,7 @@ suite("POST /auth/nonce issues a challenge and remembers it", () => {
     expect(token.length).toBeGreaterThan(40);
 
     expect(setCookie.startsWith(`${SIGN_IN_COOKIE}=`)).toBe(true);
-    for (const attribute of ["Max-Age=300", "Path=/api", "HttpOnly", "SameSite=Strict"]) {
+    for (const attribute of ["Max-Age=300", "Path=/", "HttpOnly", "SameSite=Strict"]) {
       expect(setCookie).toContain(attribute);
     }
     // NODE_ENV is not production here, and a cookie marked Secure would never be
@@ -376,7 +376,7 @@ suite("POST /auth/verify turns a signature into a session", () => {
     const cookies = response.headers.getSetCookie();
     const sessionLine = cookies.find((line) => line.startsWith(`${SESSION_COOKIE}=`)) ?? "";
     expect(sessionLine).toContain("Max-Age=43200");
-    expect(sessionLine).toContain("Path=/api");
+    expect(sessionLine).toContain("Path=/");
     // The challenge is spent as far as the browser is concerned.
     expect(
       cookies.some((line) => line.startsWith(`${SIGN_IN_COOKIE}=;`) && line.includes("Max-Age=0")),
