@@ -1827,29 +1827,39 @@ suite("the gateway paid request (C4, GW-2)", () => {
     const updates: Record<string, unknown>[] = [];
     const hash = `tx-order-${randomUUID()}`;
     const real = need().db;
-    const watched = new Proxy(real, {
-      get(target, property, receiver) {
-        if (property === "update") {
-          return (...args: Parameters<Db["update"]>) => {
-            const builder = target.update(...args);
-            return new Proxy(builder, {
-              get(inner, key) {
-                if (key === "set") {
-                  return (values: Record<string, unknown>) => {
-                    updates.push({ ...values });
-                    return (inner as unknown as { set(value: unknown): unknown }).set(values);
-                  };
-                }
-                const value = Reflect.get(inner, key) as unknown;
-                return typeof value === "function" ? value.bind(inner) : value;
-              },
-            });
-          };
-        }
-        const value = Reflect.get(target, property, target) as unknown;
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    }) as Db;
+    function makeWatched<T extends object>(target: T): T {
+      return new Proxy(target, {
+        get(t, property) {
+          if (property === "update") {
+            return (...args: Parameters<Db["update"]>) => {
+              const builder = (t as unknown as Db).update(...args);
+              return new Proxy(builder, {
+                get(inner, key) {
+                  if (key === "set") {
+                    return (values: Record<string, unknown>) => {
+                      updates.push({ ...values });
+                      return (inner as unknown as { set(value: unknown): unknown }).set(values);
+                    };
+                  }
+                  const value = Reflect.get(inner, key) as unknown;
+                  return typeof value === "function" ? value.bind(inner) : value;
+                },
+              });
+            };
+          }
+          if (property === "transaction") {
+            return async (fn: (tx: unknown) => Promise<unknown>) => {
+              return await (t as unknown as Db).transaction(async (tx: unknown) => {
+                return await fn(makeWatched(tx as object));
+              });
+            };
+          }
+          const value = Reflect.get(t, property, t) as unknown;
+          return typeof value === "function" ? value.bind(t) : value;
+        },
+      });
+    }
+    const watched = makeWatched(real) as Db;
 
     const target = fixture("direct");
     const { response } = await call("direct", {
