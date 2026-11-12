@@ -1,0 +1,979 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Till — 2-Minute Walkthrough Deck</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body {
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #070809;
+        color: #f3f0e9;
+        font-family: "DejaVu Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      .mono {
+        font-family: "DejaVu Sans Mono", "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      }
+
+      /* Ambient tech background */
+      #bg-grid {
+        position: absolute;
+        inset: 0;
+        background-size: 48px 48px;
+        background-image: 
+          linear-gradient(to right, rgba(37, 40, 45, 0.25) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(37, 40, 45, 0.25) 1px, transparent 1px);
+        pointer-events: none;
+      }
+      #bg-glow {
+        position: absolute;
+        width: 900px;
+        height: 900px;
+        top: 90px;
+        left: 510px;
+        background: radial-gradient(circle, rgba(201, 255, 87, 0.04) 0%, rgba(7, 8, 9, 0) 70%);
+        pointer-events: none;
+      }
+
+      /* Top Status Bar */
+      #top-rail {
+        position: absolute;
+        top: 28px;
+        left: 64px;
+        right: 64px;
+        height: 52px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #25282d;
+        padding-bottom: 16px;
+        z-index: 20;
+      }
+      .brand-box {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .mark-grid {
+        display: grid;
+        grid-template-columns: 14px 14px;
+        grid-template-rows: 14px 14px;
+        gap: 3px;
+        border: 1px solid #3a3f46;
+        padding: 4px;
+        background: #0b0d0f;
+      }
+      .mark-sq { background: rgba(243, 240, 233, 0.8); }
+      .mark-sq.acid { background: #c9ff57; }
+      .brand-text {
+        font-size: 19px;
+        font-weight: 700;
+        letter-spacing: 0.3em;
+        color: #f3f0e9;
+      }
+      .brand-sub {
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #8f959e;
+        margin-left: 6px;
+      }
+      .rail-center {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .pill-badge {
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        padding: 6px 12px;
+        border-radius: 4px;
+        border: 1px solid #25282d;
+        background: #111418;
+        color: #8f959e;
+      }
+      .pill-badge.active-step {
+        border-color: rgba(201, 255, 87, 0.4);
+        color: #c9ff57;
+        background: rgba(201, 255, 87, 0.06);
+      }
+      .rail-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #8f959e;
+      }
+      .live-dot {
+        width: 8px;
+        height: 8px;
+        background: #63e6a4;
+        border-radius: 50%;
+        display: inline-block;
+        box-shadow: 0 0 8px #63e6a4;
+      }
+
+      /* Main Stage Container */
+      #stage-container {
+        position: absolute;
+        top: 108px;
+        left: 64px;
+        right: 64px;
+        bottom: 120px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+      }
+      .shot-view {
+        width: 100%;
+        height: 100%;
+        display: none;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .shot-view.active {
+        display: flex;
+      }
+
+      /* Terminal Card Component */
+      .terminal-frame {
+        width: 100%;
+        max-width: 1720px;
+        height: 720px;
+        background: #0b0d0f;
+        border: 1px solid #25282d;
+        border-radius: 8px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 40px rgba(201, 255, 87, 0.02);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        margin: 0 auto;
+      }
+      .terminal-header {
+        height: 44px;
+        background: #111418;
+        border-bottom: 1px solid #25282d;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 18px;
+      }
+      .terminal-controls {
+        display: flex;
+        gap: 8px;
+      }
+      .term-btn {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+      }
+      .term-btn.red { background: #ff5f56; }
+      .term-btn.yellow { background: #ffbd2e; }
+      .term-btn.green { background: #27c93f; }
+      .terminal-title {
+        font-size: 13px;
+        color: #8f959e;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      .terminal-badge {
+        font-size: 11px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-weight: 600;
+      }
+      .badge-simulated {
+        background: rgba(255, 180, 84, 0.12);
+        border: 1px solid rgba(255, 180, 84, 0.35);
+        color: #ffb454;
+      }
+      .badge-real {
+        background: rgba(99, 230, 164, 0.12);
+        border: 1px solid rgba(99, 230, 164, 0.35);
+        color: #63e6a4;
+      }
+      .badge-neutral {
+        background: rgba(143, 149, 158, 0.12);
+        border: 1px solid rgba(143, 149, 158, 0.25);
+        color: #8f959e;
+      }
+
+      .terminal-body {
+        flex: 1;
+        padding: 24px 32px;
+        overflow: hidden;
+        font-size: 19px;
+        line-height: 1.6;
+        color: #f3f0e9;
+        white-space: pre;
+      }
+      .terminal-body .cmd {
+        color: #c9ff57;
+        font-weight: bold;
+      }
+      .terminal-body .prompt {
+        color: #c9ff57;
+        margin-right: 8px;
+        user-select: none;
+      }
+      .terminal-body .status-ok { color: #63e6a4; font-weight: bold; }
+      .terminal-body .status-warn { color: #ffb454; font-weight: bold; }
+      .terminal-body .status-err { color: #ff6565; font-weight: bold; }
+      .terminal-body .dim { color: #5d626a; }
+      .terminal-body .key { color: #82aaff; }
+      .terminal-body .str { color: #c9ff57; }
+      .terminal-body .num { color: #f78c6c; }
+
+      /* Browser Mockup Frame for Dashboard Screenshots */
+      .browser-mockup {
+        width: 100%;
+        max-width: 1720px;
+        height: 720px;
+        background: #0b0d0f;
+        border: 1px solid #25282d;
+        border-radius: 8px;
+        box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        margin: 0 auto;
+      }
+      .browser-toolbar {
+        height: 46px;
+        background: #111418;
+        border-bottom: 1px solid #25282d;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 18px;
+        gap: 16px;
+      }
+      .browser-address-bar {
+        flex: 1;
+        max-width: 720px;
+        background: #070809;
+        border: 1px solid #25282d;
+        border-radius: 4px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        padding: 0 12px;
+        font-size: 12px;
+        letter-spacing: 0.08em;
+        color: #8f959e;
+        gap: 8px;
+      }
+      .browser-content {
+        flex: 1;
+        position: relative;
+        background: #070809;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .browser-content img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      /* Hero Title Slide (Shot 01) */
+      .hero-stage {
+        text-align: center;
+        max-width: 1380px;
+        margin: 0 auto;
+        padding: 40px;
+      }
+      .hero-eyebrow {
+        font-size: 14px;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: #c9ff57;
+        margin-bottom: 24px;
+      }
+      .hero-title {
+        font-size: 72px;
+        font-weight: 800;
+        line-height: 1.05;
+        letter-spacing: -0.04em;
+        margin-bottom: 30px;
+      }
+      .hero-title .acid { color: #c9ff57; }
+      .hero-desc {
+        font-size: 24px;
+        line-height: 1.6;
+        color: #8f959e;
+        max-width: 980px;
+        margin: 0 auto 40px;
+      }
+      .hero-badges {
+        display: flex;
+        justify-content: center;
+        gap: 16px;
+      }
+      .hero-badge-item {
+        border: 1px solid #25282d;
+        background: #111418;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 13px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: #f3f0e9;
+      }
+      .hero-badge-item.primary {
+        border-color: #c9ff57;
+        color: #c9ff57;
+        background: rgba(201, 255, 87, 0.06);
+      }
+
+      /* Two Column Card (Shot 13) */
+      .split-stage {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 32px;
+        width: 100%;
+        max-width: 1640px;
+        height: 720px;
+        margin: 0 auto;
+      }
+      .split-col {
+        background: #0b0d0f;
+        border: 1px solid #25282d;
+        border-radius: 8px;
+        padding: 36px 40px;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+      }
+      .split-col.verified {
+        border-color: rgba(99, 230, 164, 0.4);
+        background: linear-gradient(180deg, #0b0d0f 0%, rgba(99, 230, 164, 0.03) 100%);
+      }
+      .split-title {
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .split-text {
+        font-size: 16px;
+        line-height: 1.7;
+        color: #8f959e;
+      }
+      .split-list {
+        margin-top: 24px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .split-item {
+        background: #111418;
+        border: 1px solid #25282d;
+        border-radius: 6px;
+        padding: 14px 18px;
+        font-size: 14px;
+      }
+      .split-item .tx {
+        color: #c9ff57;
+        font-size: 13px;
+        display: block;
+        margin-top: 4px;
+      }
+
+      /* Bottom Subtitle Rail */
+      #bottom-rail {
+        position: absolute;
+        bottom: 24px;
+        left: 64px;
+        right: 64px;
+        height: 76px;
+        background: rgba(11, 13, 15, 0.95);
+        border: 1px solid #25282d;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 24px;
+        z-index: 20;
+        backdrop-filter: blur(12px);
+      }
+      .caption-content {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex: 1;
+      }
+      .caption-tag {
+        font-size: 11px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #c9ff57;
+        font-weight: 700;
+        background: rgba(201, 255, 87, 0.1);
+        padding: 6px 10px;
+        border-radius: 4px;
+        border: 1px solid rgba(201, 255, 87, 0.25);
+      }
+      .caption-text {
+        font-size: 17px;
+        color: #f3f0e9;
+        line-height: 1.4;
+        max-width: 1400px;
+      }
+      .shot-counter {
+        font-size: 14px;
+        letter-spacing: 0.2em;
+        color: #8f959e;
+        font-weight: bold;
+      }
+
+      /* Progress Bar at bottom */
+      #timeline-bar {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        height: 3px;
+        background: #25282d;
+        width: 100%;
+        z-index: 30;
+      }
+      #timeline-fill {
+        height: 100%;
+        width: 8%;
+        background: #c9ff57;
+        transition: width 0.3s ease;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="bg-grid"></div>
+    <div id="bg-glow"></div>
+
+    <!-- Top Rail -->
+    <header id="top-rail">
+      <div class="brand-box">
+        <div class="mark-grid">
+          <div class="mark-sq acid"></div>
+          <div class="mark-sq"></div>
+          <div class="mark-sq"></div>
+          <div class="mark-sq" style="background:#25282d"></div>
+        </div>
+        <span class="brand-text mono">TILL</span>
+        <span class="brand-sub mono">NEAR / x402 SETTLEMENT</span>
+      </div>
+
+      <div class="rail-center mono">
+        <span class="pill-badge">TRACK: REAL-WORLD MONEY &amp; AGENT ECONOMY</span>
+        <span class="pill-badge active-step" id="rail-step">PRD §8.0 · OVERVIEW</span>
+      </div>
+
+      <div class="rail-right mono">
+        <span class="live-dot"></span>
+        <span>TESTNET:LIVE</span>
+        <span>USDC.TESTNET</span>
+      </div>
+    </header>
+
+    <!-- Main Stage Views -->
+    <main id="stage-container">
+      
+      <!-- SHOT 01: Title Card -->
+      <section class="shot-view" id="shot-1">
+        <div class="hero-stage">
+          <p class="hero-eyebrow mono">SELLER-SIDE SETTLEMENT &amp; RECONCILIATION FOR NEAR x402</p>
+          <h1 class="hero-title">Charge agents by the request.<br /><span class="acid">Prove every payout.</span></h1>
+          <p class="hero-desc">Till puts an x402 paywall on any GET API, settles on NEAR only after your upstream succeeds, routes payouts through NEAR Intents, and reconciles every payment against every payout in an append-only ledger.</p>
+          <div class="hero-badges mono">
+            <span class="hero-badge-item primary">PRIMARY: REAL-WORLD MONEY</span>
+            <span class="hero-badge-item primary">SECONDARY: AGENT ECONOMY</span>
+            <span class="hero-badge-item">NEAR TESTNET READY</span>
+            <span class="hero-badge-item">OPENSSF SCORECARD VERIFIED</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- SHOT 02: Endpoints Screen -->
+      <section class="shot-view" id="shot-2">
+        <div class="browser-mockup">
+          <div class="browser-toolbar mono">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <div class="browser-address-bar">
+              <span style="color:#63e6a4">🔒</span>
+              <span>http://localhost:3001/endpoints</span>
+            </div>
+            <span class="terminal-badge badge-simulated">SIMULATED · MOCK PAYOUT DESTINATION</span>
+          </div>
+          <div class="browser-content">
+            <img src="CAPTURES/06-dashboard-endpoints.png" alt="Endpoints Dashboard" />
+          </div>
+        </div>
+      </section>
+
+      <!-- SHOT 03: The Unpaid 402 Request -->
+      <section class="shot-view" id="shot-3">
+        <div class="terminal-frame mono">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <span class="terminal-title">bash — curl -i http://localhost:3000/r/demo</span>
+            <span class="terminal-badge badge-real">REAL · SHIPPED GATEWAY RESPONSE</span>
+          </div>
+          <div class="terminal-body"><span class="prompt">❯</span><span class="cmd">curl -sS -i http://localhost:3000/r/demo</span>
+
+<span class="status-warn">HTTP/1.1 402 Payment Required</span>
+<span class="key">content-type:</span> application/json
+<span class="key">PAYMENT-REQUIRED:</span> <span class="str">eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cDovL2xvY2Fs
+aG9zdDozMDAwL3IvZGVtbyIsImRlc2NyaXB0aW9uIjoiRGVtbyBwcmljZXMgZW5kcG9pbnQgKHNlZWRlZCBieSBzY3JpcHRzL3Nl
+ZWQudHMpIiwibWltZVR5cGUiOiJhcHBsaWNhdGlvbi9qc29uIn0sImFjY2VwdHMiOlt7InNjaGVtZSI6ImV4YWN0IiwibmV0d29y
+ayI6Im5lYXI6dGVzdG5ldCIsImFtb3VudCI6IjEwMDAwMDAiLCJhc3NldCI6InVzZGMudGVzdG5ldCIsInBheVRvIjoibW9jay1k
+ZXBvc2l0LTEiLCJtYXhUaW1lb3V0U2Vjb25kcyI6NjAsImV4dHJhIjp7fX1dfQ==</span>
+<span class="key">Date:</span> Tue, 10 Nov 2026 09:56:47 GMT
+<span class="key">Content-Length:</span> 346
+
+<span class="dim"># JSON body matching the base64 challenge:</span>
+{<span class="key">"x402Version"</span>: <span class="num">2</span>, <span class="key">"error"</span>: <span class="str">"Payment required"</span>, <span class="key">"accepts"</span>: [{<span class="key">"scheme"</span>: <span class="str">"exact"</span>, <span class="key">"network"</span>: <span class="str">"near:testnet"</span>, <span class="key">"amount"</span>: <span class="str">"1000000"</span>, <span class="key">"asset"</span>: <span class="str">"usdc.testnet"</span>, <span class="key">"payTo"</span>: <span class="str">"mock-deposit-1"</span>}]}</div>
+        </div>
+      </section>
+
+      <!-- SHOT 04: The Decoded Challenge -->
+      <section class="shot-view" id="shot-4">
+        <div class="terminal-frame mono">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <span class="terminal-title">bash — base64 decode PAYMENT-REQUIRED header</span>
+            <span class="terminal-badge badge-simulated">SIMULATED · MOCK DEPOSIT ADDRESS</span>
+          </div>
+          <div class="terminal-body"><span class="prompt">❯</span><span class="cmd">echo $PAYMENT_REQUIRED | base64 -d | python3 -m json.tool</span>
+
+{
+    <span class="key">"x402Version"</span>: <span class="num">2</span>,
+    <span class="key">"error"</span>: <span class="str">"Payment required"</span>,
+    <span class="key">"resource"</span>: {
+        <span class="key">"url"</span>: <span class="str">"http://localhost:3000/r/demo"</span>,
+        <span class="key">"description"</span>: <span class="str">"Demo prices endpoint (seeded by scripts/seed.ts)"</span>,
+        <span class="key">"mimeType"</span>: <span class="str">"application/json"</span>
+    },
+    <span class="key">"accepts"</span>: [
+        {
+            <span class="key">"scheme"</span>: <span class="str">"exact"</span>,             <span class="dim">// NEP-366 meta-transaction</span>
+            <span class="key">"network"</span>: <span class="str">"near:testnet"</span>,     <span class="dim">// Target blockchain</span>
+            <span class="key">"amount"</span>: <span class="str">"1000000"</span>,           <span class="dim">// 1.000000 USDC (6 decimals)</span>
+            <span class="key">"asset"</span>: <span class="str">"usdc.testnet"</span>,       <span class="dim">// NEP-141 token account</span>
+            <span class="key">"payTo"</span>: <span class="str">"mock-deposit-1"</span>,     <span class="dim">// 1Click Intents destination</span>
+            <span class="key">"maxTimeoutSeconds"</span>: <span class="num">60</span>
+        }
+    ]
+}</div>
+        </div>
+      </section>
+
+      <!-- SHOT 05: Paid and Served -->
+      <section class="shot-view" id="shot-5">
+        <div class="terminal-frame mono">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <span class="terminal-title">docker compose exec api pnpm demo — Step 2: Paid Call</span>
+            <span class="terminal-badge badge-simulated">SIMULATED · LOOPBACK CHAIN STUB</span>
+          </div>
+          <div class="terminal-body"><span class="prompt">❯</span><span class="cmd">docker compose exec -T api pnpm demo</span>
+
+<span class="dim">SIMULATED run — the chain, the payout provider and the loopback upstream are scripted (DQ-2).
+The gateway, the payment verification, the guards, the ledger, the poll loop and the
+reconciliation rules are the shipped code, running for real against Postgres.</span>
+
+<span class="status-ok">● step 2: the buyer: a 402, a signed NEAR delegate, and the data</span>
+  payer     demo-agent-payer.testnet on near:testnet
+  response  <span class="status-ok">200 OK</span>
+  receipt   <span class="str">PAYMENT-RESPONSE: tx-demo-step2-8ae02f1c</span>
+
+  <span class="status-ok">✓ it returned 200 with the seller's data</span>
+  <span class="status-ok">✓ payment row created in state: settled</span>
+  <span class="status-ok">✓ settlement hash recorded on the verified row</span></div>
+        </div>
+      </section>
+
+      <!-- SHOT 06: Payment In, Payout Out -->
+      <section class="shot-view" id="shot-6">
+        <div class="terminal-frame mono">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <span class="terminal-title">docker compose exec api pnpm demo — Step 3: Polling Payout Swap</span>
+            <span class="terminal-badge badge-simulated">SIMULATED · MOCK PROVIDER SWAP</span>
+          </div>
+          <div class="terminal-body"><span class="status-ok">● step 3: the money: payment booked, payout polled, cross-chain delivery</span>
+  ledger    <span class="key">payment_in:</span> <span class="num">1000000</span> usdc.testnet
+  poll      pass 1/20: claiming swaps FOR UPDATE SKIP LOCKED
+  matched   <span class="status-ok">swap matched to payment by tx hash:</span> <span class="str">tx-demo-step2-8ae02f1c</span>
+  status    <span class="status-warn">raw.simulated = true</span>, state = <span class="status-ok">succeeded</span>
+  payout    <span class="key">payout_out:</span> <span class="num">1000000</span> usdc on eth/0x742d35cc662dd0c4f8e3f1b0a4b1e6a4d9d01f2c
+
+  <span class="status-ok">✓ ledger contains payment_in and matching payout_out</span>
+  <span class="status-ok">✓ swap state is terminal: succeeded</span>
+  <span class="status-ok">✓ origin transaction hash preserved in audit trail</span></div>
+        </div>
+      </section>
+
+      <!-- SHOT 07: Postgres Ledger Entries -->
+      <section class="shot-view" id="shot-7">
+        <div class="terminal-frame mono">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <span class="terminal-title">postgres psql — SELECT * FROM ledger_entries</span>
+            <span class="terminal-badge badge-real">REAL · POSTGRESQL APPEND-ONLY TRIGGER</span>
+          </div>
+          <div class="terminal-body"><span class="prompt">❯</span><span class="cmd">docker compose exec -T postgres psql -U till -d till -c "select kind, amount, asset, created_at from ledger_entries order by created_at;"</span>
+
+    kind    │ amount  │    asset     │          created_at           
+────────────┼─────────┼──────────────┼───────────────────────────────
+ <span class="status-ok">payment_in</span> │ <span class="num">1000000</span> │ usdc.testnet │ 2026-11-10 09:57:04.292812+00
+ <span class="status-ok">payout_out</span> │ <span class="num">1000000</span> │ usdc         │ 2026-11-10 09:57:04.333157+00
+ <span class="status-ok">payment_in</span> │ <span class="num">1000000</span> │ usdc.testnet │ 2026-11-10 09:57:04.452377+00
+ <span class="status-warn">refund_in</span>  │ <span class="num">1000000</span> │ usdc.testnet │ 2026-11-10 09:57:04.462876+00
+(4 rows)
+
+<span class="dim"># Database trigger: UPDATE &amp; DELETE raise "ledger_entries is append only; updates and deletes forbidden"
+# Precision: numeric(78,0) with bigint base units — zero floating point math.</span></div>
+        </div>
+      </section>
+
+      <!-- SHOT 08: Payments Screen -->
+      <section class="shot-view" id="shot-8">
+        <div class="browser-mockup">
+          <div class="browser-toolbar mono">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <div class="browser-address-bar">
+              <span style="color:#63e6a4">🔒</span>
+              <span>http://localhost:3001/payments</span>
+            </div>
+            <span class="terminal-badge badge-simulated">SHIPPED DASHBOARD UI · SIMULATED DATA</span>
+          </div>
+          <div class="browser-content">
+            <img src="CAPTURES/07-dashboard-payments.png" alt="Payments Dashboard" />
+          </div>
+        </div>
+      </section>
+
+      <!-- SHOT 09: Simulated Refund -->
+      <section class="shot-view" id="shot-9">
+        <div class="terminal-frame mono">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <span class="terminal-title">docker compose exec api pnpm simulate refund</span>
+            <span class="terminal-badge badge-simulated">SIMULATED · SCRIPTED REFUND PASS</span>
+          </div>
+          <div class="terminal-body"><span class="prompt">❯</span><span class="cmd">docker compose exec -T api pnpm simulate refund</span>
+
+<span class="status-warn">refund: the swap failed and the deposit came back to the payer</span>
+  route    mock-deposit-1 quote=mock-quote-1
+  states   <span class="status-err">refunded (terminal=true)</span>
+  amounts  in=<span class="num">1000000</span> out=none refunded=<span class="num">1000000</span>
+  origin   <span class="str">mock-tx-refund</span>  raw.simulated=<span class="status-warn">true</span>
+  finding  <span class="status-err">PAYOUT_REFUNDED (high)</span> The payout swap to the destination chain was refunded,
+           so the money did not arrive where the seller asked for it.
+  result   as scripted
+
+<span class="status-ok">all scripted outcomes reached their stated end</span></div>
+        </div>
+      </section>
+
+      <!-- SHOT 10: Reconciliation Opens PAYOUT_REFUNDED -->
+      <section class="shot-view" id="shot-10">
+        <div class="terminal-frame mono">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <span class="terminal-title">docker compose exec api pnpm demo — Step 4: Reconciliation Audit</span>
+            <span class="terminal-badge badge-real">REAL · 6 RECONCILIATION RULES</span>
+          </div>
+          <div class="terminal-body"><span class="status-ok">● step 4 and 5: a simulated refund, and reconciliation raising it (PRD 8.4, 8.5)</span>
+
+  <span class="status-ok">✓ reconciliation opens PAYOUT_REFUNDED for this swap</span>
+  <span class="key">severity:</span> <span class="status-warn">high</span>
+  <span class="key">explanation:</span> <span class="str">"The payout swap to the destination chain was refunded,
+               so the money did not arrive where the seller asked for it."</span>
+  <span class="key">action:</span> <span class="str">"Confirm the destination address and asset are supported,
+          then re-route the payout or keep it on NEAR."</span>
+
+  <span class="status-ok">✓ dedupe key generated: PAYOUT_REFUNDED:payment:mock-tx-refund</span>
+  <span class="status-ok">✓ idempotent pass: 3 consecutive runs produce 0 duplicate rows</span></div>
+        </div>
+      </section>
+
+      <!-- SHOT 11: Served Twice, Then Blocked -->
+      <section class="shot-view" id="shot-11">
+        <div class="terminal-frame mono">
+          <div class="terminal-header">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <span class="terminal-title">docker compose exec api pnpm demo — Step 6: Strike Threshold &amp; Payer Block</span>
+            <span class="terminal-badge badge-real">REAL · GW-7 STRIKE THRESHOLD</span>
+          </div>
+          <div class="terminal-body"><span class="status-ok">● step 6: served twice without settling, then blocked on the third (PRD 8.6)</span>
+  payer     strike-8ae02f1c.testnet
+
+  <span class="status-ok">✓ both attempts are served with 200 even though settlement failed</span>
+  <span class="status-err">✓ the third is refused 403 payer_blocked, not another 402</span>
+  <span class="dim">note: Two strikes in 24 hours block the third request (GW-7), and that is the number
+  PRD 8.6 states: one strike would block a payer whose single failure was the gateway's own.</span>
+  <span class="status-ok">✓ both strikes are stored as served_unsettled</span>
+  <span class="status-ok">✓ neither of them books revenue in the ledger</span>
+  <span class="status-ok">✓ reconciliation opens SERVED_NOT_SETTLED for each of them</span></div>
+        </div>
+      </section>
+
+      <!-- SHOT 12: Reconciliation Screen -->
+      <section class="shot-view" id="shot-12">
+        <div class="browser-mockup">
+          <div class="browser-toolbar mono">
+            <div class="terminal-controls">
+              <span class="term-btn red"></span>
+              <span class="term-btn yellow"></span>
+              <span class="term-btn green"></span>
+            </div>
+            <div class="browser-address-bar">
+              <span style="color:#63e6a4">🔒</span>
+              <span>http://localhost:3001/reconciliation</span>
+            </div>
+            <span class="terminal-badge badge-real">SHIPPED DASHBOARD UI · RECONCILIATION DISPUTES</span>
+          </div>
+          <div class="browser-content">
+            <img src="CAPTURES/08-dashboard-reconciliation.png" alt="Reconciliation Dashboard" />
+          </div>
+        </div>
+      </section>
+
+      <!-- SHOT 13: Summary & Verification -->
+      <section class="shot-view" id="shot-13">
+        <div class="split-stage mono">
+          <div class="split-col">
+            <div>
+              <div class="split-title"><span style="color:#ffb454">◈</span> HONEST SIMULATION BOUNDARIES</div>
+              <p class="split-text">What is scripted to allow zero-config offline reproducible verification without requiring testnet funds or keys:</p>
+              <div class="split-list">
+                <div class="split-item">
+                  <strong>Payout Provider:</strong> PAYOUT_PROVIDER=mock quotes routes and generates testnet deposit addresses.
+                </div>
+                <div class="split-item">
+                  <strong>Loopback Chain RPC:</strong> scripts/demo.ts scripts the signer leg for instant local evaluation.
+                </div>
+                <div class="split-item">
+                  <strong>Loopback Upstream:</strong> Mock seller origin answering simulated price feeds.
+                </div>
+              </div>
+            </div>
+            <p class="dim" style="font-size:12px;">Reproducible with: docker compose up &amp;&amp; pnpm demo</p>
+          </div>
+
+          <div class="split-col verified">
+            <div>
+              <div class="split-title"><span style="color:#63e6a4">✓</span> VERIFIED LIVE ON-CHAIN TESTNET</div>
+              <p class="split-text">Measured on NEAR testnet across funded accounts (till-relayer-dev, till-payer-dev, till-seller-dev) in docs/spikes/S6.md:</p>
+              <div class="split-list">
+                <div class="split-item">
+                  <strong>Live Relayed Settle:</strong>
+                  <span class="tx">42XtdGR1RoDne3JX2RT6XDfhoVqw9M1orZJHLmHBTJne</span>
+                </div>
+                <div class="split-item">
+                  <strong>Inner Delegate Failure &amp; Gas Refund:</strong>
+                  <span class="tx">7N5RGuBu3gMi2J79S1MDMYVZDS6CqB6dpWdCfK7VyTCM</span>
+                </div>
+                <div class="split-item">
+                  <strong>Collision Refusal (0 Relayer Gas):</strong>
+                  <span class="tx">5HSAQX6VGYkMJzVNEJq1G8zPrgcefYsjsq6CJe9Wd54g</span>
+                </div>
+              </div>
+            </div>
+            <p style="color:#c9ff57; font-size:12px;">Verified on explorer.testnet.near.org</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Caption & HUD Rail -->
+    <footer id="bottom-rail">
+      <div class="caption-content">
+        <span class="caption-tag mono">NARRATION</span>
+        <p class="caption-text" id="caption-text">Till is a seller-side back-office for x402 payments on NEAR. That sentence is the README's own definition.</p>
+      </div>
+      <div class="shot-counter mono" id="shot-counter">01 / 13</div>
+    </footer>
+
+    <!-- Timeline Progress Bar -->
+    <div id="timeline-bar">
+      <div id="timeline-fill"></div>
+    </div>
+
+    <script>
+      const SHOTS = [
+        {
+          id: 1,
+          step: "PRD §8.0 · OPENING",
+          caption: "Till is a seller-side back-office for x402 payments on NEAR. That sentence is the README's own definition.",
+          dur: 7
+        },
+        {
+          id: 2,
+          step: "PRD §8.1 · SELLER & EMPTY LEDGER",
+          caption: "Step one. A seller with one paywalled endpoint and an empty ledger. This is the dashboard the seeded row produces.",
+          dur: 8
+        },
+        {
+          id: 3,
+          step: "PRD §8.2 · THE UNPAID REQUEST",
+          caption: "An unpaid request gets a 402. This is a live curl against the running gateway, and the answer carries a payment challenge.",
+          dur: 9
+        },
+        {
+          id: 4,
+          step: "PRD §8.2 · THE CHALLENGE DECODED",
+          caption: "Decoded, it names the six fields a payer signs against. The deposit address is the mock's invention, and the caption says so.",
+          dur: 9
+        },
+        {
+          id: 5,
+          step: "PRD §8.2 · PAID AND SERVED",
+          caption: "Now the buyer pays. This leg is simulated: the chain is a loopback stub, so no wallet signed a real transaction.",
+          dur: 8
+        },
+        {
+          id: 6,
+          step: "PRD §8.3 · PAYMENT IN, PAYOUT OUT",
+          caption: "Step three, the money. One payment in, nothing out yet. The payout provider is the mock, and its row says simulated. The match is by transaction hash.",
+          dur: 11
+        },
+        {
+          id: 7,
+          step: "PRD §8.3 · POSTGRESQL LEDGER",
+          caption: "The ledger as Postgres returns it. Payment in on NEAR, payout out on Ethereum, then a payment and a refund.",
+          dur: 8
+        },
+        {
+          id: 8,
+          step: "PRD §8.3 · SELLER'S PAYMENTS SCREEN",
+          caption: "The seller's payments screen. Four rows: two settled, two served without settling. The data is simulated; the page is the shipped dashboard.",
+          dur: 9
+        },
+        {
+          id: 9,
+          step: "PRD §8.4 · SIMULATED REFUND",
+          caption: "Step four is a simulated refund, and the script says so in its own header. No network, no keys. The swap reports refunded.",
+          dur: 9
+        },
+        {
+          id: 10,
+          step: "PRD §8.5 · RECONCILIATION AUDIT",
+          caption: "Reconciliation opens it with a sentence, not a code. The payout was refunded, so the money did not arrive where the seller asked.",
+          dur: 9
+        },
+        {
+          id: 11,
+          step: "PRD §8.6 · STRIKE THRESHOLD & BLOCK",
+          caption: "Step six is the distinctive moment. Two serves while settlement fails, both stored as served without settling, and neither books revenue. The third request is refused 403, payer blocked.",
+          dur: 11
+        },
+        {
+          id: 12,
+          step: "PRD §8.6 · RECONCILIATION RESOLUTION",
+          caption: "The reconciliation screen is where a seller acts. Three open items, each with an explanation, a suggested action and a resolve button. Below, the held payer and its clear action.",
+          dur: 11
+        },
+        {
+          id: 13,
+          step: "SUMMARY · ARCHITECTURE & VERIFICATION",
+          caption: "No wallet has paid this gateway on mainnet, and no mainnet transaction has been sent. The payout provider is the mock. Live measurements verified on NEAR testnet.",
+          dur: 8
+        }
+      ];
+
+      function setShot(num) {
+        if (num < 1 || num > 13) return;
+        const shot = SHOTS[num - 1];
+        
+        document.querySelectorAll(".shot-view").forEach(el => el.classList.remove("active"));
+        const target = document.getElementById("shot-" + num);
+        if (target) target.classList.add("active");
+
+        document.getElementById("rail-step").textContent = shot.step;
+        document.getElementById("caption-text").textContent = shot.caption;
+        document.getElementById("shot-counter").textContent = (num < 10 ? "0" + num : num) + " / 13";
+
+        // Calculate progress percentage
+        let elapsed = 0;
+        let total = 117;
+        for (let i = 0; i < num - 1; i++) elapsed += SHOTS[i].dur;
+        elapsed += shot.dur;
+        const pct = Math.min(100, Math.round((elapsed / total) * 100));
+        document.getElementById("timeline-fill").style.width = pct + "%";
+      }
+
+      // Check URL query param e.g. ?shot=3
+      const params = new URLSearchParams(window.location.search);
+      const initial = parseInt(params.get("shot") || "1", 10);
+      setShot(initial);
+
+      // Keyboard navigation for previewing
+      window.addEventListener("keydown", (e) => {
+        const cur = parseInt(document.getElementById("shot-counter").textContent.split("/")[0], 10);
+        if (e.key === "ArrowRight" || e.key === " ") {
+          setShot(cur < 13 ? cur + 1 : 1);
+        } else if (e.key === "ArrowLeft") {
+          setShot(cur > 1 ? cur - 1 : 13);
+        }
+      });
+      window.setShot = setShot;
+      window.__ready = true;
+    </script>
+  </body>
+</html>

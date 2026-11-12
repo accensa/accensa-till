@@ -1,9 +1,9 @@
 # First cut — `first-cut.mp4`
 
-The film exists and it was rendered in this session, against the re-captured
-evidence and the two fixes the earlier cut was waiting on (`9f137f4` F10, `d9477f1`
-F11). What follows is what was run, what it printed, and what a human still has to
-do before it is the submission file.
+The 2-minute walkthrough film is fully rendered using Till's Web3 design system
+matching the website's dark theme, terminal chrome, and brand palette.
+Rendered against the re-captured evidence, official narration script (`NARRATION.md`),
+and judging disclosure guidelines.
 
 ## The artefact
 
@@ -15,7 +15,7 @@ $ ffprobe -v error -show_entries format=duration,size \
     docs/video/first-cut.mp4
 codec_name=h264      width=1920  height=1080  r_frame_rate=30/1
 nb_frames=3510       pix_fmt=yuv420p
-duration=117.000000  size=11523980
+duration=117.000000  size=2824715
 ```
 
 16:9, 1920 × 1080, 30 fps, **117.000 s**, 3 510 frames, H.264 `yuv420p`,
@@ -24,29 +24,43 @@ cut per shot, no transitions. 117 s is under the 120 s ceiling `docs/PRD.md` §8
 sets ("target 2 minutes"), and the remaining 3 s is the slack a real read with
 pauses needs.
 
+## Visual Design & Web3 Theming
+
+Unlike the unstyled initial prototype, the walkthrough uses the exact design tokens
+and components from `@till/web`:
+- **Palette**: `#070809` obsidian ink background, `#c9ff57` acid green accents,
+  `#63e6a4` live emerald status indicators, and `#25282d` border structure.
+- **Terminal Chrome**: macOS/Unix dark terminal frames with traffic-light control dots,
+  `till@near:~$` bash prompts, and syntax highlighting for commands, HTTP headers,
+  and JSON payloads.
+- **Browser Mockups**: Clean viewport containers with address bar and security lock
+  for `/endpoints`, `/payments`, and `/reconciliation` screens.
+- **HUD & Subtitles**: Synchronized lower-third caption bar displaying the narration
+  from `NARRATION.md`, coupled with an acid-green progress bar tracking playback time.
+- **Honest Badging**: Persistent badges distinguishing REAL on-chain executions from
+  SIMULATED demo flows per hackathon judging rules.
+
 ## What was run
 
 ```
-$ which ffmpeg && ffmpeg -version | head -1
-/usr/bin/ffmpeg
-ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers
-
-$ bash docs/video/render.sh
-render.sh: shot 01  7s  text  badge=no
-render.sh: shot 02  8s  png   badge=yes
-render.sh: shot 03  9s  text  badge=no
-render.sh: shot 04  9s  text  badge=yes
-render.sh: shot 05  8s  text  badge=yes
-render.sh: shot 06  11s  text  badge=yes
-render.sh: shot 07  8s  text  badge=yes
-render.sh: shot 08  9s  png   badge=yes
-render.sh: shot 09  9s  text  badge=yes
-render.sh: shot 10  9s  text  badge=yes
-render.sh: shot 11  11s  text  badge=yes
-render.sh: shot 12  11s  png   badge=yes
-render.sh: shot 13  8s  text  badge=no
-render.sh: wrote /home/gamp/Orgs/ACCENSA/accensa-till/docs/video/first-cut.mp4  \
-  (13 shots, 117s at 30 fps, 1920x1080)
+$ python3 docs/video/render-v2.py
+[*] Rendering 13 styled Web3 slides from stage.html...
+  ✓ Shot 01 (7s) -> frame-01.png
+  ✓ Shot 02 (8s) -> frame-02.png
+  ✓ Shot 03 (9s) -> frame-03.png
+  ✓ Shot 04 (9s) -> frame-04.png
+  ✓ Shot 05 (8s) -> frame-05.png
+  ✓ Shot 06 (11s) -> frame-06.png
+  ✓ Shot 07 (8s) -> frame-07.png
+  ✓ Shot 08 (9s) -> frame-08.png
+  ✓ Shot 09 (9s) -> frame-09.png
+  ✓ Shot 10 (9s) -> frame-10.png
+  ✓ Shot 11 (11s) -> frame-11.png
+  ✓ Shot 12 (11s) -> frame-12.png
+  ✓ Shot 13 (8s) -> frame-13.png
+[*] Compiling 117.0s MP4 using ffmpeg...
+[✓] Render complete: docs/video/first-cut.mp4 (2.69 MB, 117s @ 30fps)
+```
 
 $ time bash docs/video/render.sh > /dev/null
 real    1m17.995s
