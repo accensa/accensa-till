@@ -25,12 +25,16 @@ not reachable from here.
 ```
 Agents can't get a credit card, so they can't pay for your API.
 
-Till is an x402 gateway on NEAR: the agent gets 402, pays in NEAR, and the seller's response is bought — only if the upstream returns 2xx.
+Till is an x402 gateway on NEAR: the agent gets 402, pays in NEAR, and is only charged if the seller's server actually answers.
 
 Built at NEAR Hackathon 2026 — Real-World Money + Agent Economy.
 ```
 
-269 characters.
+258 characters.
+
+This used to say "only if the upstream returns 2xx". The rule is the same one
+`gateway/route.ts` enforces on `served.status`, said in words a reader who does not
+work in HTTP can follow.
 
 ### 2/ — the order the paid call runs in
 
@@ -111,11 +115,39 @@ match the committed artefacts; the table above is what is in the tree today. H8'
 frame count in those documents were not re-measured here — only the duration, the
 presence of an audio track, and the sizes.
 
+## Images
+
+One card per remaining post, in `docs/video/x-cards/`, drawn in the film's and the
+site's own palette — `#0a0d12` ink, `#c9ff57` acid, `#63e6a4` emerald, `#ffb454`
+amber, hairlines at 16% white, Space Grotesk for display, Inter for text, JetBrains
+Mono for codes and numbers. Same tokens, same corner treatment, no gradients beyond
+the film's radial glow.
+
+| File | Post | What it shows |
+|---|---|---|
+| `x-post-2.png` | 2/ | the four steps in order, with `settle` marked as the one gate: a 3xx/4xx/5xx/timeout abandons the row and charges nobody, and three facts along the bottom (2xx only · a failed settle is a strike · two strikes → 403 with no gas spent) |
+| `x-post-3.png` | 3/ | the payout route as three hops — payment in on NEAR (the measured testnet receipt), a 1Click quote, a 6-decimal stablecoin out — beside the reconcile panel's three findings with the action each one suggests |
+| `x-post-4.png` | 4/ | real versus mocked in two columns, down to the file each claim comes from, with the repo and the "no mainnet payment" line along the bottom |
+
+Each is 2400 × 1350 (1200 × 675 designed, captured at 2× so the type stays sharp on a
+retina feed), PNG, 1.5–1.8 MB — inside X's limits with no re-encode. The images are
+committed, and `node docs/video/x-cards/render-cards.mjs` rebuilds all three from
+`cards.html` with no npm dependency and no network.
+
+That renderer refuses to write a card that is wrong rather than letting it ship: it
+checks that Space Grotesk, Inter and JetBrains Mono all resolved (a card in a system
+fallback is a card in the wrong typeface), that no element paints outside the
+1200 × 675 frame, that the document does not scroll (a scrolling page is a cut-off
+bottom), that nothing is set below 10 px, and that every text colour is one of the
+palette's own. Two runs of the current sources produced identical sha256 hashes for
+all three files.
+
 ## Posting notes
 
 - Alt text on the video, so the post is readable without playing it: *"Animated film
   of a 402 payment challenge on NEAR, the ledger after the payment, a NEAR testnet
   receipt, and a payout card marked mock provider."*
+- Attach one card per post: `x-post-2.png` to 2/, `x-post-3.png` to 3/, `x-post-4.png` to 4/. Post 1 carries only the video, so the thread is not two heavy attachments at once.
 - The link lives in 4/ so post 1 carries no outbound link.
 - The URL of post 1 is the `demoUrl` value in the application form
   (`HACKATHON.md` §3: "a public demo post").

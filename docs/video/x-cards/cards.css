@@ -1,0 +1,437 @@
+:root {
+  --ink: #f5f3ec;
+  --muted: #a4aab3;
+  --dim: #727984;
+  --acid: #c9ff57;
+  --emerald: #63e6a4;
+  --amber: #ffb454;
+  --red: #ff6f61;
+  --bg: #0a0d12;
+  --panel: #12161d;
+  --panel2: #101318;
+  --line: rgba(255, 255, 255, 0.16);
+  --line2: rgba(255, 255, 255, 0.05);
+}
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+html,
+body {
+  width: 1200px;
+  height: 675px;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: "Inter", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: "JetBrains Mono", monospace;
+}
+.display {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+}
+
+#bg,
+#grid,
+#grain {
+  position: absolute;
+  inset: 0;
+}
+#bg {
+  background: radial-gradient(760px 460px at 50% 38%, rgba(201, 255, 87, 0.08), transparent 62%),
+    radial-gradient(620px 420px at 88% 82%, rgba(99, 230, 164, 0.055), transparent 65%),
+    linear-gradient(180deg, #0d1117 0%, #090c11 55%, #0b0e14 100%);
+}
+#grid {
+  background-image: linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 74% 64% at 50% 46%, #000 36%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 74% 64% at 50% 46%, #000 36%, transparent 100%);
+}
+#grain {
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/><feColorMatrix type='saturate' values='0'/></filter><rect width='160' height='160' filter='url(%23n)' opacity='0.6'/></svg>");
+}
+
+.card {
+  position: absolute;
+  inset: 0;
+  padding: 44px 56px 40px;
+  display: none;
+  flex-direction: column;
+}
+.card.on {
+  display: flex;
+}
+
+/* header */
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mark {
+  display: flex;
+  gap: 3px;
+  align-items: flex-end;
+  height: 18px;
+}
+.mark i {
+  width: 4px;
+  background: var(--acid);
+  display: block;
+}
+.mark i:nth-child(1) {
+  height: 8px;
+}
+.mark i:nth-child(2) {
+  height: 14px;
+}
+.mark i:nth-child(3) {
+  height: 11px;
+}
+.mark i:nth-child(4) {
+  height: 18px;
+}
+.name {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.14em;
+}
+.sub {
+  color: var(--dim);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.idx {
+  color: var(--dim);
+  font-size: 12px;
+  letter-spacing: 0.18em;
+}
+
+/* headline block */
+.eyebrow {
+  margin-top: 40px;
+  color: var(--acid);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+h2 {
+  margin-top: 14px;
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 46px;
+  line-height: 1.05;
+  letter-spacing: -0.035em;
+  max-width: 900px;
+}
+h2 .thin {
+  color: var(--muted);
+  font-weight: 500;
+}
+.subline {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+  max-width: 780px;
+}
+
+/* card 2 — the order */
+.steps {
+  margin-top: 34px;
+  display: grid;
+  gap: 10px;
+}
+.step {
+  display: grid;
+  grid-template-columns: 46px 210px 1fr auto;
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px;
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  border-left: 2px solid transparent;
+}
+.step .no {
+  color: var(--dim);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+}
+.step .label {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: 0.02em;
+}
+.step .gloss {
+  color: var(--muted);
+  font-size: 14px;
+}
+.step .tag {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+.step.gate {
+  border-left-color: var(--acid);
+  background: linear-gradient(90deg, rgba(201, 255, 87, 0.07), transparent 60%), var(--panel);
+}
+.step.gate .tag {
+  color: var(--bg);
+  background: var(--acid);
+  border-color: var(--acid);
+}
+
+/* facts strip */
+.facts {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+  gap: 24px;
+}
+.fact .k {
+  color: var(--dim);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.fact .v {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--ink);
+}
+.fact .v.acid {
+  color: var(--acid);
+}
+
+/* card 3 — payout + reconcile. Tightened for this one card: at the shared spacing its
+   right panel and facts strip ran 54 px past the frame (measured by render-cards.mjs,
+   which refuses to write an overflowing card). */
+.card[data-card="3"] {
+  padding-top: 36px;
+  padding-bottom: 32px;
+}
+.card[data-card="3"] h2 {
+  font-size: 41px;
+}
+.card[data-card="3"] .subline {
+  margin-top: 10px;
+}
+.card[data-card="3"] .cols {
+  margin-top: 20px;
+}
+.card[data-card="3"] .node {
+  padding: 10px 0;
+}
+.card[data-card="3"] .find {
+  padding: 10px 0;
+}
+.card[data-card="3"] .panel .head {
+  padding-bottom: 11px;
+}
+.card[data-card="3"] .facts {
+  padding-top: 12px;
+}
+
+.cols {
+  margin-top: 30px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  padding: 20px 22px;
+}
+.panel .head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line2);
+}
+.panel .head .t {
+  font-family: "Space Grotesk", sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+.panel .head .n {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.flow {
+  display: grid;
+  gap: 0;
+  margin-top: 6px;
+}
+.node {
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line2);
+}
+.node:last-child {
+  border-bottom: none;
+}
+.node .who {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.node .what {
+  margin-top: 5px;
+  font-size: 15px;
+}
+.node .what b {
+  font-weight: 600;
+}
+.node.acid .what {
+  color: var(--acid);
+}
+.node .meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.arrow {
+  height: 12px;
+  margin-left: 2px;
+  border-left: 1px dashed var(--line);
+}
+.find {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line2);
+}
+.find:last-child {
+  border-bottom: none;
+}
+.find .code {
+  font-size: 12px;
+  letter-spacing: 0.1em;
+}
+.find .why {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.find .act {
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.find .act span {
+  color: var(--dim);
+}
+.warn {
+  color: var(--amber);
+}
+.bad {
+  color: var(--red);
+}
+
+/* card 4 — real / mocked */
+.duo {
+  margin-top: 30px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+}
+.tile {
+  background: var(--panel);
+  border: 1px solid var(--line2);
+  padding: 20px 22px 18px;
+}
+.tile .lab {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.tile .lab .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.tile.real .lab {
+  color: var(--emerald);
+}
+.tile.real .lab .dot {
+  background: var(--emerald);
+  box-shadow: 0 0 10px rgba(99, 230, 164, 0.7);
+}
+.tile.mock .lab {
+  color: var(--amber);
+}
+.tile.mock .lab .dot {
+  background: var(--amber);
+  box-shadow: 0 0 10px rgba(255, 180, 84, 0.6);
+}
+.tile ul {
+  list-style: none;
+  margin-top: 12px;
+}
+.tile li {
+  font-size: 13.5px;
+  line-height: 1.45;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line2);
+}
+.tile li:last-child {
+  border-bottom: none;
+}
+.tile li .k {
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  display: block;
+  margin-bottom: 2px;
+}
+.tile li .m {
+  color: var(--muted);
+  font-size: 12px;
+}
+.repo {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
+.repo .url {
+  font-size: 13px;
+  color: var(--ink);
+}
+.repo .note {
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+}

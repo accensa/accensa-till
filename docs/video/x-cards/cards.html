@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Till — X thread cards</title>
+<link rel="stylesheet" href="../film/assets/fonts/embedded.css" />
+<link rel="stylesheet" href="cards.css" />
+</head>
+<body>
+<div id="bg"></div>
+<div id="grid"></div>
+<div id="grain"></div>
+
+<!-- 02 · THE PAID CALL -->
+<section class="card" data-card="2">
+  <div class="top">
+    <div class="brand">
+      <div class="mark"><i></i><i></i><i></i><i></i></div>
+      <span class="name">TILL</span>
+      <span class="sub">x402 on NEAR</span>
+    </div>
+    <span class="idx mono">02 / 04</span>
+  </div>
+
+  <div class="eyebrow mono">THE PAID CALL · GW-2 · GW-3</div>
+  <h2>One order. Every paid call runs it.</h2>
+  <div class="subline">The gateway never improvises the sequence: a payment is checked, then policed, then the seller is called, and only then does money move.</div>
+
+  <div class="steps">
+    <div class="step">
+      <span class="no mono">01</span>
+      <span class="label">VERIFY</span>
+      <span class="gloss">Delegate signature, access-key nonce and balance — read from NEAR, not from the request body.</span>
+      <span class="tag mono">chain read</span>
+    </div>
+    <div class="step">
+      <span class="no mono">02</span>
+      <span class="label">GUARDS</span>
+      <span class="gloss">Replay key, one payment in flight per payer, expiry window against the upstream timeout, blocklist.</span>
+      <span class="tag mono">before any call</span>
+    </div>
+    <div class="step">
+      <span class="no mono">03</span>
+      <span class="label">UPSTREAM</span>
+      <span class="gloss">The seller's GET, dialled once, with its own deadline and a loopback refusal — GET, and nothing else.</span>
+      <span class="tag mono">GET only</span>
+    </div>
+    <div class="step gate">
+      <span class="no mono">04</span>
+      <span class="label">SETTLE</span>
+      <span class="gloss">The one gate on settlement. A 3xx, 4xx, 5xx or timeout abandons the row and charges nobody.</span>
+      <span class="tag mono">2xx or nothing</span>
+    </div>
+  </div>
+
+  <div class="facts mono">
+    <div class="fact"><div class="k">settlement rule</div><div class="v acid">only on a 2xx upstream</div></div>
+    <div class="fact"><div class="k">failed settle</div><div class="v">counted as one strike</div></div>
+    <div class="fact"><div class="k">two strikes / 24h</div><div class="v">403 before relayer gas</div></div>
+  </div>
+</section>
+
+<!-- 03 · MONEY OUT -->
+<section class="card" data-card="3">
+  <div class="top">
+    <div class="brand">
+      <div class="mark"><i></i><i></i><i></i><i></i></div>
+      <span class="name">TILL</span>
+      <span class="sub">x402 on NEAR</span>
+    </div>
+    <span class="idx mono">03 / 04</span>
+  </div>
+
+  <div class="eyebrow mono">MONEY OUT · NEAR INTENTS · RECONCILE</div>
+  <h2>Payouts leave on another chain. <span class="thin">The ledger still adds up.</span></h2>
+  <div class="subline">The swap is a second system with its own states. One transaction hash ties a payment to it — nothing else does.</div>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="head"><span class="t">The route</span><span class="n mono">3 hops</span></div>
+      <div class="flow">
+        <div class="node">
+          <div class="who mono">payment in</div>
+          <div class="what">x402 settlement on <b>NEAR</b></div>
+          <div class="meta">testnet receipt 42XtdGR1…BTJne · 0.001 wNEAR</div>
+        </div>
+        <div class="arrow"></div>
+        <div class="node">
+          <div class="who mono">payout route</div>
+          <div class="what">NEAR Intents · 1Click quote</div>
+          <div class="meta">dry quote first, then a deposit address per route</div>
+        </div>
+        <div class="arrow"></div>
+        <div class="node acid">
+          <div class="who mono">payout out</div>
+          <div class="what">6-decimal stablecoin, other chain</div>
+          <div class="meta">state polled to terminal · succeeded · refunded</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="head"><span class="t">Reconciliation</span><span class="n mono">one join</span></div>
+      <div class="flow">
+        <div class="find">
+          <div class="code mono warn">PAYOUT_REFUNDED</div>
+          <div class="why">the swap refunded after the seller had already served.</div>
+          <div class="act"><span>→</span> re-route it, or credit the seller</div>
+        </div>
+        <div class="find">
+          <div class="code mono bad">ORPHAN_DEPOSIT</div>
+          <div class="why">a deposit whose transaction hash matches no payment.</div>
+          <div class="act"><span>→</span> hold it — never credit by proximity</div>
+        </div>
+        <div class="find">
+          <div class="code mono warn">SHORTFALL</div>
+          <div class="why">amount_out is below amount_in for a matched pair.</div>
+          <div class="act"><span>→</span> open a discrepancy with the difference</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="facts mono">
+    <div class="fact"><div class="k">matching</div><div class="v acid">transaction hash only</div></div>
+    <div class="fact"><div class="k">ledger</div><div class="v">append-only, trigger-guarded</div></div>
+    <div class="fact"><div class="k">amounts</div><div class="v">bigint base units, numeric(78,0)</div></div>
+  </div>
+</section>
+
+<!-- 04 · REAL / MOCKED -->
+<section class="card" data-card="4">
+  <div class="top">
+    <div class="brand">
+      <div class="mark"><i></i><i></i><i></i><i></i></div>
+      <span class="name">TILL</span>
+      <span class="sub">x402 on NEAR</span>
+    </div>
+    <span class="idx mono">04 / 04</span>
+  </div>
+
+  <div class="eyebrow mono">WHAT IS REAL, WHAT IS MOCKED</div>
+  <h2>Charge agents by the request.<br /><span class="thin">Prove every payout.</span></h2>
+
+  <div class="duo">
+    <div class="tile real">
+      <div class="lab mono"><span class="dot"></span>real</div>
+      <ul>
+        <li><span class="k mono">402 challenge</span>shipped gateway code answering on the public route <span class="m">· requirements.ts</span></li>
+        <li><span class="k mono">ledger</span>Postgres rows written by one writer, append-only by trigger <span class="m">· services/ledger.ts</span></li>
+        <li><span class="k mono">settlement receipt</span>a NEAR testnet transaction, 42XtdGR1…BTJne <span class="m">· S6, measured</span></li>
+        <li><span class="k mono">guards</span>two failed settles in 24h → 403, zero relayer gas <span class="m">· services/strikes.ts</span></li>
+      </ul>
+    </div>
+
+    <div class="tile mock">
+      <div class="lab mono"><span class="dot"></span>mocked in the demo</div>
+      <ul>
+        <li><span class="k mono">payout provider</span>PAYOUT_PROVIDER=mock — the deposit address is invented <span class="m">· payouts/mock/</span></li>
+        <li><span class="k mono">cross-chain swap</span>the 1Click client is shipped, the demo routes to the mock <span class="m">· payouts/oneclick/</span></li>
+        <li><span class="k mono">refund &amp; shortfall</span>scripted by the demo so the reconcile rules can be seen <span class="m">· scripts/simulate.ts</span></li>
+        <li><span class="k mono">mainnet money</span>none. no mainnet transaction has been made <span class="m">· disclosed</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="repo">
+    <span class="url mono">github.com/accensa/accensa-till</span>
+    <span class="note mono">NEAR Hackathon 2026 · real-world money + agent economy</span>
+  </div>
+</section>
+
+<script>
+  // One card per page, chosen by ?card=N so the renderer needs no cropping.
+  const wanted = new URLSearchParams(location.search).get("card") ?? "2";
+  const shown = document.querySelector(`.card[data-card="${wanted}"]`);
+  if (shown === null) {
+    throw new Error(`no card ${wanted}`);
+  }
+  shown.classList.add("on");
+  // The renderer waits for this flag rather than for a timer.
+  document.fonts.ready.then(() => {
+    window.__ready = true;
+  });
+</script>
+</body>
+</html>
