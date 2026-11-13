@@ -11,9 +11,12 @@ which is what H2's Done-when asks for. Nothing below claims a mainnet payment, a
 wallet signature or a real payout: the film badges every simulated step on screen,
 and post 4 says the same thing in words.
 
-Character counts are measured (`wc -m` equivalent: every line's length plus its
-newline), not estimated, and all four are under 280. They are **not** X's own
-counter — that was not available to measure here.
+Character counts are measured, not estimated: each fenced block's own text with the
+trailing newlines stripped, which is how a composer counts it — internal
+newlines kept, blank lines included, because a blank line is a character a reader
+sees on screen. All
+five blocks are under 280. They are **not** X's own counter, which was not
+reachable from here.
 
 ## Thread (recommended)
 
@@ -27,7 +30,7 @@ Till is an x402 gateway on NEAR: the agent gets 402, pays in NEAR, and the selle
 Built at NEAR Hackathon 2026 — Real-World Money + Agent Economy.
 ```
 
-272 characters.
+269 characters.
 
 ### 2/ — the order the paid call runs in
 
@@ -37,7 +40,7 @@ The paid call has one order, and it's enforced: verify → guards → upstream �
 Settle only on a 2xx. A settle that fails is a strike. Two served-but-unsettled calls in 24h and the payer gets 403 before we burn any relayer gas.
 ```
 
-239 characters.
+233 characters.
 
 ### 3/ — the payout leg and the reconciliation
 
@@ -47,7 +50,7 @@ Money out goes through NEAR Intents (1Click) to a 6-decimal stablecoin on anothe
 Unmatched, short, or refunded opens a discrepancy with a suggested action.
 ```
 
-273 characters.
+271 characters.
 
 ### 4/ — what is real, what is mocked, and where the code is
 
@@ -59,7 +62,7 @@ Repo: github.com/accensa/accensa-till
 #NEAR #x402 #buildonnear
 ```
 
-256 characters.
+257 characters.
 
 ## Single post (fallback, if a thread is not wanted)
 
@@ -74,7 +77,11 @@ Till paywalls a seller's GET API with x402 on NEAR: 402, the agent pays, and the
 2-min demo below #NEAR #x402
 ```
 
-269 characters.
+268 characters.
+
+Every number above is a claim about the block it sits under, so re-measure after
+editing one: the count is `len` of each fenced block's text with its
+trailing newlines stripped.
 
 ## What to upload
 
