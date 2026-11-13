@@ -7,20 +7,20 @@ the two questions these tracks are judged on: *does money really move*, and *can
 prove it*.
 
 Post 1 states the project was built at the NEAR hackathon and names both tracks,
-which is what H2's Done-when asks for. Nothing below claims a mainnet payment, a
-wallet signature or a real payout: the film badges every simulated step on screen,
-and post 4 says the same thing in words.
+which is what H2's Done-when asks for. Nothing below claims a mainnet payment. What
+the film actually shows is one real NEAR testnet settlement (`42XtdGR1…BTJne`, from
+`docs/spikes/S6.md`) and a payout leg running `PAYOUT_PROVIDER=mock`, and post 4 says
+exactly that in words rather than leaving it to the corner of the frame.
 
-Character counts are measured, not estimated: each fenced block's own text with the
-trailing newlines stripped, which is how a composer counts it — internal
-newlines kept, blank lines included, because a blank line is a character a reader
-sees on screen. All
-five blocks are under 280. They are **not** X's own counter, which was not
-reachable from here.
+Character counts are measured, not estimated: each fenced block's text with its
+trailing newlines stripped, which is how a composer counts it — internal newlines
+kept, blank lines included, because a blank line is a character a reader sees on
+screen. All five blocks are under 280. They are **not** X's own counter, which was
+not reachable from here.
 
 ## Thread (recommended)
 
-### 1/ — attach `docs/video/walkthrough.mp4` to this post
+### 1/ — attach `docs/video/film/till-film.mp4` to this post
 
 ```
 Agents can't get a credit card, so they can't pay for your API.
@@ -55,14 +55,14 @@ Unmatched, short, or refunded opens a discrepancy with a suggested action.
 ### 4/ — what is real, what is mocked, and where the code is
 
 ```
-Real vs mocked, stated on screen: the 402, the ledger and the rules are shipped code. The payout provider in this cut is the mock and the chain leg is a stub. No mainnet payment has been made.
+Real vs mocked, stated on screen: the receipt is a real NEAR testnet transaction, the 402 and the ledger are shipped code, and the payout leg runs the mock provider. No mainnet payment has been made.
 
 Repo: github.com/accensa/accensa-till
 
 #NEAR #x402 #buildonnear
 ```
 
-257 characters.
+264 characters.
 
 ## Single post (fallback, if a thread is not wanted)
 
@@ -80,8 +80,8 @@ Till paywalls a seller's GET API with x402 on NEAR: 402, the agent pays, and the
 268 characters.
 
 Every number above is a claim about the block it sits under, so re-measure after
-editing one: the count is `len` of each fenced block's text with its
-trailing newlines stripped.
+editing one: the count is `len` of each fenced block's text with its trailing
+newlines stripped.
 
 ## What to upload
 
@@ -91,24 +91,31 @@ because `ffprobe` is not installed on that host):
 
 | File | Bytes | Duration | Tracks |
 |---|---|---|---|
+| `film/till-film.mp4` | 30,839,038 (~29.4 MiB) | 104.2 s | video + audio |
 | `walkthrough.mp4` | 11,942,103 (~11.9 MB) | 117.0 s | video + audio |
 | `first-cut.mp4` | 9,291,224 (~9.3 MB) | 117.0 s | video only |
 
-Upload **`walkthrough.mp4`** — it is the one with the narration. `first-cut.mp4` is
-silent. 117 s is inside X's 2:20 video ceiling and ~11.9 MB is far below its size
+Upload **`docs/video/film/till-film.mp4`**. It is the narrated 104 s cut (H8): eleven
+scenes on a 120 BPM grid, captions burned in and word-synced, the ledger and the
+payout card in the picture, and the mock payout leg labelled on screen. At 104.2 s it
+is inside X's 2:20 ceiling with 36 s to spare, and ~29.4 MiB is far below the size
 limit, so no re-encode is needed.
 
+The other two are listed only so nobody opens the wrong file: `walkthrough.mp4` is
+the 117 s PRD §8 cut with its own narration, and `first-cut.mp4` is silent.
+
 The byte counts in `README.md`, `FIRST-CUT.md` and ROADMAP H1 quote **earlier
-renders** of these two files (35.3 MB / 32.8 MB / 5.21 MB) and no longer match the
-committed artefacts; the table above is what is in the tree today. Codec names,
-frame rate and frame count in those documents were not re-measured here — only the
-duration, the presence of an audio track, and the sizes.
+renders** of the `docs/video/*.mp4` pair (35.3 MB / 32.8 MB / 5.21 MB) and no longer
+match the committed artefacts; the table above is what is in the tree today. H8's
+"30 MB" for `till-film.mp4` does match (30,839,038 bytes). Codec names, frame rate and
+frame count in those documents were not re-measured here — only the duration, the
+presence of an audio track, and the sizes.
 
 ## Posting notes
 
-- Alt text on the video, so the post is readable without playing it: *"Terminal
-  answering HTTP 402 Payment Required with a base64 x402 challenge, then a Postgres
-  ledger showing a payment in on NEAR and a payout out on another chain."*
+- Alt text on the video, so the post is readable without playing it: *"Animated film
+  of a 402 payment challenge on NEAR, the ledger after the payment, a NEAR testnet
+  receipt, and a payout card marked mock provider."*
 - The link lives in 4/ so post 1 carries no outbound link.
 - The URL of post 1 is the `demoUrl` value in the application form
   (`HACKATHON.md` §3: "a public demo post").
