@@ -18,15 +18,19 @@ Coupled with professional voiceover synthesized via ElevenLabs George (`eleven_t
 codec_name=h264      width=1920  height=1080  r_frame_rate=30/1
 codec_name=aac       sample_rate=44100        channels=1 (mono)
 nb_frames=3510       pix_fmt=yuv420p
-duration=117.000000  size=37077648 (~35.3 MB)
+duration=117.000000  size=11942103 (~11.9 MB)
 ```
+
+The `size=` here is the file in the tree on 2026-11-13 (`stat`); the codec, frame
+rate and frame count above are from the render log of an earlier pass and were not
+re-measured on the host that re-checked the size.
 
 ### 2. `docs/video/first-cut.mp4` (Motion Video Track)
 
 ```
 codec_name=h264      width=1920  height=1080  r_frame_rate=30/1
 nb_frames=3510       pix_fmt=yuv420p
-duration=117.000000  size=34433152 (~32.8 MB)
+duration=117.000000  size=9291224 (~9.3 MB)
 ```
 
 16:9, 1920 × 1080, 30 fps, **exact 117.000 s**, 3,510 frames, H.264 `yuv420p` + AAC audio.

@@ -9,6 +9,7 @@ is the submission file.
 |---|---|
 | [`SHOTLIST.md`](SHOTLIST.md) | 13 shots, 117 s, each naming the capture file it comes from, plus the PRD §8 coverage map and the known gaps |
 | [`NARRATION.md`](NARRATION.md) | The spoken script, one block per shot, sized 2.5 words/second. `render.sh` reads durations and subtitles out of this file |
+| [`X-POST.md`](X-POST.md) | The copy for the submission post (H2): a four-post thread with the film on post 1, a single-post fallback, and the measured facts about which MP4 to upload |
 | [`CAPTURES/`](CAPTURES/) | The raw evidence: five text captures, one `psql` read, three browser screenshots, and `frames/` — the verbatim excerpts the film renders |
 | [`render-v2.py`](render-v2.py) | Renders the Web3 styled presentation deck (`stage.html`) into `first-cut.mp4` via headless Chrome CDP |
 | [`generate-voiceover.py`](generate-voiceover.py) | Synthesizes ElevenLabs voiceover narration per shot and muxes it into `walkthrough.mp4` |
