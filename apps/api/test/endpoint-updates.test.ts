@@ -395,6 +395,7 @@ async function advertised(slug: string) {
     upstreamTimeoutMs: 15_000,
     authorizationExpiryMarginMs: 30_000,
     minPriceBaseUnits: 10_000n,
+    payoutProvider: "mock",
   });
   const { result } = cache.forEndpoint({
     endpointId: row.endpointId,
@@ -404,6 +405,7 @@ async function advertised(slug: string) {
     payoutMode: row.payoutMode,
     sellerNearAccountId: row.sellerNearAccountId,
     routeDepositAddress: row.routeDepositAddress,
+    routeProvider: row.routeProvider,
     gatewayUrl: `https://gateway.test/r/${row.slug}`,
     description: row.description,
   });

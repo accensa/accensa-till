@@ -28,11 +28,13 @@ Owner: nobody but core. Core may not import `drizzle-orm`, `hono`, `postgres`, `
 | `src/x402/near.ts` | the only `@fastnear/*` import in the repo | hard rule 1 — nothing else may import it |
 | `src/services/ledger.ts` | the only writer of `ledger_entries` | append-only; a DB trigger blocks UPDATE/DELETE |
 | `src/services/swaps.ts` | the only writer of the payment↔swap link | joins by transaction hash and nothing else (hard rule 7) |
+| `src/db/queries/swaps.ts` | the seller's payout timeline read (`GET /api/swaps`) | scoped by `swaps.route_id → payout_routes.seller_id`; read-only |
 | `src/services/payout-routes.ts` | prepare/dedupe/insert of immutable routes | never updates a route; a change mints a new row |
 | `src/services/discrepancies.ts` | the only writer of `discrepancies` | dedupe key, auto-resolve, severity-ordered worklist |
 | `src/services/{endpoints,payments,sellers,access-keys,status,strikes}.ts` | everything else server-side | `strikes.ts` holds the block predicate **and** the clear watermark the gateway enforces |
 | `src/jobs/{loop,ticks,poll-payouts,reconcile,sweep-stale}.ts` | the three loops and the boot sweep | assertable bodies live in `ticks.ts`; `server.ts` only starts them |
-| `src/routes/*.ts` | dashboard HTTP, all session-gated except `/auth/*` | thin: validate, call a service, map errors. `swaps.ts` and `export.ts` are one-line unmounted stubs; `/assets` has no file |
+| `src/routes/*.ts` | dashboard HTTP, all session-gated except `/auth/*` | thin: validate, call a service, map errors. `/assets` has no file |
+| `src/lib/sign-in-guard.ts` | the sign-in throttle and the redeemed-nonce record | both clock-injected and pure; the nonce is spent only after the key check |
 | `src/payouts/` | `PayoutProvider` interface, `mock/`, `oneclick/` (client + status map) | `createProvider` returns the real client when `PAYOUT_PROVIDER=oneclick`; only its `prepareRoute` refuses, because `originAsset`, `depositType` and `slippageTolerance` are undecided (D3, S2/B8) — the live-money boundary |
 | `src/db/{schema,client}.ts`, `src/db/queries/`, `migrations/` | Drizzle schema, one pool, hand-written reads | every money column `numeric(78,0)` with a CHECK |
 | `src/lib/{session,logger}.ts`, `src/env.ts`, `src/app.ts`, `src/server.ts` | HKDF+JWS cookie codec, buffered logger, the whole env schema, route mounting, boot | `env.ts` is the only place env is read; `app.ts` takes `AppDeps` seams for tests |

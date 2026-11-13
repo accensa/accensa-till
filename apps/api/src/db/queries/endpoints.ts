@@ -38,6 +38,11 @@ export type GatewayEndpoint = {
   readonly sellerNearAccountId: string;
   readonly routeId: string | null;
   readonly routeDepositAddress: string | null;
+  /**
+   * `payout_routes.provider`, so the gateway can refuse to advertise an address
+   * minted by a provider this process is not running (G7). Null in `direct` mode.
+   */
+  readonly routeProvider: string | null;
   readonly upstreamUrl: string;
   readonly description: string | null;
   readonly active: boolean;
@@ -67,6 +72,7 @@ export function findGatewayEndpoint(db: Db, slug: string): Promise<GatewayEndpoi
         sellerNearAccountId: sellers.nearAccountId,
         routeId: payoutRoutes.id,
         routeDepositAddress: payoutRoutes.depositAddress,
+        routeProvider: payoutRoutes.provider,
         upstreamUrl: endpoints.upstreamUrl,
         description: endpoints.description,
         active: endpoints.active,

@@ -88,7 +88,28 @@ export type X402NearConfig = {
    * and no money. Production never passes it.
    */
   readonly signer?: NearViewSigner;
+  /**
+   * The deadline one `verify` or `settle` gets, in milliseconds. Both calls reach
+   * a network (RPC and, for verify, `ft_balance_of`) and neither is bounded by
+   * anything the route owns, so this is the bound. A test sets it low to prove the
+   * refusal without waiting ten seconds; production takes the default.
+   */
+  readonly actionTimeoutMs?: number;
 };
+
+/**
+ * GW-2: a paid request must not wait on an RPC forever.
+ *
+ * Every other network call in the paid path has its own deadline — the upstream
+ * proxy (`UPSTREAM_TIMEOUT_MS`), the boot sweep's `tx` read (`SETTLEMENT_STATUS_
+ * TIMEOUT_MS`). These two did not, which made a slow node the one failure mode
+ * that hangs a payer's request instead of answering it: the request has already
+ * passed the challenge, so nothing upstream of it will time out either. Ten
+ * seconds is longer than a healthy NEAR RPC read by an order of magnitude (S6
+ * measured the FastNear RPC at under a second) and shorter than a payer's
+ * patience, so a timeout here is a real fault rather than a slow moment.
+ */
+const X402_ACTION_TIMEOUT_MS = 10_000;
 
 function reasonOf(response: {
   invalidReason?: string;
@@ -227,6 +248,7 @@ async function settlementVerdict(
 
 export function createX402Near(config: X402NearConfig): X402Near {
   const relayer = config.relayer;
+  const actionTimeoutMs = config.actionTimeoutMs ?? X402_ACTION_TIMEOUT_MS;
   let server: ResourceServer | null = null;
 
   if (config.signer !== undefined) {
@@ -244,8 +266,9 @@ export function createX402Near(config: X402NearConfig): X402Near {
           // (C14's isolation proof). An env string cannot be checked against a type
           // we cannot import, so the assertion happens here once and `env.ts` is
           // what makes it true: `RELAYER_SECRET_KEY` must carry a curve prefix, so
-          // a keyless or mistyped relayer fails the process at boot instead of
-          // reaching this line.
+          // a mistyped key fails the process at boot instead of reaching this line.
+          // A *missing* key is not a boot failure: `server.ts` reports
+          // `configured: false` and the gateway answers 503 to a payer (C1, C4).
           secretKey: relayer.secretKey as RelayerEntry["secretKey"],
         },
       ],
@@ -277,6 +300,31 @@ export function createX402Near(config: X402NearConfig): X402Near {
 
   function malformed(reason: string): VerifyOutcome {
     return { ok: false, kind: "malformed", reason };
+  }
+
+  /**
+   * The one place a library promise is given a deadline. A rejection is what the
+   * caller already maps to `{ ok: false, kind: "error" }`, so a timeout fails
+   * closed exactly like a thrown RPC error: the route refuses rather than chal-
+   * lenges, and never serves on a verdict it did not receive.
+   */
+  async function withDeadline<T>(work: Promise<T>, action: "verify" | "settle"): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`x402 ${action} timed out after ${actionTimeoutMs} ms`)),
+        actionTimeoutMs,
+      );
+    });
+    try {
+      return await Promise.race([work, deadline]);
+    } finally {
+      // Node keeps the process alive for a pending timer, and this one would
+      // outlive a fast answer by the whole timeout if it were not cleared.
+      if (timer !== undefined) {
+        clearTimeout(timer);
+      }
+    }
   }
 
   async function attempt(
@@ -319,9 +367,15 @@ export function createX402Near(config: X402NearConfig): X402Near {
     const requirementsArg = toLibraryRequirements(requirementsDto);
     try {
       if (action === "verify") {
-        return { ok: true, data: await server.verifyPayment(payload, requirementsArg) };
+        return {
+          ok: true,
+          data: await withDeadline(server.verifyPayment(payload, requirementsArg), "verify"),
+        };
       }
-      return { ok: true, data: await server.settlePayment(payload, requirementsArg) };
+      return {
+        ok: true,
+        data: await withDeadline(server.settlePayment(payload, requirementsArg), "settle"),
+      };
     } catch (error) {
       // A verifier that could not run is not a payment that failed: the route must
       // not re-challenge, and must certainly not serve. Fail closed, say why.

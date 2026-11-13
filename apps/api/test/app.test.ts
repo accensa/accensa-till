@@ -126,6 +126,65 @@ describe("the request middleware (A21)", () => {
     expect(ids[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
+  it("refuses a dashboard body over the ceiling instead of parsing it", async () => {
+    // G7: before this, every `/api` handler called `c.req.json()` on whatever the
+    // client sent. A 200 MB body was read into memory, and an OOM restart also
+    // resets the in-memory sponsored-gas budget (limits.ts), so an anonymous
+    // request could reach the money cap through the availability path.
+    const { app } = appFor();
+    const response = await app.request("/api/auth/nonce", {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-length": String(200_000) },
+      body: JSON.stringify({ pad: "x".repeat(200_000) }),
+    });
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ code: "payload_too_large" });
+  });
+
+  it("refuses a state-changing dashboard request from another origin", async () => {
+    // G7: SameSite=Strict already stops the cookie travelling, but `PATCH
+    // /api/endpoints/:id` can move a payout address, so the origin is checked as
+    // its own rule rather than only as a side effect of the cookie policy.
+    const { app, lines } = appFor();
+    const response = await app.request("/api/auth/nonce", {
+      method: "POST",
+      headers: { origin: "https://evil.example" },
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ code: "origin_refused" });
+    expect(lines.some((line) => line.code === "origin_refused")).toBe(true);
+  });
+
+  it("accepts the dashboard's own origin, and a browserless client with none", async () => {
+    const { app } = appFor();
+    const own = await app.request("/api/auth/nonce", {
+      method: "POST",
+      headers: { origin: "http://localhost:3000" },
+    });
+    const none = await app.request("/api/auth/nonce", { method: "POST" });
+    expect([own.status, none.status]).toEqual([200, 200]);
+  });
+
+  it("mounts both halves of the dashboard ledger, refusing without a session", async () => {
+    // F15: `/api/swaps` used to be an unmounted stub, so this 401 (rather than a
+    // 404) is the mount itself. Neither route reads the database on this path, so
+    // the assertion holds with the unreachable handle `appFor` hands in.
+    const { app } = appFor();
+    const payments = await app.request("/api/payments");
+    const swaps = await app.request("/api/swaps");
+    expect([payments.status, swaps.status]).toEqual([401, 401]);
+    expect(await swaps.json()).toMatchObject({ code: "unauthenticated" });
+  });
+
+  it("sends nosniff on every answer, which the CSV export needs most", async () => {
+    // G7: the ledger export is `text/csv`, the one content type a browser might
+    // otherwise sniff into something executable.
+    const { app } = appFor();
+    const health = await app.request("/healthz");
+    expect(health.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(health.headers.get("x-frame-options")).toBe("SAMEORIGIN");
+  });
+
   it("measures the request's own duration, not the process's uptime", async () => {
     // A4's bug, found by booting the thing: the log printed
     // `performance.now()/1000`, which is time since process start, so a request

@@ -149,6 +149,8 @@ type SignerKnobs = {
         innerReceipt: { kind: "failure"; error: string };
       };
   readonly failOn?: "height";
+  /** Never answers, which is the failure mode a deadline exists for. */
+  readonly hangOn?: "height" | "submit";
 };
 
 /**
@@ -160,6 +162,9 @@ function fakeChain(knobs: SignerKnobs = {}): { signer: NearViewSigner; submits: 
   const signer: NearViewSigner = {
     getRelayerIds: () => [RELAYER],
     getCurrentBlockHeight: async () => {
+      if (knobs.hangOn === "height") {
+        return await new Promise<bigint>(() => {});
+      }
       if (knobs.failOn === "height") {
         throw new Error("rpc unreachable");
       }
@@ -176,6 +181,9 @@ function fakeChain(knobs: SignerKnobs = {}): { signer: NearViewSigner; submits: 
     ftBalanceOf: async () => knobs.ftBalance ?? 1_000_000n,
     storageBalanceOf: async () => knobs.storage ?? { supported: false },
     submitSignedDelegateAction: async ({ signedDelegateAction }) => {
+      if (knobs.hangOn === "submit") {
+        return await new Promise<never>(() => {});
+      }
       submits.push(signedDelegateAction);
       return (
         knobs.submit ?? {
@@ -547,6 +555,28 @@ describe("verify refuses, and says which rule fired (GW-2, G6)", () => {
     expect(result.reason.length).toBeGreaterThan(0);
   });
 
+  it("gives up on a verifier that never answers instead of hanging the request", async () => {
+    // GW-2: verify and settle are the two network calls in the paid path that no
+    // route-level timeout covered. A node that accepts the socket and never
+    // answers used to hold the payer's request open indefinitely, after the
+    // challenge had already been served, so nothing upstream of it would time out
+    // either. The deadline turns that into the same refusal a thrown RPC error
+    // produces: fail closed, never "maybe paid".
+    const near = createX402Near({
+      network: "near:testnet",
+      maxSponsoredGas: 30_000_000_000_000n,
+      signer: fakeChain({ hangOn: "height" }).signer,
+      actionTimeoutMs: 50,
+    });
+    const startedAt = Date.now();
+    const result = await near.verify(await mintPayment(requirementsFor()), requirements);
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("a verifier that never answered must not verify");
+    expect(result.kind).toBe("error");
+    expect(result.reason).toContain("timed out");
+  });
+
   it("refuses everything when no relayer is configured", async () => {
     const unconfigured = createX402Near({
       network: "near:testnet",
@@ -578,6 +608,24 @@ describe("settle (GW-3)", () => {
     if (!result.ok) throw new Error("unreachable");
     expect(result.nearTxHash).toBe("test-tx-hash");
     expect(chain.submits.length).toBe(1);
+  });
+
+  it("abandons a settlement whose submission never answers", async () => {
+    // The expensive half of the same bug: a hung `settle` is a served answer that
+    // never books revenue, and `SERVED_NOT_SETTLED` is the only evidence left. The
+    // deadline makes it a reported failure the route can abandon the row on.
+    const near = createX402Near({
+      network: "near:testnet",
+      maxSponsoredGas: 30_000_000_000_000n,
+      signer: fakeChain({ hangOn: "submit" }).signer,
+      actionTimeoutMs: 50,
+    });
+    const result = await near.settle(await mintPayment(requirementsFor()), requirements);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("a settlement that never answered is not settled");
+    expect(result.kind).toBe("error");
+    expect(result.reason).toContain("timed out");
+    expect(result.nearTxHash).toBeUndefined();
   });
 
   it("refuses to call a reverted transfer settled", async () => {

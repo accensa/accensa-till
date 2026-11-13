@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { secureHeaders } from "hono/secure-headers";
 
 import type { Db } from "./db/client.ts";
 import type { Env } from "./env.ts";
@@ -11,6 +13,7 @@ import { type ExportRouteDeps, createExportRoutes } from "./routes/export.ts";
 import { type OverviewRouteDeps, createOverviewRoutes } from "./routes/overview.ts";
 import { type PaymentRouteDeps, createPaymentRoutes } from "./routes/payments.ts";
 import { type StatusRouteDeps, createStatusRoutes } from "./routes/status.ts";
+import { type SwapRouteDeps, createSwapRoutes } from "./routes/swaps.ts";
 import type { X402Near } from "./x402/types.ts";
 
 /**
@@ -60,10 +63,11 @@ export type AppDeps = {
    */
   readonly auth?: Partial<Pick<AuthRouteDeps, "accessKeys">>;
   /**
-   * UI-3's read needs nothing the deps above do not already hold, so the seam is
-   * the session alone.
+   * UI-3's reads need nothing the deps above do not already hold, so the seam is
+   * the session alone — one per side of the ledger (payments in, swaps out).
    */
   readonly payments?: Partial<Pick<PaymentRouteDeps, "session">>;
+  readonly swaps?: Partial<Pick<SwapRouteDeps, "session">>;
   readonly discrepancies?: Partial<Pick<DiscrepancyRouteDeps, "session">>;
   /**
    * UI-5's header reads the chain as well as the database, and the suite runs
@@ -86,6 +90,39 @@ export type AppDeps = {
 
 export type Variables = { requestId: string };
 
+/**
+ * The largest dashboard request body Till will read (G7).
+ *
+ * Every `/api` handler that takes a body parses it into memory with `c.req.json()`,
+ * and none of them had a ceiling: the biggest real one is a signed-message or
+ * endpoint-create payload of a few kilobytes. 64 KB is ~10× the largest shape the
+ * schemas accept, so a legitimate client never sees this, while a 200 MB body that
+ * used to be parsed (or OOM-killed the process) is refused before it is read. That
+ * matters beyond availability: `SPONSORED_GAS_BUDGET` lives in process memory, so a
+ * crash-loop is a gas cap that resets with the process (limits.ts states the
+ * in-memory limitation; this is what keeps an anonymous request from reaching it).
+ */
+export const MAX_DASHBOARD_BODY_BYTES = 64 * 1024;
+
+/** Methods that change state, and therefore the ones the origin check covers. */
+const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Whether a request's `Origin` is this deployment's own.
+ *
+ * Compared by parsing rather than by string equality, because `https://till.app`
+ * and `https://till.app/` are the same origin to a browser and different strings to
+ * `===`, and a refusal on a trailing slash would be a dashboard that cannot save.
+ * An unparseable header is a refusal: nothing legitimate sends one.
+ */
+function isOwnOrigin(origin: string, publicUrl: string): boolean {
+  try {
+    return new URL(origin).origin === new URL(publicUrl).origin;
+  } catch {
+    return false;
+  }
+}
+
 export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
   const { env, log, db, x402 } = deps;
   const app = new Hono<{ Variables: Variables }>();
@@ -100,6 +137,71 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
     const seconds = ((performance.now() - startedAt) / 1000).toFixed(3);
     log.info({ requestId, method: c.req.method, path: c.req.path, status: c.res.status, seconds });
   });
+
+  // G7: response headers. `crossOriginResourcePolicy` is off on purpose -- the paid
+  // endpoint answers a buyer's own server, and a policy aimed at browser subresource
+  // loads has no business on that response. No `contentSecurityPolicy` either: this
+  // process serves JSON and CSV, never HTML, so a CSP for it would be decoration
+  // rather than a defence (the middleware only sets one when asked).
+  app.use(
+    "*",
+    secureHeaders({
+      crossOriginResourcePolicy: false,
+      removePoweredBy: true,
+    }),
+  );
+
+  /**
+   * G7: the origin check on every state-changing dashboard route.
+   *
+   * The session cookie is `SameSite=Strict` (lib/session.ts), which already stops a
+   * cross-site form POST from carrying it. This is the second lock on the same door,
+   * and it is the one that survives a future cookie change: `PATCH /api/endpoints/:id`
+   * can point a payout at another address, so a mutating request whose `Origin` says
+   * "another site" is refused even if a browser is eventually persuaded to send it.
+   *
+   * An absent header is allowed: curl, the demo scripts and every test in this suite
+   * are not browsers and send none. A browser always sends one on a non-GET request,
+   * so the only clients this can refuse are the ones it exists to refuse.
+   */
+  app.use("/api/*", async (c, next) => {
+    if (!MUTATING_METHODS.has(c.req.method)) {
+      return next();
+    }
+    const origin = c.req.header("origin");
+    if (origin === undefined) {
+      return next();
+    }
+    if (!isOwnOrigin(origin, env.GATEWAY_PUBLIC_URL)) {
+      log.warn({ code: "origin_refused", origin, path: c.req.path }, "dashboard 403");
+      return c.json(
+        {
+          code: "origin_refused",
+          message: "This request came from another origin, and it changes state.",
+        },
+        403,
+      );
+    }
+    return next();
+  });
+
+  // G7: the body ceiling, before any route that parses a body. 413 rather than 400
+  // so a client can tell "too large" from "malformed", and the message carries the
+  // limit because a seller debugging an upload should not have to read our source.
+  app.use(
+    "/api/*",
+    bodyLimit({
+      maxSize: MAX_DASHBOARD_BODY_BYTES,
+      onError: (c) =>
+        c.json(
+          {
+            code: "payload_too_large",
+            message: `The request body is larger than ${MAX_DASHBOARD_BODY_BYTES} bytes.`,
+          },
+          413,
+        ),
+    }),
+  );
 
   // 11.2: health reports liveness only. The relayer balance and last-poll checks
   // are UI-5's, they are scoped to a seller, and they belong on the dashboard
@@ -117,11 +219,11 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
    *   routes/auth.ts          A5 / UI-1   wallet signature session  (mounted, F1)
    *   routes/endpoints.ts     D4 / PO-1   creation checks           (mounted, F2)
    *   routes/payments.ts      UI-3        the seller's ledger       (mounted, F3)
+   *   routes/swaps.ts         D6 / UI-3   payout leg                  (mounted, F8)
    *   routes/discrepancies.ts E2 / UI-4   worklist, resolve, blocks (mounted, F4)
    *   routes/status.ts        UI-5        header balance and last poll (mounted, F5)
    *   routes/overview.ts      UI-6        ledger-equal totals         (mounted, F6)
    *   routes/export.ts        LR-7        CSV export (P1)             (mounted, F7)
-   *   routes/swaps.ts         D6 / UI-3   payout leg                  (open)
    */
 
   // UI-1, F1. First under `/api` and the only route there that does not require a
@@ -135,6 +237,8 @@ export function createApp(deps: AppDeps): Hono<{ Variables: Variables }> {
   // UI-3, F3. The seller's payments, read through the same session as their
   // endpoints: one identity for both halves of the dashboard.
   app.route("/api", createPaymentRoutes({ db, env, log, ...deps.payments }));
+  // D6 / UI-3's other half: the seller's payouts, scoped by the same session.
+  app.route("/api", createSwapRoutes({ db, env, log, ...deps.swaps }));
   app.route("/api", createDiscrepancyRoutes({ db, env, log, ...deps.discrepancies }));
 
   // UI-5, F5. The header's two facts, one from the chain and one from the

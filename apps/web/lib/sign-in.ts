@@ -37,6 +37,8 @@ export const AUTH_CODE_DESCRIPTIONS: Readonly<Record<AuthErrorCode, string>> = {
   invalid_request:
     "The sign-in payload was rejected. Verify account format, public key, and signature.",
   invalid_json: "The server received an unreadable payload.",
+  sign_in_throttled:
+    "Too many sign-in attempts for now. Wait a moment, then request a new challenge.",
 };
 
 /**

@@ -52,6 +52,7 @@ function depsFor(overrides: Partial<RequirementsCacheDeps> = {}): RequirementsCa
     upstreamTimeoutMs: 15_000,
     authorizationExpiryMarginMs: 30_000,
     minPriceBaseUnits: FLOOR,
+    payoutProvider: "mock",
     ...overrides,
   };
 }
@@ -65,6 +66,7 @@ function sourceFor(overrides: Partial<RequirementsSource> = {}): RequirementsSou
     payoutMode: "direct",
     sellerNearAccountId: SELLER,
     routeDepositAddress: null,
+    routeProvider: null,
     gatewayUrl: GATEWAY_URL,
     description: "Quote of the day, in USD",
     ...overrides,
@@ -214,9 +216,42 @@ describe("what Till refuses to advertise", () => {
     const cache = createRequirementsCache(depsFor());
     const { requirements } = okRequirements(
       cache,
-      sourceFor({ payoutMode: "intents", routeDepositAddress: "deposits.intents.testnet" }),
+      sourceFor({
+        payoutMode: "intents",
+        routeDepositAddress: "deposits.intents.testnet",
+        routeProvider: "mock",
+      }),
     );
     expect(requirements.payTo).toBe("deposits.intents.testnet");
+  });
+
+  it("refuses to advertise a deposit address another provider minted (G7, D5)", () => {
+    // The one config change that used to be silently wrong: `payout_routes` is
+    // immutable and keyed by provider, so flipping PAYOUT_PROVIDER to `oneclick`
+    // mints nothing new and leaves every existing intents endpoint advertising
+    // `mock-deposit-N` -- a NEAR-account-shaped name with no account behind it. A
+    // payer's ft_transfer reverts after the seller has already served.
+    const cache = createRequirementsCache(depsFor({ payoutProvider: "oneclick" }));
+    const { result } = cache.forEndpoint(
+      sourceFor({
+        payoutMode: "intents",
+        routeDepositAddress: "mock-deposit-1",
+        routeProvider: "mock",
+      }),
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("unreachable");
+    expect(result.reason).toBe("route_provider_mismatch");
+    expect(result.detail).toContain("oneclick");
+    expect(result.detail).toContain("mock");
+  });
+
+  it("still advertises a direct endpoint when the provider changed, because it needs no route", () => {
+    // `direct` pays the seller's own account (PO-6), so a stale route row cannot
+    // make it wrong and refusing it would take a working paywall offline.
+    const cache = createRequirementsCache(depsFor({ payoutProvider: "oneclick" }));
+    const { requirements } = okRequirements(cache, sourceFor({ routeProvider: "mock" }));
+    expect(requirements.payTo).toBe(SELLER);
   });
 
   it("refuses a pay-to that cannot be a NEAR account id in either mode", () => {
@@ -392,6 +427,7 @@ describe("the per-endpoint cache (GW-1: an unpaid request costs one row read)", 
         "minPriceBaseUnits",
         "near",
         "network",
+        "payoutProvider",
         "upstreamTimeoutMs",
       ].sort(),
     );

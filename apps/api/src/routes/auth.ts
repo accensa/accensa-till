@@ -24,6 +24,15 @@ import {
   createSessionCodec,
 } from "../lib/session.ts";
 import {
+  SIGN_IN_GLOBAL_MAX,
+  SIGN_IN_PER_ACCOUNT_MAX,
+  SIGN_IN_WINDOW_MS,
+  type SignInNonceStore,
+  type SignInThrottle,
+  createSignInNonceStore,
+  createSignInThrottle,
+} from "../lib/sign-in-guard.ts";
+import {
   type AccessKeyList,
   type AccessKeyReader,
   createAccessKeyReader,
@@ -65,6 +74,9 @@ export type AuthRouteDeps = {
   readonly log: Logger;
   /** The one thing a test cannot do: read the chain. */
   readonly accessKeys?: AccessKeyReader;
+  /** Per-route state, injectable so a test can use a short window or a fixed clock. */
+  readonly throttle?: SignInThrottle;
+  readonly nonces?: SignInNonceStore;
 };
 
 /** The origin signatures are bound to, from the one configured public URL (A4). */
@@ -76,11 +88,36 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
   const { db, env, log } = deps;
   const codec = createSessionCodec(env.SESSION_SECRET);
   const readAccessKeys = deps.accessKeys ?? createAccessKeyReader({ rpcUrl: env.NEAR_RPC_URL });
-  const secure = env.NODE_ENV === "production";
+  // G7: the cost bound and the replay record. Both are per route instance, which is
+  // the process in production and one test in the suite (hard rule 10: one process).
+  const throttle =
+    deps.throttle ??
+    createSignInThrottle({
+      globalMax: SIGN_IN_GLOBAL_MAX,
+      perAccountMax: SIGN_IN_PER_ACCOUNT_MAX,
+      windowMs: SIGN_IN_WINDOW_MS,
+    });
+  const nonces = deps.nonces ?? createSignInNonceStore({ ttlMs: SIGN_IN_MAX_AGE_SECONDS * 1000 });
+  /**
+   * `Secure` unless this deployment is plainly insecure (G7). It used to follow
+   * `NODE_ENV === "production"` alone, so a container that forgot `NODE_ENV` — which
+   * defaults to `development` in env.ts — served a 12-hour session cookie over http.
+   * The public URL is the deployment's own statement of its scheme, and env.ts makes
+   * it https in production, so this fails closed either way.
+   */
+  const secure =
+    env.NODE_ENV === "production" || new URL(env.GATEWAY_PUBLIC_URL).protocol === "https:";
 
   const app = new Hono();
 
   app.post("/auth/nonce", async (c) => {
+    // G7: no account is known yet, so only the process-wide window moves. Minting is
+    // cheap (a signature and a cookie), but an unbounded mint is still an unbounded
+    // cookie factory, and every one of them is a challenge a wallet might sign.
+    const decision = throttle.tryAcquire();
+    if (!decision.ok) {
+      return throttled(c, log, decision.retryAfterSeconds, "sign-in challenge");
+    }
     const challenge = {
       message: SIGN_IN_MESSAGE,
       recipient: recipientOf(env.GATEWAY_PUBLIC_URL),
@@ -101,6 +138,14 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
   });
 
   app.post("/auth/verify", async (c) => {
+    // G7: the process-wide window first, before the body is parsed -- this is the
+    // route that spends an RPC call, and the cheapest refusal is the one that reads
+    // nothing.
+    const before = throttle.tryAcquire();
+    if (!before.ok) {
+      return throttled(c, log, before.retryAfterSeconds, "sign-in attempt");
+    }
+
     let payload: unknown;
     try {
       payload = await c.req.json();
@@ -125,6 +170,14 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
     }
     const request = parsed.data;
 
+    // G7: the per-account window. The account id is self-reported at this point, but
+    // that is the point: one account's retries are bounded, and an attacker rotating
+    // ids still meets the global window above.
+    const perAccount = throttle.tryAcquireFor(request.accountId);
+    if (!perAccount.ok) {
+      return throttled(c, log, perAccount.retryAfterSeconds, "sign-in attempt", request.accountId);
+    }
+
     const issued = await codec.verifySignInCookie(getCookie(c, SIGN_IN_COOKIE) ?? "");
     if (issued === null) {
       return refuse(
@@ -146,6 +199,20 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
         log,
         "sign_in_challenge",
         "The signed message does not match the challenge Till issued.",
+        request.accountId,
+      );
+    }
+
+    // G7: a challenge is redeemed once, not for the rest of its five minutes. The
+    // nonce is the value the signature covers, so a copy of the cookie plus the
+    // signature used to sign it was a second session. Checked here, spent only after
+    // the key check succeeds, so a wrong signature does not burn the challenge.
+    if (nonces.has(request.nonce)) {
+      return refuse(
+        c,
+        log,
+        "sign_in_challenge",
+        "That challenge has already been used. Request a fresh one and sign that.",
         request.accountId,
       );
     }
@@ -225,6 +292,7 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
     }
 
     const seller = await findOrCreateSeller(db, request.accountId);
+    nonces.spend(request.nonce);
     setCookie(
       c,
       SESSION_COOKIE,
@@ -234,11 +302,9 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
       }),
       cookieOptions(SESSION_MAX_AGE_SECONDS, secure),
     );
-    // The challenge is spent. It could still be replayed by anyone holding a copy
-    // until its own expiry — with no sessions table there is nothing to mark it
-    // used, and that five-minute window is stated as a limitation rather than
-    // fixed by a store — but deleting it keeps the browser from sending a stale
-    // cookie on every later request.
+    // The nonce is in `nonces` now, so a copy of this cookie cannot be redeemed a
+    // second time; deleting it keeps the browser from sending a spent challenge on
+    // every later request.
     deleteCookie(c, SIGN_IN_COOKIE, { path: "/", secure });
 
     log.info({ code: "signed_in", accountId: seller.nearAccountId }, "wallet sign-in");
@@ -252,6 +318,28 @@ export function createAuthRoutes(deps: AuthRouteDeps): Hono {
   });
 
   return app;
+}
+
+/**
+ * G7's answer to a request over the sign-in budget. `Retry-After` because the
+ * client has a legitimate next step: wait, then request a fresh challenge.
+ */
+function throttled(
+  c: Context,
+  log: Logger,
+  retryAfterSeconds: number,
+  what: string,
+  accountId?: string,
+) {
+  log.warn({ code: "sign_in_throttled", accountId: accountId ?? null }, `too many ${what}s`);
+  c.header("Retry-After", String(retryAfterSeconds));
+  return c.json(
+    {
+      code: "sign_in_throttled",
+      message: "Too many sign-in attempts for now; wait a moment and try again.",
+    },
+    429,
+  );
 }
 
 function refuse(

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { loadEnv } from "../src/env.ts";
+import { envSchema, loadEnv } from "../src/env.ts";
 
 /**
  * Two defaults that were wrong in a way no boot would show: a 1Click base URL
@@ -301,6 +301,46 @@ describe("reconciliation windows (E9, LR-3)", () => {
         value,
       ).toThrow(/SWEEP_WINDOW_SECONDS/);
     }
+  });
+
+  it("refuses a plain-http URL in production, naming the key (G7)", () => {
+    // `z.string().url()` accepts `http://`, and two of these carry a credential or
+    // the deployment's identity: a typo would put ONECLICK_JWT on the wire in
+    // cleartext, or advertise an http origin a wallet signs against. Asserted at
+    // both layers: the schema's own message says why, and `loadEnv` (which never
+    // echoes a value) names the key.
+    const cases: Record<string, string>[] = [
+      { GATEWAY_PUBLIC_URL: "http://till.example" },
+      { NEAR_RPC_URL: "http://rpc.example" },
+      { ONECLICK_BASE_URL: "http://1click.example" },
+    ];
+    for (const overrides of cases) {
+      const key = Object.keys(overrides)[0] ?? "";
+      const parsed = envSchema.safeParse({
+        ...process.env,
+        ...required,
+        NODE_ENV: "production",
+        ...overrides,
+      });
+      expect(parsed.success, key).toBe(false);
+      if (parsed.success) throw new Error("unreachable");
+      const issue = parsed.error.issues.find((candidate) => candidate.path[0] === key);
+      expect(issue?.message, key).toMatch(/must be https/);
+      expect(bootError({ NODE_ENV: "production", ...overrides }), key).toMatch(new RegExp(key));
+    }
+  });
+
+  it("still boots production on https, and development on http (G7)", () => {
+    const production = loadEnv({
+      ...process.env,
+      ...required,
+      NODE_ENV: "production",
+      GATEWAY_PUBLIC_URL: "https://till.example",
+    });
+    expect(production.NODE_ENV).toBe("production");
+    // The demo gateway is plain http on loopback and has to stay usable.
+    const development = loadEnv({ ...process.env, ...required, NODE_ENV: "development" });
+    expect(development.GATEWAY_PUBLIC_URL).toBe("http://localhost:3000");
   });
 
   it("carries every window to the rules in one config object", () => {

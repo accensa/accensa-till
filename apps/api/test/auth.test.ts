@@ -711,15 +711,18 @@ suite("POST /auth/verify turns a signature into a session", () => {
     expect(lines).not.toMatch(/"signature"/);
   });
 
-  it("keeps a spent challenge usable until its own expiry, because there is no session store", async () => {
-    // Pinned as F1's known limitation rather than presented as a feature: a captured
-    // challenge cookie replays for the rest of its five minutes. Deleting it from the
-    // browser is what the route does; revoking it is what no store backs.
+  it("refuses a challenge that was already redeemed", async () => {
+    // F1's old limitation, closed by G7: without a record of what had been spent, a
+    // captured challenge cookie plus the signature it covers replayed into a second
+    // session for the rest of the cookie's five minutes. The nonce the signature
+    // covers is now redeemed once, and a second attempt is refused with the same
+    // code a stale challenge gets (the seller's fix is identical: sign again).
     const { app } = routeApp();
     const { challenge, token } = await issueNonce(app);
     const first = await verifyRequest(app, challenge, { token });
     const second = await verifyRequest(app, challenge, { token });
-    expect([first.status, second.status]).toEqual([200, 200]);
+    expect([first.status, second.status]).toEqual([200, 401]);
+    expect(await second.json()).toMatchObject({ code: "sign_in_challenge" });
   });
 });
 

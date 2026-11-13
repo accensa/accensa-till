@@ -398,15 +398,17 @@ Stripping is by name list, in `gateway/proxy.ts`: hop-by-hop headers (RFC 9110 7
 
 | Method and path | Purpose |
 |---|---|
-| `POST /auth/nonce`, `POST /auth/verify` | Wallet sign-in (F1, 8.2). The only routes under `/api` that answer without a session — they are what issues one. Refusals are named: `invalid_json`, `invalid_request` (400); `sign_in_challenge`, `key_type_unsupported`, `signature_invalid`, `account_not_found`, `key_not_found` (401); `access_keys_unavailable` (503) |
+| `POST /auth/nonce`, `POST /auth/verify` | Wallet sign-in (F1, 8.2). The only routes under `/api` that answer without a session — they are what issues one. Refusals are named: `invalid_json`, `invalid_request` (400); `sign_in_challenge`, `key_type_unsupported`, `signature_invalid`, `account_not_found`, `key_not_found` (401); `sign_in_throttled` (429, with `Retry-After`); `access_keys_unavailable` (503). A challenge is redeemed once: the nonce the signature covers is recorded for the cookie's own five minutes (`lib/sign-in-guard.ts`), so a captured challenge cookie plus its signature is not a second session |
 | `GET /endpoints`, `POST /endpoints`, `PATCH /endpoints/:id` | Manage endpoints (session required); price changes apply to new payments only |
 | `GET /payments` | Paginated, joined with swap state |
-| `GET /swaps/:id` | Detail including raw provider payload. **Not mounted**: `routes/swaps.ts` is one doc comment and nothing else, and `app.ts`'s mount list says "(open)" |
+| `GET /swaps` | The seller's payout leg, newest first (UI-3, `routes/swaps.ts`, `db/queries/swaps.ts`): `swaps.routeId -> payout_routes.sellerId` is the scope, and the body is `SwapDto[]` — state, base-unit amounts, both hashes, poll and terminal times. An inner join, so a swap no route can attribute is shown to nobody. Read-only like `GET /payments` |
 | `GET /discrepancies`, `POST /discrepancies/:id/resolve` | List and manual resolution (F4, `routes/discrepancies.ts`) |
 | `GET /payer-blocks`, `POST /payer-blocks/:payerAccountId/clear` | The payers this seller is holding, listed by the same predicate the gateway enforces, and the clear that appends a `payer_clears` row with `clearedBy` taken from the session rather than the body (F4, `routes/discrepancies.ts`; the write is C9's `clearPayerBlock`). An account id that does not parse, or a body beyond a 200-character note, is `422` |
 | `GET /status` | The dashboard header's two facts (UI-5, F5): the relayer account's chain balance and the newest provider answer among this seller's swaps, each with the threshold it is judged against. Half the contract is that an unread value has no number to carry — see 11.2 |
-| `GET /ledger.csv` | Export (P1). **Not mounted**: `routes/export.ts` is one doc comment, "(open)" in `app.ts`'s list |
+| `GET /ledger.csv` (also `/api/ledger.csv`, `/api/export/ledger.csv`) | Decimal-unit CSV of the session seller's ledger (LR-7). Amounts go through `formatAmount`, and every field is spreadsheet-injection escaped (`routes/export.ts`) |
 | `GET /assets` | Supported payout assets. **Not mounted, and there is no stub file for it**: `routes/` has no assets route, and the provider method it would answer from (`listAssets` in `payouts/provider.ts`) exists with only the mock implementing it |
+
+Three hardening rules sit above every dashboard route in `app.ts` (G7): a 64 KB body ceiling on `/api/*` answered `413 payload_too_large` before a handler parses it, an `Origin` check on every mutating `/api` request answered `403 origin_refused`, and `secureHeaders` (nosniff, `X-Frame-Options: SAMEORIGIN`, no `X-Powered-By`; no CSP, because this process serves JSON and CSV). Production also refuses a non-https `NEAR_RPC_URL`, `ONECLICK_BASE_URL` or `GATEWAY_PUBLIC_URL` at boot (`env.ts`).
 
 `app.ts` answers 9.1's liveness probe on **both** `/healthz` and `/api/healthz` from one handler (`app.on("get", ["/healthz", "/api/healthz"], …)`): the container healthcheck in `docker-compose.yml` and the CI probe use the first, and the browser only ever speaks `/api/*` (A5).
 

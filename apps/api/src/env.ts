@@ -194,6 +194,27 @@ export const envSchema = z
     ALLOW_INSECURE_UPSTREAM: booleanish.default("false"),
   })
   .superRefine((value, ctx) => {
+    // G7: every URL a production process calls or advertises is https.
+    //
+    // Each of these is `.url()`-validated, which accepts `http://`. Two of them
+    // carry a credential or the deployment's identity: `ONECLICK_BASE_URL` receives
+    // `ONECLICK_JWT` in a header, and `GATEWAY_PUBLIC_URL` is both the origin a
+    // wallet signs against (NEP-413 `recipient`) and the reason the session cookie is
+    // `Secure` (routes/auth.ts). One operator typo in either is a session or a
+    // partner key in plaintext, so plain http is refused at boot rather than
+    // discovered later. Development and test are untouched: the demo gateway is
+    // `http://127.0.0.1:3000` and has to stay usable.
+    if (value.NODE_ENV === "production") {
+      for (const key of ["NEAR_RPC_URL", "ONECLICK_BASE_URL", "GATEWAY_PUBLIC_URL"] as const) {
+        if (new URL(value[key]).protocol !== "https:") {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [key],
+            message: "must be https when NODE_ENV is production",
+          });
+        }
+      }
+    }
     // A budget below one settlement's reservation fits nothing, so every paid
     // request would 429 with the cap "working". Boot is the cheapest place to say
     // that a budget is the wrong shape rather than leave it to the first buyer.

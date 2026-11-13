@@ -239,6 +239,7 @@ async function advertised(endpointSlug: string) {
     upstreamTimeoutMs: 15_000,
     authorizationExpiryMarginMs: 30_000,
     minPriceBaseUnits: 10_000n,
+    payoutProvider: "mock",
   });
   const { result } = cache.forEndpoint({
     endpointId: row.endpointId,
@@ -248,6 +249,7 @@ async function advertised(endpointSlug: string) {
     payoutMode: row.payoutMode,
     sellerNearAccountId: row.sellerNearAccountId,
     routeDepositAddress: row.routeDepositAddress,
+    routeProvider: row.routeProvider,
     gatewayUrl: `https://gateway.test/r/${row.slug}`,
     description: row.description,
   });
@@ -616,6 +618,7 @@ suite("what a created endpoint is advertised as (D5, PO-3)", () => {
       upstreamTimeoutMs: 15_000,
       authorizationExpiryMarginMs: 30_000,
       minPriceBaseUnits: 10_000n,
+      payoutProvider: "mock",
     });
     const { result } = cache.forEndpoint({
       endpointId: row.endpointId,
@@ -625,6 +628,7 @@ suite("what a created endpoint is advertised as (D5, PO-3)", () => {
       payoutMode: "intents",
       sellerNearAccountId: row.sellerNearAccountId,
       routeDepositAddress: row.routeDepositAddress,
+      routeProvider: row.routeProvider,
       gatewayUrl: `https://gateway.test/r/${row.slug}`,
       description: row.description,
     });

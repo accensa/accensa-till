@@ -94,6 +94,13 @@ export type RequirementsSource = {
   readonly sellerNearAccountId: string;
   /** `payout_routes.deposit_address` for a standing intents route; null when it has none. */
   readonly routeDepositAddress: string | null;
+  /**
+   * `payout_routes.provider`: the provider that minted the address above (D5).
+   * Compared against this process's `PAYOUT_PROVIDER` before the address is
+   * advertised, because a `mock-deposit-1` handed to a real payer is an account
+   * nobody owns and the transfer reverts after the seller has served.
+   */
+  readonly routeProvider: string | null;
   /** The URL the payer is paying for: `GATEWAY_PUBLIC_URL` + `/r/` + slug. */
   readonly gatewayUrl: string;
   /** `endpoints.description`, shown in a paywall. */
@@ -106,6 +113,11 @@ export type RequirementsRefusal =
   | "network_mismatch"
   /** `intents` mode with no standing deposit address, which we do not go fetch. */
   | "pay_to_unresolved"
+  /**
+   * The route was minted by a different payout provider than this process runs
+   * (`PAYOUT_PROVIDER` changed after the endpoint was created).
+   */
+  | "route_provider_mismatch"
   /** A pay-to that is not shaped like a NEAR account id. */
   | "pay_to_invalid"
   /** Below `MIN_PRICE_BASE_UNITS`: a payment that costs more to move than it is worth. */
@@ -148,6 +160,12 @@ export type RequirementsCacheDeps = {
   readonly authorizationExpiryMarginMs: number;
   /** `env.MIN_PRICE_BASE_UNITS`. */
   readonly minPriceBaseUnits: bigint;
+  /**
+   * `env.PAYOUT_PROVIDER`: the provider that could actually pay out today. An
+   * `intents` route minted by another provider is refused rather than advertised
+   * (G7, D5).
+   */
+  readonly payoutProvider: "mock" | "oneclick";
   /** A bound on entries, not a policy: see `evictIfNeeded`. */
   readonly maxEntries?: number;
 };
@@ -203,6 +221,7 @@ function fingerprintOf(source: RequirementsSource): string {
     source.payoutMode,
     source.sellerNearAccountId,
     source.routeDepositAddress,
+    source.routeProvider,
     source.gatewayUrl,
     source.description,
   ]);
@@ -262,6 +281,23 @@ export function createRequirementsCache(deps: RequirementsCacheDeps): Requiremen
       return refusal(
         "network_mismatch",
         `endpoint network ${source.network} is not the network this process verifies (${deps.network}); a payment made there would verify as refused forever`,
+      );
+    }
+    // A route outlives the provider that minted it: `payout_routes` is immutable and
+    // keyed by provider (D5), so flipping `PAYOUT_PROVIDER` mints nothing new but
+    // leaves every existing `intents` endpoint advertising the old provider's
+    // address. `mock-deposit-N` is shaped like a NEAR account id and passes the check
+    // below, and the account behind it does not exist -- so a real payer's
+    // `ft_transfer` reverts after the seller has served, which is the worst of both
+    // outcomes. Refusing to advertise is the only answer that costs nobody money.
+    if (
+      source.payoutMode === "intents" &&
+      source.routeProvider !== null &&
+      source.routeProvider !== deps.payoutProvider
+    ) {
+      return refusal(
+        "route_provider_mismatch",
+        `endpoint ${source.endpointId} pays out through the ${source.routeProvider} provider's route while this process runs ${deps.payoutProvider}, so its deposit address is not one this deployment can honour; create a new endpoint`,
       );
     }
     const payTo = payToOf(source);

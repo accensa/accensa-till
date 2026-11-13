@@ -89,6 +89,7 @@ export const authErrorCodeSchema = z.enum([
   "access_keys_unavailable",
   "account_not_found",
   "key_not_found",
+  "sign_in_throttled",
 ]);
 export type AuthErrorCode = z.infer<typeof authErrorCodeSchema>;
 

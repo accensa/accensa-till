@@ -279,6 +279,7 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
       upstreamTimeoutMs: env.UPSTREAM_TIMEOUT_MS,
       authorizationExpiryMarginMs: env.AUTHORIZATION_EXPIRY_MARGIN_MS,
       minPriceBaseUnits: env.MIN_PRICE_BASE_UNITS,
+      payoutProvider: env.PAYOUT_PROVIDER,
     });
 
   // GW-10. Both counters live as long as this route, which is the process in
@@ -385,6 +386,7 @@ export function createGatewayRoute(deps: GatewayRouteDeps): Hono<GatewayEnv> {
       payoutMode: row.payoutMode,
       sellerNearAccountId: row.sellerNearAccountId,
       routeDepositAddress: row.routeDepositAddress,
+      routeProvider: row.routeProvider,
       gatewayUrl: `${env.GATEWAY_PUBLIC_URL.replace(/\/+$/, "")}/r/${row.slug}`,
       description: row.description,
     };
